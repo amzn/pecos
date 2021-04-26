@@ -1,0 +1,163 @@
+#  Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+#  Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance
+#  with the License. A copy of the License is located at
+#
+#  http://aws.amazon.com/apache2.0/
+#
+#  or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
+#  OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+#  and limitations under the License.
+import pytest  # noqa: F401; pylint: disable=unused-variable
+from pytest import approx
+
+
+def test_save_load_matrix(tmpdir):
+    from pecos.utils import smat_util
+    import numpy as np
+    import scipy.sparse as smat
+
+    A = smat.csr_matrix([[0, 1, 0, 1], [3, 0, 3, 0], [1, 0, 0, 1], [3, 0, 3, 0]])
+    A_dir = tmpdir.join("A").realpath().strpath
+    smat_util.save_matrix(A_dir, A)
+    A_load = smat_util.load_matrix(A_dir)
+    assert isinstance(A, smat.spmatrix)
+    assert A.todense() == approx(A_load.todense(), abs=1e-6)
+    # dense case
+    B = A.toarray()
+    B_dir = tmpdir.join("B").realpath().strpath
+    smat_util.save_matrix(B_dir, B)
+    B_load = smat_util.load_matrix(B_dir)
+    assert isinstance(B_load, np.ndarray)
+    assert B == approx(B_load, abs=1e-6)
+
+
+def test_get_sparsified_coo():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+
+    data = [[1, 0, 0, 1], [0, 1, 0, 1], [1, 0, 0, 1], [1, 1, 0, 0]]
+    coo = smat.coo_matrix(data)
+    selected_rows = [1, 2]
+    selected_columns = [0, 2]
+    new_coo = smat_util.get_sparsified_coo(coo, selected_rows, selected_columns).toarray()
+    for i in range(new_coo.shape[0]):
+        for j in range(new_coo.shape[1]):
+            if i in selected_rows and j in selected_columns:
+                assert new_coo[i, j] == data[i][j]
+            else:
+                assert new_coo[i, j] == 0
+
+
+def test_get_cocluster_spectral_embeddings():
+    from pecos.utils import smat_util
+    import numpy as np
+    from scipy import sparse as smat
+
+    A = smat.csr_matrix([[0, 1, 0, 1], [3, 0, 3, 0], [1, 0, 0, 1], [3, 0, 3, 0]])
+    expected_row_embedding = np.array([[0.60162737], [-0.13128586], [0.18608776], [-0.13128586]])
+    expected_col_embedding = np.array([[-0.09449112], [0.66143783], [-0.14433757], [0.4330127]])
+
+    row_embedding, col_embedding = smat_util.get_cocluster_spectral_embeddings(A, dim=1)
+
+    assert row_embedding == approx(expected_row_embedding, abs=1e-6)
+    assert col_embedding == approx(expected_col_embedding, abs=1e-6)
+
+
+def test_dense_to_csr():
+    from pecos.utils import smat_util
+    import numpy as np
+
+    X = np.array([[-5.0, 1.0, 2.0, 10.0], [-4.0, 2.0, 0.0, 1.0], [-10.0, 11.0, 2.0, 1.0]])
+    X_csr = smat_util.dense_to_csr(X, topk=2, batch=2)
+    X_res = np.array([[-5.0, 0.0, 0.0, 10.0], [-4.0, 2.0, 0.0, 0.0], [-10.0, 11.0, 0.0, 0.0]])
+    assert X_csr.todense() == approx(X_res)
+    X_csr = smat_util.dense_to_csr(X, topk=1000, batch=1000)
+    assert X_csr.todense() == approx(X)
+
+
+def test_stack_csr():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    X0 = np.array([[-5.0, 1.0, 0.0, 10.0], [0.0, 2.0, 0.0, 1.0], [-10.0, 11.0, 2.0, 0.0]])
+    X1 = smat.csr_matrix(X0)
+    X2 = smat.csr_matrix(X0)
+    X_hstack = smat_util.hstack_csr([X1, X2])
+    assert X_hstack.todense() == approx(np.hstack([X0, X0]))
+    assert X_hstack.dtype == X1.dtype
+    assert type(X_hstack) == smat.csr_matrix
+    X_vstack = smat_util.vstack_csr([X1, X2])
+    assert X_vstack.todense() == approx(np.vstack([X0, X0]))
+    assert X_vstack.dtype == X1.dtype
+    assert type(X_vstack) == smat.csr_matrix
+
+
+def test_stack_csc():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    X0 = np.array([[-5.0, 1.0, 0.0, 10.0], [0.0, 2.0, 0.0, 1.0], [-10.0, 11.0, 2.0, 0.0]])
+    X1 = smat.csc_matrix(X0)
+    X2 = smat.csc_matrix(X0)
+    X_hstack = smat_util.hstack_csc([X1, X2])
+    assert X_hstack.todense() == approx(np.hstack([X0, X0]))
+    assert X_hstack.dtype == X1.dtype
+    assert type(X_hstack) == smat.csc_matrix
+    X_vstack = smat_util.vstack_csc([X1, X2])
+    assert X_vstack.todense() == approx(np.vstack([X0, X0]))
+    assert X_vstack.dtype == X1.dtype
+    assert type(X_vstack) == smat.csc_matrix
+
+
+def test_csr_rowwise_mul():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    X0 = np.array([[-5.0, 1.0, 0.0, 10.0], [0.0, 2.0, 0.0, 1.0], [-10.0, 11.0, 2.0, 0.0]])
+    X1 = smat.csr_matrix(X0)
+    v = np.array([3.0, 4.0, 5.0])
+    prod = smat_util.csr_rowwise_mul(X1, v)
+    assert isinstance(prod, smat.csr_matrix)
+    assert prod.todense() == approx(X0 * v[:, None])
+
+
+def test_csc_colwise_mul():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    X0 = np.array([[-5.0, 1.0, 0.0, 10.0], [0.0, 2.0, 0.0, 1.0], [-10.0, 11.0, 2.0, 0.0]])
+    X1 = smat.csc_matrix(X0)
+    v = np.array([3.0, 4.0, 5.0, 6.0])
+    prod = smat_util.csc_colwise_mul(X1, v)
+    assert isinstance(prod, smat.csc_matrix)
+    assert prod.todense() == approx(X0 * v[None, :])
+
+
+def test_get_row_submatrices():
+    from pecos.utils import smat_util
+    import numpy as np
+    import scipy.sparse as smat
+
+    row_indices = [0, 2, 1]
+    rows = []
+
+    rows += [-5.0, 1.0]
+    rows += [0.0, 2.0]
+    rows += [2.0, 0.0]
+    rows += [1.2, 0.0]
+
+    X0 = np.vstack(rows)
+    X1 = smat.csr_matrix(X0)
+    Xres = np.vstack([rows[i] for i in row_indices])
+
+    X0_sub, X1_sub = smat_util.get_row_submatrices([X0, X1], row_indices)
+
+    assert type(X0_sub) == type(X0)
+    assert X0_sub == approx(Xres)
+    assert type(X1_sub) == type(X1)
+    assert X1_sub.todense() == approx(Xres)

@@ -1,0 +1,7 @@
+{
+    "type": "sklearntfidf",
+    "kwargs":
+    {
+        "min_df": 1
+    }
+}

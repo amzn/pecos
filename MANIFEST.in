@@ -1,0 +1,8 @@
+include LICENSE
+include NOTICE
+include CODE_OF_CONDUCT.md
+include CONTRIBUTING.md
+include THIRD-PARTY-LICENSES.txt
+
+recursive-include pecos/core *.hpp *.h *.cpp *.c
+recursive-include test *

@@ -1,0 +1,9 @@
+{
+    "type": "tfidf",
+    "kwargs":
+    {
+        "analyzer": "char_wb",
+        "smooth_idf": false,
+        "threads": 1
+    }
+}

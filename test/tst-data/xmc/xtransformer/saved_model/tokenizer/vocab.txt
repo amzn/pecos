@@ -1,0 +1,15 @@
+[PAD]
+[UNK]
+[CLS]
+[SEP]
+[MASK]
+red
+apple
+iphone
+11
+pro
+case
+samsung
+galaxy
+s10
+plus

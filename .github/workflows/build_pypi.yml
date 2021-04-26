@@ -1,0 +1,54 @@
+name: Pypi Build and Release
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Build PyPI Wheel
+    strategy:
+      max-parallel: 4
+      fail-fast: false
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+        build_platform: ["manylinux2014_x86_64"]
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Build Wheel
+      env:
+        DOCKER_IMG: quay.io/pypa/${{ matrix.build_platform }}
+        DOCKER_MNT: pypi_build
+        WHEEL_DIR: wheel # wheel location
+      run: |
+        echo "Build wheel for PECOS using Python version ${{ matrix.python-version }}..."
+        docker run --rm -v $(pwd):/$DOCKER_MNT \
+        --env PLAT=${{ matrix.build_platform }} --env PIP_VER=${{ matrix.python-version }} \
+        --env DOCKER_MNT=$DOCKER_MNT --env WHEEL_DIR=$WHEEL_DIR \
+        $DOCKER_IMG /bin/bash /$DOCKER_MNT/.github/build_pypi_wheel.sh
+
+    - name: Check Version Tag
+      id: check-ver-tag
+      run: |
+        if [[ "${{ github.event_name }}" == "push" ]] && \
+           [[ "${{ github.event.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo ::set-output name=match::true
+        fi
+
+    - name: Upload to PyPI
+      if: steps.check-ver-tag.outputs.match == 'true' # Only upload for tags v*.*.*
+      env:
+        TWINE_USERNAME: ${{ secrets. PYPI_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets. PYPI_PASSWORD }}
+        WHEEL_DIR: wheel # same as Build-Wheel/WHEEL_DIR
+      run: |
+        WHEEL=$(ls $(pwd)/$WHEEL_DIR)
+        if [ -z $WHEEL ]; then
+          echo "Wheel build not successful, exit"
+          exit 1
+        fi
+        echo "Will upload $WHEEL to PyPI..."
+        pip install twine --upgrade
+        python3 -m twine upload $(pwd)/$WHEEL_DIR/$WHEEL --verbose
