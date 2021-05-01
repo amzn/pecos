@@ -18,18 +18,35 @@ train_dense_feat_file = "test/tst-data/xmc/xtransformer/dense_train_feat.npy"
 
 
 def test_bert(tmpdir):
-    xtransformer_cli(tmpdir.join("sparse"), bert_model_path, train_feat_file)
-    xtransformer_cli(tmpdir.join("dense"), bert_model_path, train_dense_feat_file)
+    from pecos.utils import torch_util
+
+    _, n_gpu = torch_util.setup_device()
+    # test on CPU
+    xtransformer_cli(tmpdir.join("sparse_cpu"), bert_model_path, train_feat_file, 0)
+    xtransformer_cli(tmpdir.join("dense_cpu"), bert_model_path, train_dense_feat_file, 0)
+
+    if n_gpu > 0:
+        # test on all GPUs
+        xtransformer_cli(tmpdir.join("sparse_gpu"), bert_model_path, train_feat_file, n_gpu)
+        xtransformer_cli(tmpdir.join("dense_gpu"), bert_model_path, train_dense_feat_file, n_gpu)
+
+    if n_gpu > 1:
+        # test on single GPU when multi-GPU available
+        xtransformer_cli(tmpdir.join("sparse_single_gpu"), bert_model_path, train_feat_file, 1)
+        xtransformer_cli(tmpdir.join("dense_single_gpu"), bert_model_path, train_dense_feat_file, 1)
 
 
-def xtransformer_cli(tmpdir, load_model_path, X_feat_file):
+def xtransformer_cli(tmpdir, load_model_path, X_feat_file, nr_gpus):
     import subprocess
     import shlex
+    import os
 
     X_trn_file = "test/tst-data/xmc/xtransformer/train.txt"
     code_file = "test/tst-data/xmc/xtransformer/clusters.npz"
     Y_trn_file = "test/tst-data/xmc/xtransformer/train_label.npz"
     save_P_file = str(tmpdir.join("P.npz"))
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(x) for x in range(nr_gpus)])
 
     # Training matcher
     cmd = []
@@ -119,3 +136,5 @@ def xtransformer_cli(tmpdir, load_model_path, X_feat_file):
     assert process.returncode == 0, " ".join(cmd)
     std_output = b"==== evaluation results ====\nprec   = 100.00 100.00 66.67 50.00 40.00 33.33 28.57 25.00 22.22 20.00\nrecall = 41.67 83.33 83.33 83.33 83.33 83.33 83.33 83.33 83.33 83.33\n"
     assert process.stdout == std_output
+
+    del os.environ["CUDA_VISIBLE_DEVICES"]

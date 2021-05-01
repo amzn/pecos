@@ -807,6 +807,7 @@ class TransformerMatcher(pecos.BaseClass):
             self.text_encoder.eval()
             self.text_model.eval()
             cur_batch_size = batch[0].shape[0]
+            batch = tuple(t.to(self.device) for t in batch)
 
             with torch.no_grad():
                 inputs = {
@@ -841,13 +842,15 @@ class TransformerMatcher(pecos.BaseClass):
                     cpred_csr = smat_util.sorted_csr(cpred_csr, only_topk=local_topk)
                     batch_cpred.append(cpred_csr)
                 else:
-                    cur_act_labels = csr_codes_next[inputs["instance_number"]]
+                    cur_act_labels = csr_codes_next[inputs["instance_number"].cpu()]
                     nnz_of_insts = cur_act_labels.indptr[1:] - cur_act_labels.indptr[:-1]
                     inst_idx = np.repeat(np.arange(cur_batch_size, dtype=np.uint32), nnz_of_insts)
                     label_idx = cur_act_labels.indices.astype(np.uint32)
                     val = c_pred.cpu().numpy().flatten()
                     val = val[
-                        np.argwhere(inputs["label_indices"].flatten() != self.text_model.label_pad)
+                        np.argwhere(
+                            inputs["label_indices"].cpu().flatten() != self.text_model.label_pad
+                        )
                     ].flatten()
                     val = PostProcessor.get(pred_params.post_processor).transform(val, inplace=True)
                     val = PostProcessor.get(pred_params.post_processor).combiner(
@@ -1057,6 +1060,7 @@ class TransformerMatcher(pecos.BaseClass):
                 self.text_encoder.train()
                 self.text_model.train()
                 start_time = time.time()
+                batch = tuple(t.to(self.device) for t in batch)
 
                 inputs = {
                     "input_ids": batch[0],

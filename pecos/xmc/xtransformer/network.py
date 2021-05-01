@@ -196,7 +196,6 @@ class BertForXMC(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForXMC, self).__init__(config)
         self.num_labels = config.num_labels
-        self.output_hidden_states = config.output_hidden_states
 
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -232,9 +231,10 @@ class BertForXMC(BertPreTrainedModel):
             position_ids=position_ids,
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
+            return_dict=True,
         )
-        pooled_output = self.dropout(outputs[1])
-        instance_hidden_states = outputs[0] if self.output_hidden_states else None
+        pooled_output = self.dropout(outputs.pooler_output)
+        instance_hidden_states = outputs.last_hidden_state
         W_act, b_act = label_embedding
         W_act = W_act.to(pooled_output.device)
         b_act = b_act.to(pooled_output.device)
@@ -263,7 +263,6 @@ class RobertaForXMC(BertPreTrainedModel):
     def __init__(self, config):
         super(RobertaForXMC, self).__init__(config)
         self.num_labels = config.num_labels
-        self.output_hidden_states = config.output_hidden_states
 
         self.roberta = RobertaModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -300,9 +299,10 @@ class RobertaForXMC(BertPreTrainedModel):
             position_ids=position_ids,
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
+            return_dict=True,
         )
-        pooled_output = self.dropout(outputs[1])
-        instance_hidden_states = outputs[0] if self.output_hidden_states else None
+        pooled_output = self.dropout(outputs.pooler_output)
+        instance_hidden_states = outputs.last_hidden_state
         W_act, b_act = label_embedding
         W_act = W_act.to(pooled_output.device)
         b_act = b_act.to(pooled_output.device)
@@ -331,7 +331,6 @@ class XLNetForXMC(XLNetPreTrainedModel):
     def __init__(self, config):
         super(XLNetForXMC, self).__init__(config)
         self.num_labels = config.num_labels
-        self.output_hidden_states = config.output_hidden_states
 
         self.transformer = XLNetModel(config)
         self.sequence_summary = SequenceSummary(config)
@@ -374,7 +373,7 @@ class XLNetForXMC(XLNetPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
         )
-        instance_hidden_states = outputs[0] if self.output_hidden_states else None
+        instance_hidden_states = outputs.last_hidden_state
         pooled_output = self.sequence_summary(instance_hidden_states)
         W_act, b_act = label_embedding
         W_act = W_act.to(pooled_output.device)
