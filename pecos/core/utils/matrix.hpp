@@ -228,7 +228,7 @@ namespace pecos {
 
         // Construct a csr_t object with shape _rows x _cols filled by 1.
         void fill_ones(index_type _rows, index_type _cols) {
-            mem_index_type nnz = _rows * _cols;
+            mem_index_type nnz = (mem_index_type) _rows * _cols;
             this->allocate(_rows, _cols, nnz);
 
             row_ptr[0] = 0;
@@ -343,7 +343,7 @@ namespace pecos {
 
         // Construct a csc_t object with shape _rows x _cols filled by 1.
         void fill_ones(index_type _rows, index_type _cols) {
-            mem_index_type nnz = _rows * _cols;
+            mem_index_type nnz = (mem_index_type) _rows * _cols;
             this->free_underlying_memory();
             this->allocate(_rows, _cols, nnz);
             col_ptr[0] = 0;
