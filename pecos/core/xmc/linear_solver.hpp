@@ -161,7 +161,7 @@ struct SVMWorker {
 
             const auto& xi = X.get_row(i);
             QD[i] += do_dot_product(xi, xi) + (param.bias > 0 ? param.bias * param.bias : 0);
-            double coef = inst_info[i].y * alpha[i];
+            double coef = (double) inst_info[i].y * alpha[i];
             do_axpy(coef, xi, curr_w);
             b += (param.bias > 0 ? coef * param.bias : 0);
         }
@@ -276,7 +276,7 @@ struct SVMWorker {
 
             const auto& xi = X.get_row(i);
             xTx[i] = do_dot_product(xi, xi) + (param.bias > 0 ? param.bias * param.bias : 0);
-            double coef = inst_info[i].y * alpha[2 * i];
+            double coef = (double) inst_info[i].y * alpha[2 * i];
             do_axpy(coef, xi, curr_w);
             b += (param.bias > 0 ? coef * param.bias : 0);
         }
