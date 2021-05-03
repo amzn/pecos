@@ -38,14 +38,26 @@ To send us a pull request, please:
 3. If you created your fork a while ago, be sure to pull upstream changes into your local repository.
     ```
     git checkout mainline
-    git pull -r upstream
+    git pull -r upstream mainline
     ```
-4. Create a new branch from `mainline` to work on.
+4. Create a new branch from `mainline` to work on, or rebase your working branch on newest `mainline`.
 5. Implement your code on the new branch:
     * Follow the code style of the project.
     * Write or adapt tests as needed.
     * Add or change the documentation as needed.
-6. **Ensure local style/type checks and tests pass.**
+6. **Ensure local style/type checks and tests pass.** You can use the `Makefile` commands to check:
+    ```
+    make clean
+    make format
+    make test
+    ```
+    Pass `VFLAG=-v` environment variable can trigger verbose mode for further debugging:
+    ```
+    make clean VFLAG=-v
+    make format VFLAG=-v
+    make test VFLAG=-v
+    ```
+    Remember using `make clean` to clean up local build after code change and before unit test.
 7. Commit using clear messages. **Squash your commits into a single commit.**
 8. Push your branch to **your fork** `origin` on Github.
     ```
