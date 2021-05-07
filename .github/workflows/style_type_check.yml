@@ -20,15 +20,12 @@ jobs:
     - name: Black checks
       run: |
         pip install black
-        python -m black -v --check --diff --config .github/style_type_check_cfg/.black ./pecos
-        python -m black -v --check --diff --config .github/style_type_check_cfg/.black ./test
+        make black VFLAG=-v
     - name: Flake8 checks
       run: |
         pip install flake8
-        python -m flake8 -v --config .github/style_type_check_cfg/.flake8 ./pecos
-        python -m flake8 -v --config .github/style_type_check_cfg/.flake8 ./test
+        make flake8 VFLAG=-v
     - name: Mypy checks
       run: |
         pip install mypy
-        python -m mypy -v --config-file .github/style_type_check_cfg/.mypy -p pecos
-        python -m mypy -v --config-file .github/style_type_check_cfg/.mypy `find ./test/ -type f -name "*.py"`
+        make mypy VFLAG=-v
