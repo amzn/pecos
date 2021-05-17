@@ -1423,6 +1423,10 @@ class HierarchicalMLModel(pecos.BaseClass):
         """
         if self.is_predict_only:
             raise Exception("Model is predict only! set_output_constraint not supported!")
+        try:
+            labels_to_keep = set(labels_to_keep)
+        except TypeError:
+            raise TypeError("can not convert labels_to_keep as set variable type!")
 
         for cur_dep, cur_model in enumerate(self.model_chain[::-1]):
             if len(labels_to_keep) == cur_model.C.shape[0]:
