@@ -41,11 +41,18 @@ To send us a pull request, please:
     git pull -r upstream mainline
     ```
 4. Create a new branch from `mainline` to work on, or rebase your working branch on newest `mainline`.
+    ```
+    git checkout -b <BRANCH NAME>
+    ```
 5. Implement your code on the new branch:
     * Follow the code style of the project.
     * Write or adapt tests as needed.
     * Add or change the documentation as needed.
-6. **Ensure local style/type checks and tests pass.** You can use the `Makefile` commands to check:
+6. **Ensure local style/type checks and tests pass.** First ensure you install the following for style-checking and unit-testing
+    ```
+	pip install flake8 black mypy
+    ```
+	Then you can use the `Makefile` commands to check:
     ```
     make clean
     make format
