@@ -33,7 +33,10 @@ __version__ = "%s"
         """Update version from git tag infomation.
         If git tag missing, will use a dummy version 0.0.0
         """
-        assert os.path.isdir(".git"), "This does not appear to be a Git repository."
+        if not os.path.isdir(".git"):
+            raise RuntimeError("PECOS install should be inside a Git repository. " + \
+                "Either clone source from GitHub by `git clone https://github.com/amzn/pecos.git` " + \
+                "or run `git init` for GitHub downloaded zip source files before installing.")
 
         # Run git describe to get current tag, commit hash is not included
         git_desc = subprocess.run(["git", "describe", "--tags", "--abbrev=0"],
