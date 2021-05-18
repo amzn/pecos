@@ -416,14 +416,18 @@ class Text2Text(object):
         """
 
         X = self.preprocessor.predict(corpus)
-        Y_pred = smat_util.CsrEnsembler.average(
-            *[
-                m.predict(
-                    X, only_topk=topk, beam_size=beam_size, post_processor=post_processor, **kwargs
-                )
-                for m, _ in self.xlinear_models
-            ]
-        )
+
+        Y_pred = [
+            m.predict(
+                X, only_topk=topk, beam_size=beam_size, post_processor=post_processor, **kwargs
+            )
+            for m, _ in self.xlinear_models
+        ]
+
+        if len(Y_pred) > 1:
+            Y_pred = smat_util.CsrEnsembler.average(*Y_pred)
+        else:
+            Y_pred = Y_pred[0]
 
         if threshold is not None:
             Y_pred.data[Y_pred.data <= threshold] = 0
