@@ -27,6 +27,9 @@ from transformers import (
     XLNetModel,
     XLNetPreTrainedModel,
     XLNetTokenizer,
+    LongformerConfig,
+    LongformerTokenizer,
+    LongformerModel,
 )
 from transformers.file_utils import add_start_docstrings
 from transformers.modeling_utils import SequenceSummary
@@ -42,6 +45,10 @@ if TRANSFORMERS_MAJOR_VERSION >= 4:
         XLNET_INPUTS_DOCSTRING,
         XLNET_START_DOCSTRING,
     )
+    from transformers.models.longformer.modeling_longformer import (
+        LONGFORMER_INPUTS_DOCSTRING,
+        LONGFORMER_START_DOCSTRING
+    )
 else:
     from transformers.modeling_bert import BERT_INPUTS_DOCSTRING, BERT_START_DOCSTRING
     from transformers.modeling_roberta import (
@@ -49,6 +56,10 @@ else:
         ROBERTA_START_DOCSTRING,
     )
     from transformers.modeling_xlnet import XLNET_INPUTS_DOCSTRING, XLNET_START_DOCSTRING
+    from transformers.modeling_longformer import (
+        LONGFORMER_INPUTS_DOCSTRING,
+        LONGFORMER_START_DOCSTRING
+    )
 
 
 class HingeLoss(nn.Module):
@@ -177,6 +188,73 @@ class TransformerLinearXMCHead(nn.Module):
             W_act = self.W(output_indices)  # (batch_size, nr_act_labels, dim)
             b_act = self.b(output_indices)
         return W_act, b_act
+
+
+@add_start_docstrings(
+    """Longformer Model with mutli-label classification head on top for XMC.\n""",
+    LONGFORMER_START_DOCSTRING,
+)
+class LongformerForXMC(BertPreTrainedModel):
+    """
+    Examples:
+        tokenizer = LongfromerTokenizer.from_pretrained('allenai/longformer-base-4096')
+        model = LongformerForXMC.from_pretrained('allenai/longformer-base-4096')
+        input_ids = torch.tensor(tokenizer.encode("iphone 11 case", add_special_tokens=True)).unsqueeze(0)
+        outputs = model(input_ids)
+        last_hidden_states = outputs["hidden_states"]
+    """
+
+    def __init__(self, config):
+        super(LongformerForXMC, self).__init__(config)
+        self.num_labels = config.num_labels
+
+        self.longformer = LongformerModel(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+        self.init_weights()
+
+    def init_from(self, model):
+        self.longformer = model.longformer
+
+    @add_start_docstrings(LONGFORMER_INPUTS_DOCSTRING.format("(batch_size, sequence_length)"))
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        label_embedding=None,
+    ):
+        r"""
+        Returns:
+          :obj:`dict` containing:
+                {'logits': (:obj:`torch.FloatTensor` of shape (batch_size, num_labels)) pred logits for each label,
+                 'pooled_output': (:obj:`torch.FloatTensor` of shape (batch_size, hidden_dim)) input sequence embedding vector,
+                 'hidden_states': (:obj:`torch.FloatTensor` of shape (batch_size, sequence_length, hidden_dim)) the last layer hidden states,
+                }
+        """
+        outputs = self.longformer(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            return_dict=True,
+        )
+        pooled_output = self.dropout(outputs.pooler_output)
+        instance_hidden_states = outputs.last_hidden_state
+        W_act, b_act = label_embedding
+        W_act = W_act.to(pooled_output.device)
+        b_act = b_act.to(pooled_output.device)
+        logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
+        return {
+            "logits": logits,
+            "pooled_output": pooled_output,
+            "hidden_states": instance_hidden_states,
+        }
 
 
 @add_start_docstrings(
@@ -390,4 +468,5 @@ ENCODER_CLASSES = {
     "bert": TransformerModelClass(BertConfig, BertForXMC, BertTokenizer),
     "roberta": TransformerModelClass(RobertaConfig, RobertaForXMC, RobertaTokenizer),
     "xlnet": TransformerModelClass(XLNetConfig, XLNetForXMC, XLNetTokenizer),
+    "longformer": TransformerModelClass(LongformerConfig, LongformerForXMC, LongformerTokenizer)
 }
