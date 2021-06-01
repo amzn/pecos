@@ -3,7 +3,7 @@ name: Python Unit Tests
 on: [push, pull_request]
 
 jobs:
-  build:
+  Python-Unit-Test:
     name: Python Unit Tests
     strategy:
       max-parallel: 4

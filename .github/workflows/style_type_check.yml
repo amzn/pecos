@@ -3,7 +3,7 @@ name: Style and type checks
 on: [push, pull_request]
 
 jobs:
-  build:
+  Style-Type-Check:
     name: Style and Type Checks
     runs-on: ubuntu-latest
 
