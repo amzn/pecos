@@ -112,12 +112,15 @@ class Preprocessor(object):
             text_pos (int, optional): The position of the text part in each line. Default: 1.
             label_pos (int, optional): The position of the text part in each line. Default: 0.
         """
-        assert os.path.isfile(data_path)
+        if not os.path.isfile(data_path):
+            raise FileNotFoundError(f"cannot find input text file at {data_path}")
         with open(data_path, "r", encoding="utf-8") as fin:
             label_strings, corpus = [], []
             for line in fin:
                 parts = line.strip("\n")
                 parts = parts.split(split_sep, maxsplit)
+                if len(parts) < max(label_pos, text_pos) + 1:
+                    raise ValueError(f"corrupted line from input text file:\n{line}")
                 label_strings.append(parts[label_pos])
                 text_string = parts[text_pos]
                 corpus.append(text_string)
@@ -135,7 +138,8 @@ class Preprocessor(object):
             return Y
 
         if label_text_path is not None:
-            assert os.path.isfile(label_text_path)
+            if not os.path.isfile(label_text_path):
+                raise FileNotFoundError(f"cannot find label text file at: {label_text_path}")
             # this is used to obtain the total number of labels L to construct Y with a correct shape
             L = sum(1 for line in open(label_text_path, "r", encoding="utf-8") if line)
             label_matrix = convert_label_to_Y(label_strings, L)
