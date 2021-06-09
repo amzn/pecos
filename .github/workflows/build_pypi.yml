@@ -3,7 +3,7 @@ name: Pypi Build and Release
 on: [push, pull_request]
 
 jobs:
-  build:
+  Pypi-Wheel-Build:
     name: Build PyPI Wheel
     strategy:
       max-parallel: 4
