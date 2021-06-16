@@ -244,6 +244,11 @@ class XTransformer(pecos.BaseClass):
 
         nr_transformers = nr_levels - train_params.ranker_level
         nr_linears = train_params.ranker_level
+        steps_scale = kwargs.get("steps_scale", None)
+        if steps_scale is None:
+            steps_scale = [1.0] * nr_transformers
+        if len(steps_scale) != nr_transformers:
+            raise ValueError(f"steps-scale length error: {len(steps_scale)}!={nr_transformers}")
 
         # construct train_params
         train_params = cls.TrainParams.from_dict(train_params)
@@ -323,6 +328,8 @@ class XTransformer(pecos.BaseClass):
             cur_train_params = train_params.matcher_params_chain[i]
             cur_pred_params = pred_params.matcher_params_chain[i]
             cur_train_params.model_dir = os.path.join(train_params.model_dir, "{}.model".format(i))
+            cur_train_params.max_steps = steps_scale[i] * cur_train_params.max_steps
+            cur_train_params.num_train_epochs = steps_scale[i] * cur_train_params.num_train_epochs
 
             cur_ns = cur_train_params.negative_sampling
             if i > 0:
@@ -362,7 +369,8 @@ class XTransformer(pecos.BaseClass):
             # bootstrapping with previous text_encoder and instance embeddings
             if len(model_list) > 0:
                 init_encoder = deepcopy(model_list[-1].text_encoder)
-                bootstrapping = (init_encoder, inst_embeddings)
+                init_text_model = deepcopy(model_list[-1].text_model)
+                bootstrapping = (init_encoder, inst_embeddings, init_text_model)
 
             res_dict = TransformerMatcher.train(
                 cur_prob,
