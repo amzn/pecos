@@ -31,27 +31,27 @@ __version__ = "%s"
     @classmethod
     def __update_version_py(cls):
         """Update version from git tag infomation.
-        If git tag missing, will use a dummy version 0.0.0
+        If not in git repository or git tag missing, will use a dummy version 0.0.0
         """
-        if not os.path.isdir(".git"):
-            raise RuntimeError("PECOS install should be inside a Git repository. " + \
-                "Either clone source from GitHub by `git clone https://github.com/amzn/pecos.git` " + \
-                "or run `git init` for GitHub downloaded zip source files before installing.")
+        # Dummy version, for non-Git repo installation or tag info missing
+        ver = "0.0.0"
 
-        # Run git describe to get current tag, commit hash is not included
-        git_desc = subprocess.run(["git", "describe", "--tags", "--abbrev=0"],
-                                 stdout=subprocess.PIPE)
-
-        if git_desc.returncode != 0:
-            # Use dummy version for the initial version or tag info missing
-            warnings.warn(f"Unable to run git describe, maybe tag info missing? "
-                          f"Will write dummy version 0.0.0 to {cls.__VERSION_FP}")
-            ver = "0.0.0"
-        else :
-            # Clean version tag
-            git_tag = git_desc.stdout.decode('utf-8')
-            assert re.match(r'v\d+.\d+.\d+', git_tag), f"We use tags like v0.1.0, but got {git_tag}"
-            ver = git_tag[len("v"):].strip()
+        # Check Git repository info for the version
+        if os.path.isdir(".git"):
+            # Run git describe to get current tag, commit hash is not included
+            git_desc = subprocess.run(["git", "describe", "--tags", "--abbrev=0"],
+                                    stdout=subprocess.PIPE)
+            if git_desc.returncode == 0: # Success
+                # Clean version tag
+                git_tag = git_desc.stdout.decode('utf-8')
+                assert re.match(r'v\d+.\d+.\d+', git_tag), f"We use tags like v0.1.0, but got {git_tag}"
+                ver = git_tag[len("v"):].strip()
+        
+        # If cannot get version info, raise warning
+        if ver == "0.0.0":            
+            warnings.warn(f"Unable to run retrieve version from git info, "
+                        f"maybe not in a Git repository, or tag info missing? "
+                        f"Will write dummy version 0.0.0 to {cls.__VERSION_FP}")
 
         # Write version tag
         with open(cls.__VERSION_FP, "w") as ver_fp:
