@@ -42,10 +42,9 @@ Deep Learning
 ```
 Each line in the file is a representation of an output label, categories in Wikipedia.
 
-(Optionally) we can provide the vectorization json file to finer control of n-gram TF-IDF features.
-We will use the exemplar config `config.json` as in the README.md of pecos.utils.featurization.text/
 
 Now, we training the text2text model, which include feature vectorization and learning PECOS model.
+We use toy TFIDF hyper-parameters in `config.json`, which can be found at [link](https://github.com/amzn/pecos/tree/mainline/pecos/utils/featurization/text).
 ```
 python3 -m pecos.apps.text2text.train \
   --input-text-path ./training-data.txt \
