@@ -28,7 +28,7 @@ from pecos.xmc import MLModel, MLProblem, PostProcessor
 from sklearn.preprocessing import normalize as sk_normalize
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import AdamW, AutoConfig, get_linear_schedule_with_warmup
+from transformers import AdamW, AutoConfig, get_scheduler
 
 from .module import XMCDataset
 from .network import ENCODER_CLASSES, HingeLoss, TransformerLinearXMCHead
@@ -60,14 +60,22 @@ class TransformerMatcher(pecos.BaseClass):
         negative_sampling (str): negative sampling types. Default tfn
         loss_function (str): type of loss function to use for transformer
             training. Default 'squared-hinge'
+        bootstrap_method (str): algorithm to bootstrap text_model. If not None, initialize
+            TransformerMatcher projection layer with one of:
+                'linear' (default): linear model trained on final embeddings of parent layer
+                'inherit': inherit weights from parent labels
+        lr_schedule (str): learning rate schedule. See transformers.SchedulerType for details.
+            Default 'linear'
 
         threshold (float): threshold to sparsify the model weights. Default 0.1
         hidden_dropout_prob (float): hidden dropout prob in deep transformer models. Default 0.1
         batch_size (int):  batch size for transformer training. Default 8
         batch_gen_workers (int): number of workers for batch generation. Default 4
         max_active_matching_labels (int): max number of active matching labels,
-            will subsample from existing negative samples if necessary. Default None
+            will sub-sample from existing negative samples if necessary. Default None
             to ignore
+        max_num_labels_in_gpu (int): Upper limit on labels to put output layer in GPU.
+            Default 65536.
         max_steps (int): if > 0: set total number of training steps to perform.
             Override num-train-epochs. Default -1.
         max_no_improve_cnt (int): if > 0, training will stop when this number of
@@ -86,12 +94,6 @@ class TransformerMatcher(pecos.BaseClass):
 
         no_fine_tune (bool, optional): not to do fine-tuning on the transformer text_encoder. Default False
         disable_gpu (bool, optional): not to use GPU even if available. Default False
-        do_encoder_bootstrap (bool, optional): If True, Initialize text_encoder
-            with weights from text_encoder of previous layer. Default False
-        do_text_model_bootstrap (bool, optional): If True, initialize
-            TransformerMatcher projection layer with linear solver. Default False
-        force_label_embed_in_gpu (bool): If True, always put label embed in GPU.
-            This will increase GPU memory cost but accelerate training. Default False
 
         model_dir (str): path to save training checkpoints. Default empty to use a temp dir.
         cache_dir (str): dir to store the pre-trained models downloaded from
@@ -107,12 +109,15 @@ class TransformerMatcher(pecos.BaseClass):
         model_shortcut: str = "bert-base-cased"
         negative_sampling: str = "tfn"
         loss_function: str = "squared-hinge"
+        bootstrap_method: str = "linear"
+        lr_schedule: str = "linear"
 
         threshold: float = 0.1
         hidden_dropout_prob: float = 0.1
         batch_size: int = 8
         batch_gen_workers: int = 4
         max_active_matching_labels: int = None  # type: ignore
+        max_num_labels_in_gpu: int = 65536
         max_steps: int = 0
         max_no_improve_cnt: int = -1
         num_train_epochs: int = 5
@@ -127,9 +132,6 @@ class TransformerMatcher(pecos.BaseClass):
 
         no_fine_tune: bool = False
         disable_gpu: bool = False
-        do_encoder_bootstrap: bool = False
-        do_text_model_bootstrap: bool = False
-        force_label_embed_in_gpu: bool = False
 
         model_dir: str = ""
         cache_dir: str = ""
@@ -156,6 +158,32 @@ class TransformerMatcher(pecos.BaseClass):
         post_processor: str = "noop"
         ensemble_method: str = "transformer-only"
         truncate_length: int = None  # type: ignore
+
+        def override_with_kwargs(self, pred_kwargs):
+            """Override Class attributes from prediction key-word arguments.
+
+            Args:
+                pred_kwargs (dict): Args for prediction.
+
+            Returns:
+                self (PredParams): Overriden self instance.
+            """
+            if pred_kwargs is not None:
+                if not isinstance(pred_kwargs, dict):
+                    raise TypeError("type(pred_kwargs) must be dict")
+                overridden_only_topk = pred_kwargs.get("only_topk", None)
+                overridden_post_processor = pred_kwargs.get("post_processor", None)
+                overridden_ensemble_method = pred_kwargs.get("ensemble_method", None)
+                overridden_truncate_length = pred_kwargs.get("truncate_length", None)
+                if overridden_only_topk:
+                    self.only_topk = overridden_only_topk
+                if overridden_post_processor:
+                    self.post_processor = overridden_post_processor
+                if overridden_ensemble_method:
+                    self.ensemble_method = overridden_ensemble_method
+                if overridden_truncate_length:
+                    self.truncate_length = overridden_truncate_length
+            return self
 
     def __init__(
         self,
@@ -346,7 +374,9 @@ class TransformerMatcher(pecos.BaseClass):
         if os.path.exists(text_model_dir):
             text_model = torch.load(text_model_dir)
         else:
-            text_model = TransformerLinearXMCHead(encoder_config)
+            text_model = TransformerLinearXMCHead(
+                encoder_config.hidden_size, encoder_config.num_labels
+            )
             LOGGER.warning(
                 f"XMC text_model of {text_encoder.__class__.__name__} not initialized from pre-trained model."
             )
@@ -411,7 +441,7 @@ class TransformerMatcher(pecos.BaseClass):
             config=config,
             cache_dir=use_cache,
         )
-        text_model = TransformerLinearXMCHead(config)
+        text_model = TransformerLinearXMCHead(config.hidden_size, num_labels)
         return cls(text_encoder, text_tokenizer, text_model)
 
     def text_to_tensor(self, corpus, num_workers=4, max_length=None):
@@ -677,6 +707,13 @@ class TransformerMatcher(pecos.BaseClass):
             label_pred (csr_matrix): label prediction logits, shape = (nr_inst, nr_labels)
             embeddings (ndarray): array of instance embeddings shape = (nr_inst, hidden_dim)
         """
+        if pred_params is None:
+            pred_params = self.get_pred_params()
+        elif isinstance(pred_params, dict):
+            pred_params = self.get_pred_params().override_with_kwargs(pred_params)
+        elif not isinstance(pred_params, TransformerMatcher.PredParams):
+            raise TypeError(f"Unsupported type for pred_params: {type(pred_params)}")
+
         if isinstance(X_text, list):
             X_text = self.text_to_tensor(
                 X_text,
@@ -746,13 +783,6 @@ class TransformerMatcher(pecos.BaseClass):
             label_pred (csr_matrix): label prediction logits, shape = (nr_inst, nr_labels)
             embeddings (ndarray): array of instance embeddings shape = (nr_inst, hidden_dim)
         """
-        if pred_params is None:
-            pred_params = self.pred_params
-        elif isinstance(pred_params, dict):
-            pred_params = self.pred_params.override_with_kwargs(pred_params)
-        elif not isinstance(pred_params, TransformerMatcher.PredParams):
-            raise TypeError(f"Unsupported type for pred_params: {type(pred_params)}")
-
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
 
         if csr_codes is not None:
@@ -937,7 +967,7 @@ class TransformerMatcher(pecos.BaseClass):
             M_next = None
             do_resample = False
 
-        if prob.M is None or train_params.force_label_embed_in_gpu:
+        if prob.M is None or train_params.max_num_labels_in_gpu >= self.nr_labels:
             # put text_model to GPU
             self.text_model.to(self.device)
 
@@ -1001,8 +1031,11 @@ class TransformerMatcher(pecos.BaseClass):
             lr=train_params.learning_rate,
             eps=train_params.adam_epsilon,
         )
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer, num_warmup_steps=train_params.warmup_steps, num_training_steps=t_total
+        scheduler = get_scheduler(
+            train_params.lr_schedule,
+            optimizer,
+            num_warmup_steps=train_params.warmup_steps,
+            num_training_steps=t_total,
         )
 
         sparse_parameters = list(self.text_model.parameters())
@@ -1019,8 +1052,11 @@ class TransformerMatcher(pecos.BaseClass):
                 lr=train_params.learning_rate,
                 eps=train_params.adam_epsilon,
             )
-        emb_scheduler = get_linear_schedule_with_warmup(
-            emb_optimizer, num_warmup_steps=train_params.warmup_steps, num_training_steps=t_total
+        emb_scheduler = get_scheduler(
+            train_params.lr_schedule,
+            emb_optimizer,
+            num_warmup_steps=train_params.warmup_steps,
+            num_training_steps=t_total,
         )
 
         # Start Batch Training
@@ -1030,6 +1066,7 @@ class TransformerMatcher(pecos.BaseClass):
         if prob.M is not None:
             LOGGER.info("  Num active labels per instance = %d", label_indices_pt.shape[1])
         LOGGER.info("  Num Epochs = %d", train_params.num_train_epochs)
+        LOGGER.info("  Learning Rate Schedule = %s", train_params.lr_schedule)
         LOGGER.info("  Batch size = %d", train_params.batch_size)
         LOGGER.info("  Gradient Accumulation steps = %d", train_params.gradient_accumulation_steps)
         LOGGER.info("  Total optimization steps = %d", t_total)
@@ -1145,6 +1182,7 @@ class TransformerMatcher(pecos.BaseClass):
                                     csr_codes=valid_M,
                                     batch_size=train_params.batch_size,
                                     batch_gen_workers=train_params.batch_gen_workers,
+                                    pred_params={"ensemble_method": "transformer-only"},
                                 )
                                 LOGGER.info("-" * 89)
                                 LOGGER.info(
@@ -1268,6 +1306,14 @@ class TransformerMatcher(pecos.BaseClass):
 
         if train_params.init_model_dir:
             matcher = cls.load(train_params.init_model_dir)
+            if prob.Y.shape[1] != matcher.nr_labels:
+                LOGGER.warning(
+                    f"Got mismatch nr_labels (expected {prob.Y.shape[1]} but got {matcher.nr_labels}), text_model reinitialized!"
+                )
+                matcher.text_model = TransformerLinearXMCHead(
+                    matcher.text_encoder.config.hidden_size, prob.Y.shape[1]
+                )
+                matcher.text_encoder.config.num_labels = prob.Y.shape[1]
         else:
             matcher = cls.download_model(
                 train_params.model_shortcut,
@@ -1316,13 +1362,23 @@ class TransformerMatcher(pecos.BaseClass):
             val_prob.X_text = val_tensors
 
         bootstrapping = kwargs.get("bootstrapping", None)
-        if bootstrapping is not None:
-            init_encoder, init_embeddings = bootstrapping
+        if train_params.bootstrap_method is not None and bootstrapping is not None:
+            init_encoder, init_embeddings, prev_head = bootstrapping
             matcher.text_encoder.init_from(init_encoder)
             LOGGER.info("Initialized transformer text_encoder form given text_encoder!")
-            if train_params.do_text_model_bootstrap and init_embeddings is not None:
-                matcher.text_model.bootstrap(init_embeddings, prob.Y, C=prob.C, M=prob.M)
-                LOGGER.info("Initialized transformer text_model form given embeddings!")
+            if train_params.bootstrap_method == "linear" and init_embeddings is not None:
+                bootstrap_prob = MLProblem(
+                    init_embeddings,
+                    prob.Y,
+                    C=prob.C if prob.M is not None else None,
+                    M=prob.M,
+                    R=prob.Y if "weighted" in train_params.loss_function else None,
+                )
+                matcher.text_model.bootstrap(bootstrap_prob)
+                LOGGER.info("Initialized transformer text_model with xlinear!")
+            elif train_params.bootstrap_method == "inherit":
+                matcher.text_model.inherit(prev_head, prob.C)
+                LOGGER.info("Initialized transformer text_model form parent layer!")
 
         # move matcher to desired hardware
         device, n_gpu = torch_util.setup_device(not train_params.disable_gpu)
@@ -1368,6 +1424,9 @@ class TransformerMatcher(pecos.BaseClass):
                 prob.Y,
                 C=prob.C if prob.M is not None else None,
                 M=prob.M,
+                R=sk_normalize(prob.Y, norm="l1")
+                if "weighted" in train_params.loss_function
+                else None,
             )
             matcher.concat_model = MLModel.train(lprob, threshold=train_params.threshold)
             matcher.save(train_params.model_dir)

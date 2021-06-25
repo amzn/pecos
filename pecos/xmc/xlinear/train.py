@@ -85,7 +85,7 @@ def parse_arguments():
         type=int,
         default=100,
         metavar="INT",
-        help="The max size of the leaf nodes of hierarchical 2-means clustering. Multiple values (separated by comma) are supported and will lead to different individual models for ensembling. (default [100])",
+        help="The max size of the leaf nodes of hierarchical 2-means clustering. Default 100.",
     )
 
     parser.add_argument(
