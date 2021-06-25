@@ -197,9 +197,9 @@ class TransformerMatcher(pecos.BaseClass):
     ):
         """
         Args:
-            text_encoder (BertForXMC, RobertaForXMC or XLNetForXMC): text text_encoder
+            text_encoder (BertForXMC, RobertaForXMC, XLMRobertaForXMC or XLNetForXMC): text text_encoder
                 using transformer model
-            text_tokenizer (BertTokenizer, RobertaTokenizer or XLNetTokenizer): text
+            text_tokenizer (BertTokenizer, RobertaTokenizer, XLMRobertaTokenizer or XLNetTokenizer): text
                 text_tokenizer for to convert raw text to torch tensors
             text_model (TransformerLinearXMCHead): linear projection from transformer
                 text_encoder to label space
