@@ -35,6 +35,9 @@ from transformers import (
     RobertaConfig,
     RobertaModel,
     RobertaTokenizer,
+    XLMRobertaConfig,
+    XLMRobertaModel,
+    XLMRobertaTokenizer,
     XLMConfig,
     XLMModel,
     XLMTokenizer,
@@ -538,6 +541,9 @@ class PretrainedTransformer(Vectorizer):
             DistilBertTokenizer,
         ),
         "roberta": TransformerModelClass(RobertaConfig, RobertaModel, RobertaTokenizer),
+        "xlm-roberta": TransformerModelClass(
+            XLMRobertaConfig, XLMRobertaModel, XLMRobertaTokenizer
+        ),
         "xlm": TransformerModelClass(XLMConfig, XLMModel, XLMTokenizer),
         "xlnet": TransformerModelClass(XLNetConfig, XLNetModel, XLNetTokenizer),
     }
@@ -569,7 +575,9 @@ class PretrainedTransformer(Vectorizer):
         os.makedirs(tokenizer_folder, exist_ok=True)
         # this creates transformer_options.json
         with open(
-            os.path.join(vectorizer_folder, "transformer_options.json"), "w", encoding="utf-8"
+            os.path.join(vectorizer_folder, "transformer_options.json"),
+            "w",
+            encoding="utf-8",
         ) as fout:
             fout.write(json.dumps(self.transformer_options))
         # this creates config.json, pytorch_model.bin
@@ -600,7 +608,9 @@ class PretrainedTransformer(Vectorizer):
 
         # Load from transformer_options.json
         with open(
-            os.path.join(vectorizer_folder, "transformer_options.json"), "r", encoding="utf-8"
+            os.path.join(vectorizer_folder, "transformer_options.json"),
+            "r",
+            encoding="utf-8",
         ) as fin:
             transformer_options = json.loads(fin.read())
         dnn_type = cls.MODEL_CLASSES[transformer_options["transformer_type"]]
@@ -700,7 +710,12 @@ class PretrainedTransformer(Vectorizer):
         return cls(model, tokenizer, config)
 
     def predict(
-        self, corpus, batch_size=8, truncate_length=300, use_gpu_if_available=True, **kwargs
+        self,
+        corpus,
+        batch_size=8,
+        truncate_length=300,
+        use_gpu_if_available=True,
+        **kwargs,
     ):
         """Vectorizer a corpus.
 
@@ -768,7 +783,14 @@ class PretrainedTransformer(Vectorizer):
                         input_ids=inputs["input_ids"],
                         attention_mask=inputs["attention_mask"],
                     )
-                elif transformer_type in ["bert", "roberta", "albert", "xlm", "xlnet"]:
+                elif transformer_type in [
+                    "bert",
+                    "roberta",
+                    "xlm-roberta",
+                    "albert",
+                    "xlm",
+                    "xlnet",
+                ]:
                     outputs = model(
                         input_ids=inputs["input_ids"],
                         attention_mask=inputs["attention_mask"],
@@ -781,7 +803,7 @@ class PretrainedTransformer(Vectorizer):
 
                 # get the embeddings from model output
                 # REF: https://huggingface.co/transformers/v2.3.0/model_doc/bert.html#bertmodel
-                # For bert,roberta,albert:  outputs = last_hidden_states, pooled_output, (hidden_states)
+                # For bert,roberta,xlm-roberta,albert:  outputs = last_hidden_states, pooled_output, (hidden_states)
                 # For xlm,xlnet,distilbert: outputs = last_hidden_states, (hidden_states), (attentions)
                 if pooling == "mean":
                     pooled_output = outputs[0].mean(dim=1)
@@ -798,8 +820,11 @@ class PretrainedTransformer(Vectorizer):
                     assert transformer_type in [
                         "bert",
                         "roberta",
+                        "xlm-roberta",
                         "albert",
-                    ], "Only {} models have [CLS] token.".format(["bert", "roberta", "albert"])
+                    ], "Only {} models have [CLS] token.".format(
+                        ["bert", "roberta", "xlm-roberta", "albert"]
+                    )
                     # get the [CLS] embedding for the document
                     pooled_output = outputs[1]
                 else:
