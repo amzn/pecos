@@ -12,6 +12,7 @@ import argparse
 import gc
 import logging
 import os
+import tempfile
 
 import numpy as np
 from pecos.utils import logging_util, smat_util, torch_util
@@ -98,16 +99,16 @@ def parse_arguments():
     parser.add_argument(
         "--nr-splits",
         type=int,
-        default=2,
+        default=32,
         metavar="INT",
         help="number of splits used to construct hierarchy (a power of 2 is recommended)",
     )
     parser.add_argument(
         "--min-codes",
         type=int,
-        default=-1,
+        default=None,
         metavar="INT",
-        help="minimal number of codes, default -1 to use number of leaf clusters",
+        help="minimal number of codes, default None to use nr-splits",
     )
     parser.add_argument(
         "--indexer",
@@ -121,7 +122,7 @@ def parse_arguments():
         type=int,
         default=100,
         metavar="INT",
-        help="The max size of the leaf nodes of hierarchical 2-means clustering. Multiple values (separated by comma) are supported and will lead to different individual models for ensembling. (default [100])",
+        help="The max size of the leaf nodes of hierarchical 2-means clustering. Default 100.",
     )
     parser.add_argument(
         "--imbalanced-ratio",
@@ -149,13 +150,6 @@ def parse_arguments():
         default=20,
         metavar="INT",
         help="max iterations for indexer (default 20)",
-    )
-    parser.add_argument(
-        "--max-no-improve-cnt",
-        type=int,
-        default=-1,
-        metavar="INT",
-        help="if > 0, training will stop when this number of validation steps result in no improvment.",
     )
     # ========= matcher parameters ============
     parser.add_argument(
@@ -192,6 +186,13 @@ def parse_arguments():
         default=10,
         metavar="INT",
         help="the default size of beam search used in the prediction",
+    )
+    parser.add_argument(
+        "--only-topk",
+        default=20,
+        metavar="INT",
+        type=int,
+        help="the default number of top labels used in the prediction",
     )
     parser.add_argument(
         "-pp",
@@ -231,10 +232,10 @@ def parse_arguments():
     parser.add_argument(
         "--loss-function",
         type=str,
-        choices=TransformerMatcher.LOSS_FUNCTION_TYPES,
+        choices=TransformerMatcher.LOSS_FUNCTION_TYPES.keys(),
         default="squared-hinge",
         metavar="STR",
-        help="loss function type",
+        help="loss function type for transformer training",
     )
     parser.add_argument(
         "--cache-dir",
@@ -258,13 +259,6 @@ def parse_arguments():
         help="dir to save/load tokenized validation tensor",
     )
     parser.add_argument(
-        "--save-m-mat",
-        default="",
-        type=str,
-        metavar="PATH",
-        help="path to save the matching matrix",
-    )
-    parser.add_argument(
         "--truncate-length",
         default=128,
         metavar="INT",
@@ -280,17 +274,10 @@ def parse_arguments():
     )
     parser.add_argument(
         "--batch-size",
-        default=8,
+        default=32,
         metavar="INT",
         type=int,
         help="batch size per GPU.",
-    )
-    parser.add_argument(
-        "--max-pred-chunk",
-        default=None,
-        metavar="INT",
-        type=int,
-        help="Max number of instances to predict on at once, set to avoid OOM. Default None to disable",
     )
     parser.add_argument(
         "--gradient-accumulation-steps",
@@ -301,7 +288,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--learning-rate",
-        default=5e-5,
+        default=1e-4,
         metavar="VAL",
         type=float,
         help="maximum learning rate for Adam.",
@@ -328,14 +315,44 @@ def parse_arguments():
         default=5.0,
         metavar="INT",
         type=int,
-        help="total number of training epochs to perform.",
+        help="total number of training epochs to perform for each sub-task.",
     )
     parser.add_argument(
         "--max-steps",
         default=-1,
         metavar="INT",
         type=int,
-        help="if > 0: set total number of training steps to perform. Override num-train-epochs.",
+        help="if > 0: set total number of training steps to perform for each sub-task. Overrides num-train-epochs.",
+    )
+    parser.add_argument(
+        "--steps-scale",
+        nargs="+",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="scale number of transformer fine-tuning steps for each layer. Default None to ignore",
+    )
+    parser.add_argument(
+        "--max-no-improve-cnt",
+        type=int,
+        default=-1,
+        metavar="INT",
+        help="if > 0, training will stop when this number of validation steps result in no improvment. Default -1 to ignore",
+    )
+    parser.add_argument(
+        "--lr-schedule",
+        default="linear",
+        metavar="STR",
+        type=str,
+        choices=[
+            "linear",
+            "cosine",
+            "cosine_with_restarts",
+            "polynomial",
+            "constant",
+            "constant_with_warmup",
+        ],
+        help="learning rate schedule for transformer fine-tuning. See transformers.SchedulerType for details",
     )
     parser.add_argument(
         "--warmup-steps",
@@ -345,28 +362,32 @@ def parse_arguments():
         help="Linear warmup over warmup-steps.",
     )
     parser.add_argument(
-        "--logging-steps", type=int, metavar="INT", default=50, help="log every X updates steps."
+        "--logging-steps",
+        type=int,
+        metavar="INT",
+        default=50,
+        help="log training information every NUM updates steps.",
     )
     parser.add_argument(
         "--save-steps",
         type=int,
         metavar="INT",
         default=100,
-        help="save checkpoint every X updates steps.",
-    )
-    parser.add_argument(
-        "--only-topk",
-        default=20,
-        metavar="INT",
-        type=int,
-        help="store topk prediction at ranker prediction stage",
+        help="save checkpoint every NUM updates steps.",
     )
     parser.add_argument(
         "--max-active-matching-labels",
         default=None,
         metavar="INT",
         type=int,
-        help="max number of active matching labels, will subsample from existing negative samples if necessary",
+        help="max number of active matching labels, will subsample from existing negative samples if necessary. Default None to ignore.",
+    )
+    parser.add_argument(
+        "--max-num-labels-in-gpu",
+        default=65536,
+        metavar="INT",
+        type=int,
+        help="Upper limit on labels to put output layer in GPU. Default 65536",
     )
     parser.add_argument(
         "--save-emb-dir",
@@ -381,19 +402,11 @@ def parse_arguments():
         help="disable CUDA training even if it's available",
     )
     parser.add_argument(
-        "--force-label-embed-in-gpu",
-        action="store_true",
-        help="always put label embed in GPU. This will increase GPU memory cost but accelerate training.",
-    )
-    parser.add_argument(
-        "--do-encoder-bootstrap",
-        action="store_true",
-        help="initialize lower layer model weights from upper layer model",
-    )
-    parser.add_argument(
-        "--do-text-model-bootstrap",
-        action="store_true",
-        help="initialize the text_model from xlinear training. Ignored if do-encoder-bootstrap is not used.",
+        "--bootstrap-method",
+        type=str,
+        default="linear",
+        choices=["linear", "inherit", None],
+        help="initialization method for the text_model weights. Ignored if None is given. Default linear",
     )
     parser.add_argument(
         "--batch-gen-workers",
@@ -409,9 +422,9 @@ def parse_arguments():
         "--verbose-level",
         type=int,
         choices=logging_util.log_levels.keys(),
-        default=1,
+        default=2,
         metavar="INT",
-        help=f"the verbose level, {', '.join([str(k) + ' for ' + logging.getLevelName(v) for k, v in logging_util.log_levels.items()])}, default 1",
+        help=f"the verbose level, {', '.join([str(k) + ' for ' + logging.getLevelName(v) for k, v in logging_util.log_levels.items()])}. Default 2",
     )
 
     return parser
@@ -469,7 +482,11 @@ def do_train(args):
 
     # construct full cluster chain
     if os.path.exists(args.code_path):
-        cluster_chain = ClusterChain.load(args.code_path)
+        cluster_chain = ClusterChain.from_partial_chain(
+            smat_util.load_matrix(args.code_path),
+            min_codes=args.min_codes,
+            nr_splits=args.nr_splits,
+        )
         LOGGER.info("Loaded from code-path: {}".format(args.code_path))
     else:
         if os.path.isfile(args.label_feat_path):
@@ -515,9 +532,6 @@ def do_train(args):
     if args.max_match_clusters < 0:
         args.max_match_clusters = nr_leaf_clusters
 
-    if args.min_codes < 0:
-        args.min_codes = nr_leaf_clusters
-
     # get the matcher-ranker split level
     if args.max_match_clusters < cluster_chain[-1].shape[0]:  # if not matcher for all
         args.ranker_level = len(cluster_chain) - next(
@@ -542,6 +556,14 @@ def do_train(args):
     else:
         val_prob = None
 
+    # tempdir to save encoded text
+    if not args.saved_trn_pt:
+        temp_trn_pt_dir = tempfile.TemporaryDirectory()
+        args.saved_trn_pt = f"{temp_trn_pt_dir.name}/X_trn.pt"
+    if not args.saved_val_pt:
+        temp_val_pt_dir = tempfile.TemporaryDirectory()
+        args.saved_val_pt = f"{temp_val_pt_dir.name}/X_val.pt"
+
     # for HierarchicalMLModel.TrainParams
     args.neg_mining_chain = args.negative_sampling
 
@@ -555,6 +577,7 @@ def do_train(args):
         train_params=train_params,
         pred_params=pred_params,
         beam_size=args.beam_size,
+        steps_scale=args.steps_scale,
     )
 
     xtf.save(args.model_dir)
