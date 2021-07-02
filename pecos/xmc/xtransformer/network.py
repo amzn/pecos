@@ -23,6 +23,8 @@ from transformers import (
     RobertaConfig,
     RobertaModel,
     RobertaTokenizer,
+    XLMRobertaConfig,
+    XLMRobertaTokenizer,
     XLNetConfig,
     XLNetModel,
     XLNetPreTrainedModel,
@@ -38,6 +40,7 @@ if TRANSFORMERS_MAJOR_VERSION >= 4:
         ROBERTA_INPUTS_DOCSTRING,
         ROBERTA_START_DOCSTRING,
     )
+    from transformers.models.xlm_roberta.modeling_xlm_roberta import XLM_ROBERTA_START_DOCSTRING
     from transformers.models.xlnet.modeling_xlnet import (
         XLNET_INPUTS_DOCSTRING,
         XLNET_START_DOCSTRING,
@@ -48,6 +51,7 @@ else:
         ROBERTA_INPUTS_DOCSTRING,
         ROBERTA_START_DOCSTRING,
     )
+    from transformers.modeling_xlm_roberta import XLM_ROBERTA_START_DOCSTRING
     from transformers.modeling_xlnet import XLNET_INPUTS_DOCSTRING, XLNET_START_DOCSTRING
 
 
@@ -329,6 +333,19 @@ class RobertaForXMC(BertPreTrainedModel):
 
 
 @add_start_docstrings(
+    """XLM-Roberta Model with mutli-label classification head on top for XMC.\n""",
+    XLM_ROBERTA_START_DOCSTRING,
+)
+class XLMRobertaForXMC(RobertaForXMC):
+    """
+    This class overrides :class:`RobertaForXMC`. Please check the superclass for the appropriate
+    documentation alongside usage examples.
+    """
+
+    config_class = XLMRobertaConfig
+
+
+@add_start_docstrings(
     """XLNet Model with mutli-label classification head on top for XMC.\n""",
     XLNET_START_DOCSTRING,
 )
@@ -403,5 +420,6 @@ class XLNetForXMC(XLNetPreTrainedModel):
 ENCODER_CLASSES = {
     "bert": TransformerModelClass(BertConfig, BertForXMC, BertTokenizer),
     "roberta": TransformerModelClass(RobertaConfig, RobertaForXMC, RobertaTokenizer),
+    "xlm-roberta": TransformerModelClass(XLMRobertaConfig, XLMRobertaForXMC, XLMRobertaTokenizer),
     "xlnet": TransformerModelClass(XLNetConfig, XLNetForXMC, XLNetTokenizer),
 }
