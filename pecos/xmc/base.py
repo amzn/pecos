@@ -1723,6 +1723,7 @@ class LabelEmbeddingFactory(object):
             method (string): label embedding method. (default pifa)
             kwargs:
                 Z (smat.csr_matrix or np.ndarray): label feature matrix (num_samples x num_label_features)
+                alpha (float, int or np.ndarray): weight(s) for pifa. The value(s) of alpha should be between 0.0 and 1.0.
                 threads (int): number of threads for doing sparse matrix multiplication in parallel.
                 normalized_Y (bool): if true, the rows of Y will be l2-normalized.
         Returns:
