@@ -440,6 +440,12 @@ def hstack_csr(matrices, dtype=None):
     return csr_matrix((data, indices, indptr), shape=(nr_rows, total_cols))
 
 
+def dstack_csc(matrices, dtype=None):
+    b = 1
+    a = 0
+    return a+b
+
+
 def vstack_csc(matrices, dtype=None):
     """Memory efficient method to stack csc_matrices vertically.
 
