@@ -103,6 +103,15 @@ def parse_arguments():
         metavar="THREADS",
         help="number of threads to use (default -1 to denote all the CPUs)",
     )
+
+    parser.add_argument(
+        "-so",
+        "--select-output",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="path to the npz file of the select output matrix (CSR, nr_insts * nr_labels), only-topk and beam-size are ignored if given",
+    )
     return parser
 
 
@@ -116,14 +125,26 @@ def do_predict(args):
     # Load data
     Xt = XLinearModel.load_feature_matrix(args.inst_path)
 
-    # Model Predicting
-    xlinear_model = XLinearModel.load(args.model_folder, is_predict_only=True)
+    if args.select_output is not None:
+        # Select Output
+        select_outputs_csr = XLinearModel.load_feature_matrix(args.select_output)
+        xlinear_model = XLinearModel.load(
+            args.model_folder, is_predict_only=True, weight_matrix_type="CSC"
+        )
+    else:
+        # TopK
+        select_outputs_csr = None
+        xlinear_model = XLinearModel.load(args.model_folder, is_predict_only=True)
 
+    # Model Predicting
     if args.batch_size is not None:
         Yts = []
         for i in range(0, Xt.shape[0], args.batch_size):
             Yte = xlinear_model.predict(
                 Xt[i : i + args.batch_size, :],
+                select_outputs_csr=select_outputs_csr[i : i + args.batch_size, :]
+                if select_outputs_csr is not None
+                else None,
                 only_topk=args.only_topk,
                 beam_size=args.beam_size,
                 post_processor=args.post_processor,
@@ -135,6 +156,7 @@ def do_predict(args):
     else:
         Yt_pred = xlinear_model.predict(
             Xt,
+            select_outputs_csr=select_outputs_csr,
             only_topk=args.only_topk,
             beam_size=args.beam_size,
             post_processor=args.post_processor,
