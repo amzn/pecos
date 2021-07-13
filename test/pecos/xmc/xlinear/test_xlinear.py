@@ -240,6 +240,22 @@ def test_cli(tmpdir):
         Yt_pred = smat_util.load_matrix(test_Y_pred_file)
         assert Yt_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
+        # Select Inference
+        cmd = []
+        cmd += ["python3 -m pecos.xmc.xlinear.predict"]
+        cmd += ["-x {}".format(test_X)]
+        cmd += ["-y {}".format(test_Y_file)]
+        cmd += ["-so {}".format(true_Y_pred_file)]
+        cmd += ["-o {}".format(test_Y_pred_file)]
+        cmd += ["-m {}".format(model_folder)]
+        process = subprocess.run(
+            shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        assert process.returncode == 0, " ".join(cmd)
+        true_Yt_pred = smat_util.load_matrix(true_Y_pred_file)
+        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_select_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+
         # Evaluate
         cmd = []
         cmd += ["python3 -m pecos.xmc.xlinear.evaluate"]
@@ -300,6 +316,22 @@ def test_cli(tmpdir):
         Yt_pred = smat_util.load_matrix(test_Y_pred_file)
         assert Yt_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
+        # Select Inference
+        cmd = []
+        cmd += ["python3 -m pecos.xmc.xlinear.predict"]
+        cmd += ["-x {}".format(test_X)]
+        cmd += ["-y {}".format(test_Y_file)]
+        cmd += ["-so {}".format(true_Y_pred_file)]
+        cmd += ["-o {}".format(test_Y_pred_file)]
+        cmd += ["-m {}".format(model_folder)]
+        process = subprocess.run(
+            shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        assert process.returncode == 0, " ".join(cmd)
+        true_Yt_pred = smat_util.load_matrix(true_Y_pred_file)
+        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_select_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+
         # Training with User Supplied Negative
         M = (Y * C).tocsc()
         smat.save_npz(match_file, M)
@@ -321,6 +353,22 @@ def test_cli(tmpdir):
         cmd += ["python3 -m pecos.xmc.xlinear.predict"]
         cmd += ["-x {}".format(test_X)]
         cmd += ["-y {}".format(test_Y_file)]
+        cmd += ["-o {}".format(test_Y_pred_file)]
+        cmd += ["-m {}".format(model_folder)]
+        process = subprocess.run(
+            shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        assert process.returncode == 0, " ".join(cmd)
+        true_Yt_pred = smat_util.load_matrix(true_Y_pred_file)
+        Yt_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+
+        # Select Inference
+        cmd = []
+        cmd += ["python3 -m pecos.xmc.xlinear.predict"]
+        cmd += ["-x {}".format(test_X)]
+        cmd += ["-y {}".format(test_Y_file)]
+        cmd += ["-so {}".format(true_Y_pred_file)]
         cmd += ["-o {}".format(test_Y_pred_file)]
         cmd += ["-m {}".format(model_folder)]
         process = subprocess.run(
@@ -374,6 +422,24 @@ def test_cli(tmpdir):
         Yt_pred = smat_util.load_matrix(test_Y_pred_file)
         assert Yt_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
 
+        # Select Inference
+        cmd = []
+        cmd += ["python3 -m pecos.xmc.xlinear.predict"]
+        cmd += ["-x {}".format(test_X)]
+        cmd += ["-y {}".format(test_Y_file)]
+        cmd += ["-so {}".format(true_Y_pred_with_man_file)]
+        cmd += ["-o {}".format(test_Y_pred_file)]
+        cmd += ["-m {}".format(model_folder)]
+        cmd += ["-pp sigmoid"]
+        cmd += ["-b 4"]
+        process = subprocess.run(
+            shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        assert process.returncode == 0, " ".join(cmd)
+        true_Yt_pred_with_man = smat_util.load_matrix(true_Y_pred_with_man_file)
+        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_select_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
+
         # Training with Matcher Aware Negatives
         cmd = []
         cmd += ["python3 -m pecos.xmc.xlinear.train"]
@@ -404,6 +470,24 @@ def test_cli(tmpdir):
         true_Yt_pred_with_man = smat_util.load_matrix(true_Y_pred_with_man_file)
         Yt_pred = smat_util.load_matrix(test_Y_pred_file)
         assert Yt_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
+
+        # Select Inference
+        cmd = []
+        cmd += ["python3 -m pecos.xmc.xlinear.predict"]
+        cmd += ["-x {}".format(test_X)]
+        cmd += ["-y {}".format(test_Y_file)]
+        cmd += ["-so {}".format(true_Y_pred_with_man_file)]
+        cmd += ["-o {}".format(test_Y_pred_file)]
+        cmd += ["-m {}".format(model_folder)]
+        cmd += ["-pp sigmoid"]
+        cmd += ["-b 4"]
+        process = subprocess.run(
+            shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        assert process.returncode == 0, " ".join(cmd)
+        true_Yt_pred_with_man = smat_util.load_matrix(true_Y_pred_with_man_file)
+        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_select_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
 
         # Training with various number of splits to construct hierarchy
         for splits in [2, 4]:
@@ -438,6 +522,24 @@ def test_cli(tmpdir):
             true_Yt_pred = smat_util.load_matrix(true_Yt_pred_with_splits[splits])
             Yt_pred = smat_util.load_matrix(test_Y_pred_file)
             assert Yt_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+
+            cmd = []
+            cmd += ["python3 -m pecos.xmc.xlinear.predict"]
+            cmd += [f"-x {test_X}"]
+            cmd += [f"-y {test_Y_file}"]
+            cmd += [f"-so {true_Yt_pred_with_splits[splits]}"]
+            cmd += [f"-m {model_folder_local}"]
+            cmd += [f"-o {test_Y_pred_file}"]
+            cmd += [f"-B 2"]
+
+            process = subprocess.run(
+                shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            assert process.returncode == 0, " ".join(cmd)
+
+            true_Yt_pred = smat_util.load_matrix(true_Yt_pred_with_splits[splits])
+            Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
+            assert Yt_select_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
 
 def test_split_model_at_depth():
@@ -743,3 +845,84 @@ def test_get_submodel():
     assert 0 in out["active_labels"]
     assert 1 in out["active_labels"]
     assert 3 in out["active_labels"]
+
+
+def test_predict_consistency_between_topk_and_select(tmpdir):
+    from pecos.xmc import PostProcessor, Indexer, LabelEmbeddingFactory
+    from pecos.xmc.xlinear import XLinearModel
+
+    train_X_file = "test/tst-data/xmc/xlinear/X.npz"
+    train_Y_file = "test/tst-data/xmc/xlinear/Y.npz"
+    test_X_file = "test/tst-data/xmc/xlinear/Xt.npz"
+    Xt = XLinearModel.load_feature_matrix(train_X_file)
+    Yt = XLinearModel.load_feature_matrix(train_Y_file)
+    model_folder = str(tmpdir.join("save_model"))
+    label_feat = LabelEmbeddingFactory.create(Yt, Xt, method="pifa")
+
+    model_folder_list = []
+    # Obtain xlinear models with vairous number of splits
+    for splits in [2, 4]:
+        model_folder_local = f"{model_folder}-{splits}"
+        cluster_chain = Indexer.gen(label_feat, nr_splits=splits)
+        py_model = XLinearModel.train(Xt, Yt, C=cluster_chain)
+        py_model.save(model_folder_local)
+        model_folder_list.append(model_folder_local)
+
+    X = XLinearModel.load_feature_matrix(test_X_file)
+
+    def test_on_model(model, X):
+        for pp in PostProcessor.valid_list():
+            # Batch mode topk
+            py_sparse_topk_pred = model.predict(X, post_processor=pp)
+            py_dense_topk_pred = model.predict(X.todense(), post_processor=pp)
+
+            # Sparse Input
+            py_select_sparse_topk_pred = model.predict(
+                X, select_outputs_csr=py_sparse_topk_pred, post_processor=pp
+            )
+            # Dense Input
+            py_select_dense_topk_pred = model.predict(
+                X.todense(), select_outputs_csr=py_dense_topk_pred, post_processor=pp
+            )
+
+            assert py_sparse_topk_pred.todense() == approx(
+                py_select_sparse_topk_pred.todense(), abs=1e-6
+            ), f"model:{model_folder_local} (batch, sparse, topk) post_processor:{pp})"
+            assert py_dense_topk_pred.todense() == approx(
+                py_select_dense_topk_pred.todense(), abs=1e-6
+            ), f"model:{model_folder_local} (batch, dense, topk) post_processor:{pp})"
+
+            # Realtime mode topk
+            for i in range(X.shape[0]):
+                query_slice = X[[i], :]
+                query_slice.sort_indices()
+
+                py_sparse_realtime_pred = model.predict(query_slice, post_processor=pp)
+                py_dense_realtime_pred = model.predict(query_slice.todense(), post_processor=pp)
+
+                # Sparse Input
+                py_select_sparse_realtime_pred = model.predict(
+                    query_slice, select_outputs_csr=py_sparse_realtime_pred, post_processor=pp
+                )
+                # Dense input
+                py_select_dense_realtime_pred = model.predict(
+                    query_slice.todense(),
+                    select_outputs_csr=py_dense_realtime_pred,
+                    post_processor=pp,
+                )
+
+                assert py_sparse_realtime_pred.todense() == approx(
+                    py_select_sparse_realtime_pred.todense(), abs=1e-6
+                ), f"model:{model_folder_local} (realtime, sparse, topk) post_processor:{pp}"
+                assert py_dense_realtime_pred.todense() == approx(
+                    py_select_dense_realtime_pred.todense(), abs=1e-6
+                ), f"model:{model_folder_local} (realtime, dense, topk) post_processor:{pp}"
+
+    for model_folder_local in model_folder_list:
+        model_f = XLinearModel.load(model_folder_local, is_predict_only=False)
+        model_t = XLinearModel.load(
+            model_folder_local, is_predict_only=True, weight_matrix_type="CSC"
+        )
+
+        test_on_model(model_f, X)
+        test_on_model(model_t, X)

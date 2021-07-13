@@ -1125,6 +1125,101 @@ namespace pecos {
 
     }
 
+    // Prolongates the predictions of the previous layer to the select children of nodes.
+    // The result is returned as a csr_t matrix.
+    csr_t prolongate_sparse_predictions(const csr_t& csr_pred, const csc_t& C, const csr_t& csr_codes) {
+        typedef typename csr_t::mem_index_type mem_index_type;
+        typedef typename csr_t::index_type index_type;
+        typedef typename csr_t::value_type value_type;
+
+        auto rows = csr_codes.rows;
+        auto cols = csr_codes.cols;
+
+        // Compute the nnz's of each row
+        mem_index_type* row_ptr = new mem_index_type[rows + 1];
+        row_ptr[0] = 0;
+#pragma omp parallel for schedule(dynamic,4)
+        for (index_type row = 0; row < rows; ++row) {
+            index_type row_nnz = 0;
+
+            mem_index_type csr_codes_row_start = csr_codes.row_ptr[row];
+            mem_index_type csr_codes_row_end = csr_codes.row_ptr[row + 1];
+
+            robin_hood::unordered_set<index_type> valid_cols;
+            valid_cols.reserve(csr_codes_row_end - csr_codes_row_start);
+            for (mem_index_type i = csr_codes_row_start; i < csr_codes_row_end; ++i) {
+                valid_cols.insert(csr_codes.col_idx[i]);
+            }
+
+            mem_index_type csr_pred_row_start = csr_pred.row_ptr[row];
+            mem_index_type csr_pred_row_end = csr_pred.row_ptr[row + 1];
+
+            for (mem_index_type i = csr_pred_row_start; i < csr_pred_row_end; ++i) {
+                mem_index_type C_col_start = C.col_ptr[csr_pred.col_idx[i]];
+                mem_index_type C_col_end = C.col_ptr[csr_pred.col_idx[i] + 1];
+
+                for (mem_index_type j = C_col_start; j < C_col_end; ++j) {
+                    if (valid_cols.count(C.row_idx[j])) {
+                        row_nnz++;
+                    }
+                }
+            }
+
+            row_ptr[row + 1] = row_nnz;
+        }
+
+        // Perform summation
+        for (index_type i = 0; i < rows; ++i) {
+            row_ptr[i + 1] += row_ptr[i];
+        }
+
+        // Allocate the col_idx entries
+        auto nnz = row_ptr[rows];
+        index_type* col_idx = new index_type[nnz];
+        value_type* val = new value_type[nnz];
+
+        // Actually compute the resulting labels
+#pragma omp parallel for schedule(dynamic,4)
+        for (index_type row = 0; row < rows; ++row) {
+            mem_index_type csr_codes_row_start = csr_codes.row_ptr[row];
+            mem_index_type csr_codes_row_end = csr_codes.row_ptr[row + 1];
+
+            robin_hood::unordered_set<index_type> valid_cols;
+            valid_cols.reserve(csr_codes_row_end - csr_codes_row_start);
+            for (mem_index_type i = csr_codes_row_start; i < csr_codes_row_end; ++i) {
+                valid_cols.insert(csr_codes.col_idx[i]);
+            }
+
+            mem_index_type csr_pred_row_start = csr_pred.row_ptr[row];
+            mem_index_type csr_pred_row_end = csr_pred.row_ptr[row + 1];
+
+            mem_index_type output_row_start = row_ptr[row];
+            mem_index_type output_row_end = row_ptr[row + 1];
+            mem_index_type k = output_row_start;
+
+            for (mem_index_type i = csr_pred_row_start; i < csr_pred_row_end; ++i) {
+                mem_index_type C_col_start = C.col_ptr[csr_pred.col_idx[i]];
+                mem_index_type C_col_end = C.col_ptr[csr_pred.col_idx[i] + 1];
+
+                for (mem_index_type j = C_col_start; j < C_col_end; ++j) {
+                    if (valid_cols.count(C.row_idx[j])) {
+                        col_idx[k] = C.row_idx[j];
+                        val[k] = csr_pred.val[i];
+                        ++k;
+                    }
+                }
+            }
+        }
+
+        csr_t result;
+        result.col_idx = col_idx;
+        result.row_ptr = row_ptr;
+        result.rows = rows;
+        result.cols = cols;
+        result.val = val;
+        return result;
+    }
+
     void transform_matrix_csr(const PostProcessor<typename csr_t::value_type>& post_processor,
         csr_t& mat) {
         typedef typename csr_t::value_type value_type;
@@ -1285,7 +1380,28 @@ namespace pecos {
             const int threads=-1
         ) = 0;
 
+        virtual void predict_select_outputs(
+            const csr_t& X,
+            const csr_t& select_outputs_csr,
+            const csr_t& csr_codes,
+            bool is_first_layer,
+            const char* overridden_post_processor,
+            csr_t& curr_layer_pred,
+            const int threads=-1
+        ) = 0;
+        virtual void predict_select_outputs(
+            const drm_t& X,
+            const csr_t& select_outputs_csr,
+            csr_t& csr_codes,
+            bool is_first_layer,
+            const char* overridden_post_processor,
+            csr_t& curr_layer_pred,
+            const int threads=-1
+        ) = 0;
+
         virtual ~IModelLayer() = 0;
+
+        virtual csc_t get_C() const = 0;
 
         // Layer statistics
         virtual layer_statistics_t get_statistics() const = 0;
@@ -1718,7 +1834,92 @@ namespace pecos {
             );
         }
 
+        // The internal prediction function for a sparse layer prediction, this method is templated to take any
+        // supported query matrix type. It is called by both versions of the ModelLayer::predict_select_outputs method
+        // X should have the same number of rows as csr_codes
+        template <typename query_mat_t, typename prediction_matrix_t>
+        void predict_select_outputs_internal(
+            const query_mat_t& X,
+            const csr_t& select_outputs_csr,
+            const prediction_matrix_t& csr_codes,
+            bool is_first_layer,
+            const char* overridden_post_processor,
+            prediction_matrix_t& curr_layer_pred,
+            const int threads=-1,
+            const bool b_sort_by_chunk=true
+        ) {
+
+            set_threads(threads);
+
+            const PostProcessor<value_type>& post_processor_to_use =
+                (overridden_post_processor == nullptr) ? post_processor
+                    : PostProcessor<value_type>::get(overridden_post_processor);
+
+            csr_t labels = prolongate_sparse_predictions(csr_codes, layer_data.C, select_outputs_csr);
+
+            // Compute predictions for this layer
+            w_ops<w_matrix_t>::compute_sparse_predictions(X, layer_data.W,
+                labels.row_ptr, labels.col_idx,
+                b_sort_by_chunk, layer_data.bias, csr_codes, curr_layer_pred);
+
+            // Transform the predictions for this layer and combine with previous layer
+            transform_matrix_csr(post_processor_to_use, curr_layer_pred);
+            if (!is_first_layer) {
+                combine_matrices_csr(post_processor_to_use, curr_layer_pred, labels);
+            }
+
+            labels.free_underlying_memory();
+        }
+
+        void predict_select_outputs(
+            const csr_t& X,
+            const csr_t& select_outputs_csr,
+            const csr_t& csr_codes,
+            bool is_first_layer,
+            const char* overridden_post_processor,
+            csr_t& curr_layer_pred,
+            const int threads=-1
+        ) override {
+            bool b_sort_by_chunk = (X.rows > 1) ? true : false;
+            predict_select_outputs_internal<csr_t, csr_t>(
+                X,
+                select_outputs_csr,
+                csr_codes,
+                is_first_layer,
+                overridden_post_processor,
+                curr_layer_pred,
+                threads,
+                b_sort_by_chunk
+            );
+        }
+
+        void predict_select_outputs(
+            const drm_t& X,
+            const csr_t& select_outputs_csr,
+            csr_t& csr_codes,
+            bool is_first_layer,
+            const char* overridden_post_processor,
+            csr_t& curr_layer_pred,
+            const int threads=-1
+        ) override {
+            bool b_sort_by_chunk=false;
+            predict_select_outputs_internal<drm_t, csr_t>(
+                X,
+                select_outputs_csr,
+                csr_codes,
+                is_first_layer,
+                overridden_post_processor,
+                curr_layer_pred,
+                threads,
+                b_sort_by_chunk
+            );
+        }
+
         ~MLModel() override {
+        }
+
+        csc_t get_C() const override {
+            return layer_data.C.deep_copy();
         }
 
         layer_statistics_t get_statistics() const override {
@@ -1938,6 +2139,78 @@ namespace pecos {
                 prev_layer_pred = curr_layer_pred;
             }
             prediction = prev_layer_pred;
+        }
+
+        /*
+        * Perform a select prediction using the specified parameters.
+        * Parameters:
+        *
+        * queries: The csr matrix of queries. Every row represents a query to the model.
+        *
+        * select_outputs_csr: The csr matrix of select outputs. Each non zero entry represents
+        * a pair to predict
+        *
+        * overridden_post_processor (optional): A string specifying which post-processor to use for
+        * predictions on each layer of the model. Set to nullptr to use defaults.
+        *
+        * threads (optional): The number of threads to use for prediction computations. Set to -1 to use maximum
+        * of threads.
+        *
+        * prediction (prediction_matrix_t): prediction output matrix
+        */
+        template <typename query_matrix_t, typename prediction_matrix_t>
+        void predict_select_outputs(
+            const query_matrix_t& queries,
+            const csr_t& select_outputs_csr,
+            prediction_matrix_t& prediction,
+            const char* overridden_post_processor=nullptr,
+            const int threads=-1
+        ) {
+            uint32_t prediction_depth = model_layers.size();
+
+            // Find the sparsity pattern of each layer
+            std::vector<csr_t> select_outputs_csrs(prediction_depth);
+            select_outputs_csrs[0] = select_outputs_csr;
+            
+            for (uint32_t i_layer = 1; i_layer < prediction_depth; ++i_layer) {
+                ISpecializedModelLayer* layer = model_layers[prediction_depth - i_layer];
+                csc_t C = layer->get_C();
+                csr_t csr_C = C.to_csr();
+                csr_t output_csr;
+                smat_x_smat(select_outputs_csrs[i_layer - 1], csr_C, output_csr, false, true, threads);
+                select_outputs_csrs[i_layer] = output_csr;
+                C.free_underlying_memory();
+                csr_C.free_underlying_memory();
+            }
+
+            // Create first layer's prev pred;
+            prediction_matrix_t prev_layer_pred;
+            prev_layer_pred.fill_ones(queries.rows, 1);
+
+            // Run the prediction loop, passing predictions down through layers of the model
+            for (uint32_t i_layer = 0; i_layer < prediction_depth; ++i_layer) {
+                ISpecializedModelLayer* layer = model_layers[i_layer];
+
+                bool is_first_layer = (i_layer == 0);
+                // Find the prediction for one layer
+                prediction_matrix_t curr_layer_pred;
+                layer->predict_select_outputs(
+                    queries,
+                    select_outputs_csrs[prediction_depth - 1 - i_layer],
+                    prev_layer_pred,
+                    is_first_layer,
+                    overridden_post_processor,
+                    curr_layer_pred,
+                    threads
+                );
+                prev_layer_pred.free_underlying_memory();
+                prev_layer_pred = curr_layer_pred;
+            }
+            prediction = prev_layer_pred;
+
+            for (int i = 1; i < prediction_depth; ++i) {
+                select_outputs_csrs[i].free_underlying_memory();
+            }
         }
 
         static void load(
