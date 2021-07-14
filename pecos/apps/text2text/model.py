@@ -180,6 +180,7 @@ class Text2Text(object):
             vectorizer_config_json (str): Json_format string for vectorizer config (default None)
             dtype (float32 | float64): data type (default float32)
             label_embed_type (list of str): Label embedding types. (default pifa).
+                We support pifa, pifa_lf_concat::Z=path, and pifa_lf_convex_combine::Z=path::alpha=scalar_value.
                 Multiple values will lead to different individual models for ensembling.
             indexer_algo (list of str): Indexer algorithm (default ["hierarchicalkmeans"]).
             imbalanced_ratio (float): Value between 0.0 and 0.5 (inclusive). Indicates how relaxed the balancedness
@@ -311,8 +312,34 @@ class Text2Text(object):
                 label_feat_set[embed_type] = XLinearModel.load_feature_matrix(label_embed_path)
             else:
                 LOGGER.info(f"Generating {embed_type} features for {Y.shape[1]} labels...")
+                # parse embed_type string, expect either the following three cases:
+                # (1) pifa
+                # (2) pifa_lf_concat::Z=path
+                # (3) pifa_lf_convex_combine::Z=path::alpha=value
+                lemb_key_val_list = embed_type.split("::")
+                lemb_type = lemb_key_val_list[0]
+                lemb_kwargs = {}
+                for key_val_str in lemb_key_val_list[1:]:
+                    key, val = key_val_str.split("=")
+                    if key == "Z":
+                        Z = smat_util.load_matrix(val)
+                        lemb_kwargs.update({"Z": Z})
+                    elif key == "alpha":
+                        alpha = float(val)
+                        lemb_kwargs.update({"alpha": alpha})
+                    else:
+                        raise ValueError(f"key={key}, val={val} is not supported!")
+                if "lf" in lemb_type and lemb_kwargs.get("Z", None) is None:
+                    raise ValueError(
+                        "pifa_lf_concat/pifa_lf_convex_combine must provide external path for Z."
+                    )
                 # Create label features
-                label_feat_set[embed_type] = LabelEmbeddingFactory.create(Y, X, method=embed_type)
+                label_feat_set[embed_type] = LabelEmbeddingFactory.create(
+                    Y,
+                    X,
+                    method=lemb_type,
+                    **lemb_kwargs,
+                )
                 XLinearModel.save_feature_matrix(label_embed_path, label_feat_set[embed_type])
 
         for indexer_values in itertools.product(

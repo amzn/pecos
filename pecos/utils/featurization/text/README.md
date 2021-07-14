@@ -35,30 +35,23 @@ Here is an toy json file `config.json` that defines the n-gram TFIDF hyper-param
     "base_vect_configs": [
       {
         "ngram_range": [1, 1],
-        "max_feature": 20,
-		"max_df_ratio": 0.98,
+        "max_df_ratio": 0.98,
         "analyzer": "word"
       },
       {
         "ngram_range": [2, 2],
-        "max_feature": 30,
-		"max_df_ratio": 0.98,
+        "max_df_ratio": 0.98,
         "analyzer": "word"
       },
       {
         "ngram_range": [3, 3],
-        "max_feature": 10,
-		"max_df_ratio": 0.98,
+        "max_df_ratio": 0.98,
         "analyzer": "char_wb"
       }
     ]
   }
 }
 ```
-where the n-gram TFIDF vector consists of 
-* a word unigram features of size 20,
-* a word bigram features of size 30,
-* a character trigram features of size 10.
 
 ***WARNING***: Users need to properly set `max_feature` (e.g., hundred of thousands or millions) based on the corpus size and downstream tasks!
 
@@ -68,7 +61,7 @@ We first build the TF-IDF vectorizer model via this command line
 python3 -m pecos.utils.featurization.text.preprocess build \
   --text-pos 0 \
   --input-text-path ./input.txt \
-  --vectorizer-config-path ./config.josn \
+  --vectorizer-config-path ./config.json \
   --output-model-folder ./tfidf-model
 ```
 The TF-IDF model is built and saved in the `./tfidf-model` folder.

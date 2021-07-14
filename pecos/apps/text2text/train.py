@@ -125,7 +125,10 @@ def parse_arguments(args):
         type=cli.comma_separated_type(str),
         default="pifa",
         metavar="STR-LIST",
-        help="Label embedding types. (default pifa). Multiple values (separated by comma) are supported and will lead to different individual models for ensembling.",
+        help="Label embedding types. (default pifa).\
+            We support pifa, pifa_lf_concat::Z=path, and pifa_lf_convex_combine::Z=path::alpha=scalar_value,\
+            where path is the additional user-porivded label embedding path and alpha is the scalar value for convex combination.\
+            Multiple values (separated by comma) are supported and will lead to different individual models for ensembling.",
     )
 
     parser.add_argument(
