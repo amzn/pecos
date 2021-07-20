@@ -117,6 +117,16 @@ If you find PECOS useful, please consider citing our papers.
 }
 ```
 
+* W. Chang, D. Jiang et. al., [Extreme Multi-label Learning for Semantic Matching in Product Search](https://arxiv.org/pdf/2106.12657.pdf), KDD 2021.
+```bibtex
+@inproceedings{chang2021extreme,
+  title={Extreme Multi-label Learning for Semantic Matching in Product Search},
+  author={Chang, Wei-Cheng and Jiang, Daniel and Yu, Hsiang-Fu and Teo, Choon-Hui and Zhang, Jiong and Zhong, Kai and Kolluri, Kedarnath and Hu, Qie and Shandilya, Nikhil and Ievgrafov, Vyacheslav and Singh, Japinder and Dhillon, Inderjit S},
+  booktitle={Proceedings of the 27th ACM SIGKDD International Conference on Knowledge Discovery \& Data Mining},
+  year={2021}
+}
+```
+
 * W. Chang, H. Yu, K. Zhong, Y. Yang, I. Dhillon, [Taming pretrained transformers for extreme multi-label text classification](https://arxiv.org/pdf/1905.02331.pdf), KDD 2020.
 ```bibtex
 @inproceedings{chang2020taming,
