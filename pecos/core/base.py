@@ -563,7 +563,7 @@ class corelib(object):
         ]
         corelib.fillprototype(self.clib_float32.c_xlinear_predict_drm_f32, None, arg_list)
 
-        # Interface for sparse select output prediction
+        # Interface for sparse selected output prediction
         arg_list = [
             c_void_p,
             POINTER(ScipyCsrF32),
@@ -573,10 +573,10 @@ class corelib(object):
             ScipyCompressedSparseAllocator.CFUNCTYPE,
         ]
         corelib.fillprototype(
-            self.clib_float32.c_xlinear_predict_select_outputs_csr_f32, None, arg_list
+            self.clib_float32.c_xlinear_predict_on_selected_outputs_csr_f32, None, arg_list
         )
 
-        # Interface for dense select output prediction
+        # Interface for dense selected output prediction
         arg_list = [
             c_void_p,
             POINTER(ScipyDrmF32),
@@ -586,7 +586,7 @@ class corelib(object):
             ScipyCompressedSparseAllocator.CFUNCTYPE,
         ]
         corelib.fillprototype(
-            self.clib_float32.c_xlinear_predict_select_outputs_drm_f32, None, arg_list
+            self.clib_float32.c_xlinear_predict_on_selected_outputs_drm_f32, None, arg_list
         )
 
         # c interface for loading just model tree directly (no tfidf)
@@ -631,7 +631,7 @@ class corelib(object):
             self.clib_float32.c_xlinear_single_layer_predict_drm_f32, None, arg_list
         )
 
-        # c interface for per-layer select output prediction
+        # c interface for per-layer selected output prediction
         arg_list = [
             POINTER(ScipyCsrF32),
             POINTER(ScipyCsrF32),
@@ -644,7 +644,9 @@ class corelib(object):
             ScipyCompressedSparseAllocator.CFUNCTYPE,
         ]
         corelib.fillprototype(
-            self.clib_float32.c_xlinear_single_layer_predict_select_outputs_csr_f32, None, arg_list
+            self.clib_float32.c_xlinear_single_layer_predict_on_selected_outputs_csr_f32,
+            None,
+            arg_list,
         )
 
         arg_list = [
@@ -659,7 +661,9 @@ class corelib(object):
             ScipyCompressedSparseAllocator.CFUNCTYPE,
         ]
         corelib.fillprototype(
-            self.clib_float32.c_xlinear_single_layer_predict_select_outputs_drm_f32, None, arg_list
+            self.clib_float32.c_xlinear_single_layer_predict_on_selected_outputs_drm_f32,
+            None,
+            arg_list,
         )
 
         res_list = c_uint32
@@ -756,11 +760,11 @@ class corelib(object):
             pred_alloc.cfunc,
         )
 
-    def xlinear_predict_select_outputs(
+    def xlinear_predict_on_selected_outputs(
         self,
         c_model,
         X,
-        select_outputs_csr,
+        selected_outputs_csr,
         overriden_post_processor_str,
         threads,
         pred_alloc,
@@ -775,7 +779,7 @@ class corelib(object):
             X: The query matrix (admissible formats are smat.csr_matrix,
                 np.ndarray, ScipyCsrF32, or ScipyDrmF32). Note that if this is smat.csr_matrix,
                 the matrix must have sorted indices. You can call sort_indices() to ensure this.
-            select_outputs_csr (csr_matrix): the select outputs to predict
+            selected_outputs_csr (csr_matrix): the selected outputs to predict
             overriden_post_processor_str (string): Overrides the post processor to use by name. Use
                 None for model defaults.
             threads (int): Sets the number of threads to use in computation. Use
@@ -791,23 +795,23 @@ class corelib(object):
         elif isinstance(X, np.ndarray):
             X = ScipyDrmF32.init_from(X)
 
-        if not isinstance(select_outputs_csr, smat.csr_matrix):
+        if not isinstance(selected_outputs_csr, smat.csr_matrix):
             raise ValueError(
-                "type(select_outputs_csr) = {} not implemented".format(type(select_outputs_csr))
+                "type(selected_outputs_csr) = {} not implemented".format(type(selected_outputs_csr))
             )
-        select_outputs_csr = ScipyCsrF32.init_from(select_outputs_csr)
+        selected_outputs_csr = ScipyCsrF32.init_from(selected_outputs_csr)
 
         if isinstance(X, ScipyCsrF32):
-            c_predict = clib.c_xlinear_predict_select_outputs_csr_f32
+            c_predict = clib.c_xlinear_predict_on_selected_outputs_csr_f32
         elif isinstance(X, ScipyDrmF32):
-            c_predict = clib.c_xlinear_predict_select_outputs_drm_f32
+            c_predict = clib.c_xlinear_predict_on_selected_outputs_drm_f32
         else:
             raise NotImplementedError("type(X) = {} not implemented".format(type(X)))
 
         c_predict(
             c_model,
             byref(X),
-            byref(select_outputs_csr),
+            byref(selected_outputs_csr),
             overriden_post_processor_str.encode("utf-8") if overriden_post_processor_str else None,
             threads,
             pred_alloc.cfunc,
@@ -881,10 +885,10 @@ class corelib(object):
             pred_alloc.cfunc,
         )
 
-    def xlinear_single_layer_predict_select_outputs(
+    def xlinear_single_layer_predict_on_selected_outputs(
         self,
         X,
-        select_outputs_csr,
+        selected_outputs_csr,
         csr_codes,
         W,
         C,
@@ -900,7 +904,7 @@ class corelib(object):
             X (csr_matrix or ndarray): The query matrix.
                 Note that if this is smat.csr_matrix, the matrix must have sorted indices.
                 You can call sort_indices() to ensure this.
-            select_outputs_csr (csr_matrix): The select output to predict
+            selected_outputs_csr (csr_matrix): The selected output to predict
             csr_codes (smat.csr_matrix or ScipyCsrF32): The prediction for the previous layer, None if this is the first layer.
             W (smat.csc_matrix, ScipyCscF32): The weight matrix for this layer.
             C (smat.csc_matrix, ScipyCscF32): The child/parent map for this layer.
@@ -915,7 +919,7 @@ class corelib(object):
 
         W = ScipyCscF32.init_from(W)
 
-        select_outputs_csr = ScipyCsrF32.init_from(select_outputs_csr)
+        selected_outputs_csr = ScipyCsrF32.init_from(selected_outputs_csr)
 
         if isinstance(X, smat.csr_matrix):
             if not X.has_sorted_indices:
@@ -925,9 +929,9 @@ class corelib(object):
             X = ScipyDrmF32.init_from(X)
 
         if isinstance(X, ScipyCsrF32):
-            c_single_layer_predict = clib.c_xlinear_single_layer_predict_select_outputs_csr_f32
+            c_single_layer_predict = clib.c_xlinear_single_layer_predict_on_selected_outputs_csr_f32
         elif isinstance(X, ScipyDrmF32):
-            c_single_layer_predict = clib.c_xlinear_single_layer_predict_select_outputs_drm_f32
+            c_single_layer_predict = clib.c_xlinear_single_layer_predict_on_selected_outputs_drm_f32
         else:
             raise NotImplementedError("type(X) = {} not implemented".format(type(X)))
 
@@ -941,7 +945,7 @@ class corelib(object):
 
         c_single_layer_predict(
             byref(X),
-            byref(select_outputs_csr),
+            byref(selected_outputs_csr),
             byref(csr_codes) if csr_codes is not None else None,
             byref(W),
             byref(C),
