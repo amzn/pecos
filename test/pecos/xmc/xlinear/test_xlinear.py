@@ -253,8 +253,8 @@ def test_cli(tmpdir):
         )
         assert process.returncode == 0, " ".join(cmd)
         true_Yt_pred = smat_util.load_matrix(true_Y_pred_file)
-        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
-        assert Yt_select_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+        Yt_selected_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_selected_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
         # Evaluate
         cmd = []
@@ -329,8 +329,8 @@ def test_cli(tmpdir):
         )
         assert process.returncode == 0, " ".join(cmd)
         true_Yt_pred = smat_util.load_matrix(true_Y_pred_file)
-        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
-        assert Yt_select_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+        Yt_selected_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_selected_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
         # Training with User Supplied Negative
         M = (Y * C).tocsc()
@@ -437,8 +437,8 @@ def test_cli(tmpdir):
         )
         assert process.returncode == 0, " ".join(cmd)
         true_Yt_pred_with_man = smat_util.load_matrix(true_Y_pred_with_man_file)
-        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
-        assert Yt_select_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
+        Yt_selected_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_selected_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
 
         # Training with Matcher Aware Negatives
         cmd = []
@@ -486,8 +486,8 @@ def test_cli(tmpdir):
         )
         assert process.returncode == 0, " ".join(cmd)
         true_Yt_pred_with_man = smat_util.load_matrix(true_Y_pred_with_man_file)
-        Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
-        assert Yt_select_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
+        Yt_selected_pred = smat_util.load_matrix(test_Y_pred_file)
+        assert Yt_selected_pred.todense() == approx(true_Yt_pred_with_man.todense(), abs=1e-6)
 
         # Training with various number of splits to construct hierarchy
         for splits in [2, 4]:
@@ -538,8 +538,8 @@ def test_cli(tmpdir):
             assert process.returncode == 0, " ".join(cmd)
 
             true_Yt_pred = smat_util.load_matrix(true_Yt_pred_with_splits[splits])
-            Yt_select_pred = smat_util.load_matrix(test_Y_pred_file)
-            assert Yt_select_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
+            Yt_selected_pred = smat_util.load_matrix(test_Y_pred_file)
+            assert Yt_selected_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
 
 def test_split_model_at_depth():
@@ -847,7 +847,7 @@ def test_get_submodel():
     assert 3 in out["active_labels"]
 
 
-def test_predict_consistency_between_topk_and_select(tmpdir):
+def test_predict_consistency_between_topk_and_selected(tmpdir):
     from pecos.xmc import PostProcessor, Indexer, LabelEmbeddingFactory
     from pecos.xmc.xlinear import XLinearModel
 
@@ -877,19 +877,19 @@ def test_predict_consistency_between_topk_and_select(tmpdir):
             py_dense_topk_pred = model.predict(X.todense(), post_processor=pp)
 
             # Sparse Input
-            py_select_sparse_topk_pred = model.predict(
-                X, select_outputs_csr=py_sparse_topk_pred, post_processor=pp
+            py_selected_sparse_topk_pred = model.predict(
+                X, selected_outputs_csr=py_sparse_topk_pred, post_processor=pp
             )
             # Dense Input
-            py_select_dense_topk_pred = model.predict(
-                X.todense(), select_outputs_csr=py_dense_topk_pred, post_processor=pp
+            py_selected_dense_topk_pred = model.predict(
+                X.todense(), selected_outputs_csr=py_dense_topk_pred, post_processor=pp
             )
 
             assert py_sparse_topk_pred.todense() == approx(
-                py_select_sparse_topk_pred.todense(), abs=1e-6
+                py_selected_sparse_topk_pred.todense(), abs=1e-6
             ), f"model:{model_folder_local} (batch, sparse, topk) post_processor:{pp})"
             assert py_dense_topk_pred.todense() == approx(
-                py_select_dense_topk_pred.todense(), abs=1e-6
+                py_selected_dense_topk_pred.todense(), abs=1e-6
             ), f"model:{model_folder_local} (batch, dense, topk) post_processor:{pp})"
 
             # Realtime mode topk
@@ -901,21 +901,21 @@ def test_predict_consistency_between_topk_and_select(tmpdir):
                 py_dense_realtime_pred = model.predict(query_slice.todense(), post_processor=pp)
 
                 # Sparse Input
-                py_select_sparse_realtime_pred = model.predict(
-                    query_slice, select_outputs_csr=py_sparse_realtime_pred, post_processor=pp
+                py_selected_sparse_realtime_pred = model.predict(
+                    query_slice, selected_outputs_csr=py_sparse_realtime_pred, post_processor=pp
                 )
                 # Dense input
-                py_select_dense_realtime_pred = model.predict(
+                py_selected_dense_realtime_pred = model.predict(
                     query_slice.todense(),
-                    select_outputs_csr=py_dense_realtime_pred,
+                    selected_outputs_csr=py_dense_realtime_pred,
                     post_processor=pp,
                 )
 
                 assert py_sparse_realtime_pred.todense() == approx(
-                    py_select_sparse_realtime_pred.todense(), abs=1e-6
+                    py_selected_sparse_realtime_pred.todense(), abs=1e-6
                 ), f"model:{model_folder_local} (realtime, sparse, topk) post_processor:{pp}"
                 assert py_dense_realtime_pred.todense() == approx(
-                    py_select_dense_realtime_pred.todense(), abs=1e-6
+                    py_selected_dense_realtime_pred.todense(), abs=1e-6
                 ), f"model:{model_folder_local} (realtime, dense, topk) post_processor:{pp}"
 
     for model_folder_local in model_folder_list:

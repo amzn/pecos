@@ -359,7 +359,7 @@ class XLinearModel(pecos.BaseClass):
         self,
         X,
         pred_params=None,
-        select_outputs_csr=None,
+        selected_outputs_csr=None,
         **kwargs,
     ):
         """Predict on given input data
@@ -367,7 +367,7 @@ class XLinearModel(pecos.BaseClass):
         Args:
             X (csr_matrix(float32) or ndarray(float32)): instance feature matrix to predict on
             pred_params (XLinearModel.PredParams, optional): instance of XLinearModel.PredParams
-            select_outputs_csr (csr_matrix, optional): instance label matrix to predict from with
+            selected_outputs_csr (csr_matrix, optional): instance label matrix to predict from with
                 shape (instances, labels). Interested labels to predict are denoted only by indices
                 with a nonzero value.
             kwargs:
@@ -381,11 +381,11 @@ class XLinearModel(pecos.BaseClass):
                     Defaults to -1 to use all
 
         Returns:
-            Y_pred (csr_matrix): If a select output matrix is provided, the prediction for the
+            Y_pred (csr_matrix): If a selected output matrix is provided, the prediction for the
                 indicated output is returned. Otherwise, a prediction matrix for some topk
                 scores is returned.
         """
-        if select_outputs_csr is None:
+        if selected_outputs_csr is None:
             if pred_params is None:
                 Y_pred = self.model.predict(X, pred_params=None, **kwargs)
             elif isinstance(pred_params, self.PredParams):
@@ -394,12 +394,12 @@ class XLinearModel(pecos.BaseClass):
                 raise TypeError("type(pred_kwargs) is not supported")
         else:
             if pred_params is None:
-                Y_pred = self.model.predict_select_outputs(
-                    X, select_outputs_csr, pred_params=None, **kwargs
+                Y_pred = self.model.predict_on_selected_outputs(
+                    X, selected_outputs_csr, pred_params=None, **kwargs
                 )
             elif isinstance(pred_params, self.PredParams):
-                Y_pred = self.model.predict_select_outputs(
-                    X, select_outputs_csr, pred_params=pred_params.hlm_args, **kwargs
+                Y_pred = self.model.predict_on_selected_outputs(
+                    X, selected_outputs_csr, pred_params=pred_params.hlm_args, **kwargs
                 )
             else:
                 raise TypeError("type(pred_kwargs) is not supported")

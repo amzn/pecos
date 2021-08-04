@@ -73,26 +73,26 @@ extern "C" {
     C_XLINEAR_PREDICT(_drm_f32, ScipyDrmF32, pecos::drm_t)
 
 
-    #define C_XLINEAR_PREDICT_SELECT_OUTPUTS(SUFFIX, PY_MAT, C_MAT) \
-    void c_xlinear_predict_select_outputs ## SUFFIX( \
+    #define C_XLINEAR_PREDICT_ON_SELECTED_OUTPUTS(SUFFIX, PY_MAT, C_MAT) \
+    void c_xlinear_predict_on_selected_outputs ## SUFFIX( \
         void* ptr, \
         const PY_MAT* input_x, \
-        const ScipyCsrF32* select_outputs_csr, \
+        const ScipyCsrF32* selected_outputs_csr, \
         const char* overridden_post_processor_str, \
         const int threads, \
         py_sparse_allocator_t pred_alloc) { \
         pecos::HierarchicalMLModel* mc = static_cast<pecos::HierarchicalMLModel*>(ptr); \
         C_MAT X(input_x); \
-        pecos::csr_t curr_outputs_csr = pecos::csr_t(select_outputs_csr).deep_copy(); \
+        pecos::csr_t curr_outputs_csr = pecos::csr_t(selected_outputs_csr).deep_copy(); \
         pecos::csr_t result; \
-        mc->predict_select_outputs(X, curr_outputs_csr, result, overridden_post_processor_str, \
+        mc->predict_on_selected_outputs(X, curr_outputs_csr, result, overridden_post_processor_str, \
         threads); \
         result.create_pycsr(pred_alloc); \
         result.free_underlying_memory(); \
         curr_outputs_csr.free_underlying_memory(); \
     }
-    C_XLINEAR_PREDICT_SELECT_OUTPUTS(_csr_f32, ScipyCsrF32, pecos::csr_t)
-    C_XLINEAR_PREDICT_SELECT_OUTPUTS(_drm_f32, ScipyDrmF32, pecos::drm_t)
+    C_XLINEAR_PREDICT_ON_SELECTED_OUTPUTS(_csr_f32, ScipyCsrF32, pecos::csr_t)
+    C_XLINEAR_PREDICT_ON_SELECTED_OUTPUTS(_drm_f32, ScipyDrmF32, pecos::drm_t)
 
 
     #define C_XLINEAR_SINGLE_LAYER_PREDICT(SUFFIX, PY_MAT, C_MAT) \
@@ -132,10 +132,10 @@ extern "C" {
     C_XLINEAR_SINGLE_LAYER_PREDICT(_drm_f32, ScipyDrmF32, pecos::drm_t)
 
 
-    #define C_XLINEAR_SINGLE_LAYER_PREDICT_SELECT_OUTPUTS(SUFFIX, PY_MAT, C_MAT) \
-    void c_xlinear_single_layer_predict_select_outputs ## SUFFIX( \
+    #define C_XLINEAR_SINGLE_LAYER_PREDICT_ON_SELECTED_OUTPUTS(SUFFIX, PY_MAT, C_MAT) \
+    void c_xlinear_single_layer_predict_on_selected_outputs ## SUFFIX( \
         const PY_MAT* input_x, \
-        const ScipyCsrF32* select_outputs_csr, \
+        const ScipyCsrF32* selected_outputs_csr, \
         const ScipyCsrF32* csr_codes, \
         ScipyCscF32* W, \
         ScipyCscF32* C, \
@@ -144,7 +144,7 @@ extern "C" {
         const float bias, \
         py_sparse_allocator_t pred_alloc) { \
         C_MAT X(input_x); \
-        pecos::csr_t curr_outputs_csr = pecos::csr_t(select_outputs_csr).deep_copy(); \
+        pecos::csr_t curr_outputs_csr = pecos::csr_t(selected_outputs_csr).deep_copy(); \
         pecos::csr_t prev_layer_pred; \
         bool is_first_layer; \
         if (csr_codes) { \
@@ -160,15 +160,15 @@ extern "C" {
         pecos::csc_t W_ = pecos::csc_t(W); \
         pecos::MLModelMetadata metadata(bias, 0, post_processor_str); \
         pecos::MLModel<pecos::csc_t> layer(W_, C_, 0, false, metadata); \
-        layer.predict_select_outputs(X, curr_outputs_csr, prev_layer_pred, is_first_layer, \
+        layer.predict_on_selected_outputs(X, curr_outputs_csr, prev_layer_pred, is_first_layer, \
             post_processor_str, cur_layer_pred, num_threads); \
         cur_layer_pred.create_pycsr(pred_alloc); \
         cur_layer_pred.free_underlying_memory(); \
         curr_outputs_csr.free_underlying_memory(); \
         prev_layer_pred.free_underlying_memory(); \
     }
-    C_XLINEAR_SINGLE_LAYER_PREDICT_SELECT_OUTPUTS(_csr_f32, ScipyCsrF32, pecos::csr_t)
-    C_XLINEAR_SINGLE_LAYER_PREDICT_SELECT_OUTPUTS(_drm_f32, ScipyDrmF32, pecos::drm_t)
+    C_XLINEAR_SINGLE_LAYER_PREDICT_ON_SELECTED_OUTPUTS(_csr_f32, ScipyCsrF32, pecos::csr_t)
+    C_XLINEAR_SINGLE_LAYER_PREDICT_ON_SELECTED_OUTPUTS(_drm_f32, ScipyDrmF32, pecos::drm_t)
 
 
     #define C_XLINEAR_SINGLE_LAYER_TRAIN(SUFFIX, PY_MAT, C_MAT) \
