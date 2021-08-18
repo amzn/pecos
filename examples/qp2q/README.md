@@ -77,16 +77,20 @@ If you find the code useful, please consider citing our paper.
 * [Session-Aware Query Auto-completion using Extreme Multi-label Ranking (Yadav et al., KDD 2021)](https://arxiv.org/pdf/2012.07654.pdf)  [[bib]](../../bibtex/yadav2021session.bib)
 
 ```bibtex
-
-@article{Yadav_2021,
-   title={Session-Aware Query Auto-completion using Extreme Multi-Label Ranking},
-   ISBN={9781450383325},
-   url={http://dx.doi.org/10.1145/3447548.3467087},
-   DOI={10.1145/3447548.3467087},
-   journal={Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery & Data Mining},
-   publisher={ACM},
-   author={Yadav, Nishant and Sen, Rajat and Hill, Daniel N. and Mazumdar, Arya and Dhillon, Inderjit S.},
-   year={2021},
-   month={Aug}
+@inproceedings{Yadav2021session,
+author = {Yadav, Nishant and Sen, Rajat and Hill, Daniel N. and Mazumdar, Arya and Dhillon, Inderjit S.},
+title = {Session-Aware Query Auto-Completion Using Extreme Multi-Label Ranking},
+year = {2021},
+isbn = {9781450383325},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3447548.3467087},
+doi = {10.1145/3447548.3467087},
+booktitle = {Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery \& Data Mining},
+pages = {3835–3844},
+numpages = {10},
+keywords = {session-aware, extreme multi-label ranking, multi-label, auto-complete},
+location = {Virtual Event, Singapore},
+series = {KDD '21}
 }
 ```
