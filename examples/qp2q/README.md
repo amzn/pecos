@@ -4,12 +4,14 @@ This folder contains code to train session-aware query-autocompletion models and
 in ["Session-Aware Query-Autocompletion using eXtreme Multi-Label Ranking, KDD 2021"](https://arxiv.org/abs/2012.07654).
 
 ## Getting Started
-
-Install PECOS(v.0.1.0) using instructions from [here](https://github.com/amzn/pecos/blob/mainline/README.md).   
-Install other dependencies by running the following command.  
+* Clone the repository and enter `examples/qp2q` directory. 
+* First create a [virtual environment](https://docs.python.org/3/library/venv.html) and then install dependencies 
+by running the following command:
 ```bash 
 pip install -r requirements.txt  
 ```
+If you're unfamiliar with Python virtual environments, check out the 
+[user guide](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/).
 
 ## Pre-procesing data
 * Download AOL Search Logs data from [here](http://www.cim.mcgill.ca/~dudek/206/Logs/AOL-user-ct-collection/).

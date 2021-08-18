@@ -15,7 +15,6 @@ def get_model(eval_config):
     model_info = WorkerMeta.subtypes
     logger.info("Loading {0} for {1}".format(eval_config["driver"], eval_config["name"]))
 
-
     model_klass = model_info[eval_config["driver"]]
     model = model_klass(**eval_config["args"]) if "args" in eval_config else model_klass()
 
@@ -88,8 +87,8 @@ def main(argv):
     )
     args = parser.parse_args(argv)
     config_file = args.config_file
-    save_dir    = args.save_dir
-    gt_file     = args.gt_file
+    save_dir = args.save_dir
+    gt_file = args.gt_file
 
     with open(config_file, "r") as f:
         config_dict = json.load(f)

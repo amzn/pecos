@@ -29,11 +29,11 @@ def create_query_freq_based_trie(fdir, f_compressed, fname):
     trie = CharTrie()
 
     LOGGER.info("Computed sum of each col")
-    flat_mat = np.sum(sdf.data_matrix, axis=0) # Compute sum for each col
+    flat_mat = np.sum(sdf.data_matrix, axis=0)  # Compute sum for each col
     assert flat_mat.shape == (1, sdf.data_matrix.shape[1])
 
     LOGGER.info("Creating label_freq dictionary")
-    label_freq = {c: flat_mat[0 ,sdf.c2i[c]] for c in sdf.c2i}
+    label_freq = {c: flat_mat[0, sdf.c2i[c]] for c in sdf.c2i}
     LOGGER.info("Created label_freq dictionary")
 
     trie.update(label_freq)
@@ -42,16 +42,21 @@ def create_query_freq_based_trie(fdir, f_compressed, fname):
     res_dir = os.path.dirname(fname)
     Path(res_dir).mkdir(exist_ok=True, parents=True)
     with open("{}".format(fname), "wb") as trie_file:
-        pickle.dump(trie,  trie_file, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(trie, trie_file, protocol=pickle.HIGHEST_PROTOCOL)
 
-    LOGGER.info("Saved trie in {}/{}".format(res_dir,fname))
+    LOGGER.info("Saved trie in {}/{}".format(res_dir, fname))
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Create label frequency trie')
-    parser.add_argument('--fdir', type=str, required=True, help="path to data files")
-    parser.add_argument('--f_compressed', type=int, default=0, help="are data files compressed?")
-    parser.add_argument('--out_fname', type=str, default="data", help="name of trie model file used when saving trie")
+    parser = argparse.ArgumentParser(description="Create label frequency trie")
+    parser.add_argument("--fdir", type=str, required=True, help="path to data files")
+    parser.add_argument("--f_compressed", type=int, default=0, help="are data files compressed?")
+    parser.add_argument(
+        "--out_fname",
+        type=str,
+        default="data",
+        help="name of trie model file used when saving trie",
+    )
 
     args = parser.parse_args()
     fdir = args.fdir

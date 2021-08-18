@@ -22,7 +22,13 @@ from pecos.xmc import LabelEmbeddingFactory
 from pecos.xmc.xlinear.model import XLinearModel
 from pecos.utils.featurization.text.vectorizers import vectorizer_dict
 
-from qp2q.models.indices import TrieIndexer, HybridIndexer, HKMeans_w_MLC, build_prefix_mlc_mat, reduce_chain_len
+from qp2q.models.indices import (
+    TrieIndexer,
+    HybridIndexer,
+    HKMeans_w_MLC,
+    build_prefix_mlc_mat,
+    reduce_chain_len,
+)
 from qp2q.models.vectorizers import *
 
 LOGGER = logging.getLogger(__name__)
@@ -30,7 +36,7 @@ MODEL_DICT = {}
 
 
 class ModelMeta(ABCMeta):
-    """ Collects all tacos models in model_dict """
+    """Collects all tacos models in model_dict"""
 
     def __new__(cls, name, bases, attr):
         cls = super().__new__(cls, name, bases, attr)
@@ -40,7 +46,7 @@ class ModelMeta(ABCMeta):
 
 
 class BaseModel(BaseEstimator, metaclass=ModelMeta):
-    """ Base class for TACOS models """
+    """Base class for TACOS models"""
 
     def __init__(self, **kwargs):
         super(BaseEstimator, self).__init__()
@@ -314,7 +320,9 @@ class PecosQP2QModel(BaseModel):
         out = []
         for i, idx in enumerate(results.indices):
             item = self.model.get_output_item(idx)
-            if not item.startswith(prefix) or len(item) == 0: # Filter-out suggestions that do not match prefix
+            if (
+                not item.startswith(prefix) or len(item) == 0
+            ):  # Filter-out suggestions that do not match prefix
                 continue
             out.append((item, results.data[i]))
             if len(out) == topk:
@@ -328,9 +336,9 @@ class PecosQP2QModel(BaseModel):
         max_iterations,
         seed,
         depth=-1,
-        imbalanced_ratio=0.,
+        imbalanced_ratio=0.0,
         imbalanced_depth=100,
-        nr_splits=2
+        nr_splits=2,
     ):
         """
         Method builds clusters using pifa embeddings of the labels.
@@ -361,13 +369,18 @@ class PecosQP2QModel(BaseModel):
 
         """
         LOGGER.info("Creating index for training.")
-        if self.indexer_type not in Indexer.indexer_dict and self.indexer_type.lower() not in Indexer.indexer_dict:
+        if (
+            self.indexer_type not in Indexer.indexer_dict
+            and self.indexer_type.lower() not in Indexer.indexer_dict
+        ):
             raise ValueError(f"{self.indexer_type} is not supported in PECOS.")
 
         if self.indexer_type.lower() == "trieindexer":
 
             LOGGER.info("Depth of cluster matrix is = {}".format(depth))
-            self.cluster_matrix = TrieIndexer.gen(feat_mat=None, label_strs=self.label_universe, depth=depth)
+            self.cluster_matrix = TrieIndexer.gen(
+                feat_mat=None, label_strs=self.label_universe, depth=depth
+            )
 
             LOGGER.info("Created cluster matrix")
 
@@ -400,7 +413,7 @@ class PecosQP2QModel(BaseModel):
                 spherical=self.spherical_clustering,
                 imbalanced_depth=imbalanced_depth,
                 imbalanced_ratio=imbalanced_ratio,
-                nr_splits=nr_splits
+                nr_splits=nr_splits,
             )
             LOGGER.info("Length of cluster matrix = {}".format(len(self.cluster_matrix)))
 
@@ -414,11 +427,17 @@ class PecosQP2QModel(BaseModel):
                 spherical=self.spherical_clustering,
                 imbalanced_depth=imbalanced_depth,
                 imbalanced_ratio=imbalanced_ratio,
-                nr_splits=nr_splits
+                nr_splits=nr_splits,
             )
             if depth != -1:
-                LOGGER.info("Reducing length of cluster matrix from {} to {}".format(len(self.cluster_matrix), depth))
-                self.cluster_matrix = reduce_chain_len(cluster_chain=self.cluster_matrix, max_depth=depth)
+                LOGGER.info(
+                    "Reducing length of cluster matrix from {} to {}".format(
+                        len(self.cluster_matrix), depth
+                    )
+                )
+                self.cluster_matrix = reduce_chain_len(
+                    cluster_chain=self.cluster_matrix, max_depth=depth
+                )
 
         try:
             LOGGER.info("Length of cluster matrix = {}".format(len(self.cluster_matrix)))
@@ -426,24 +445,23 @@ class PecosQP2QModel(BaseModel):
             LOGGER.info("Error raised : {} ".format(str(e)))
             pass
 
-
     def fit(
-            self,
-            X,
-            y,
-            seed=121,
-            Cp=1.0,
-            Cn=1.0,
-            n_jobs=16,
-            threshold=0.1,
-            max_iterations=20,
-            max_leaf_size=100,
-            dim_for_PIFA=None,
-            label_text_features=None,
-            depth=0,
-            imbalanced_ratio=0.,
-            imbalanced_depth=100,
-            nr_splits=2
+        self,
+        X,
+        y,
+        seed=121,
+        Cp=1.0,
+        Cn=1.0,
+        n_jobs=16,
+        threshold=0.1,
+        max_iterations=20,
+        max_leaf_size=100,
+        dim_for_PIFA=None,
+        label_text_features=None,
+        depth=0,
+        imbalanced_ratio=0.0,
+        imbalanced_depth=100,
+        nr_splits=2,
     ):
         """
         Class method to train the q2a model by breaking down the process into two steps: i. Clustering ii. Training.
@@ -498,8 +516,13 @@ class PecosQP2QModel(BaseModel):
         else:
             if self.indexer_type.lower() == "trieindexer":
                 LOGGER.info("Generating index structure using Trie")
-                self._build_clusters(label_features=None, max_leaf_size=max_leaf_size,
-                                     max_iterations=0, seed=0, depth=depth)
+                self._build_clusters(
+                    label_features=None,
+                    max_leaf_size=max_leaf_size,
+                    max_iterations=0,
+                    seed=0,
+                    depth=depth,
+                )
             else:
                 if self.weighted_pifa:
                     label_features = LabelEmbeddingFactory.pifa(X=X, Y=y)
@@ -511,12 +534,19 @@ class PecosQP2QModel(BaseModel):
                 if label_text_features is not None:
                     # Concat PIFA features with some features extracted from label text
                     if label_features.shape[0] != label_text_features.shape[0]:
-                        raise ValueError("Some labels in the label_text_features do not have features in label_features or the other way")
+                        raise ValueError(
+                            "Some labels in the label_text_features do not have features in label_features or the other way"
+                        )
 
                     LOGGER.info("Beginning to append label text feature to PIFA embedding")
-                    label_features = smat.csr_matrix(smat.hstack([label_features[:, :dim_for_PIFA], label_text_features]))
-                    LOGGER.info("Appending features from label text to PIFA features. Final feature mat dim is {}".format(
-                        label_features.shape))
+                    label_features = smat.csr_matrix(
+                        smat.hstack([label_features[:, :dim_for_PIFA], label_text_features])
+                    )
+                    LOGGER.info(
+                        "Appending features from label text to PIFA features. Final feature mat dim is {}".format(
+                            label_features.shape
+                        )
+                    )
 
                 self._build_clusters(
                     label_features=label_features,
@@ -526,7 +556,7 @@ class PecosQP2QModel(BaseModel):
                     depth=depth,
                     imbalanced_depth=imbalanced_depth,
                     imbalanced_ratio=imbalanced_ratio,
-                    nr_splits=nr_splits
+                    nr_splits=nr_splits,
                 )
                 del label_features
                 gc.collect()
@@ -582,9 +612,7 @@ class PecosQP2QModel(BaseModel):
             raise ValueError("Error: model has not been trained")
         if labels_to_keep:
             self.model.set_output_constraint(labels_to_keep)
-            LOGGER.info(
-                f"Restricted labels universe to {len(labels_to_keep)} asins"
-            )
+            LOGGER.info(f"Restricted labels universe to {len(labels_to_keep)} asins")
 
         X = self.vectorizer.predict(samples)
         if isinstance(query_features_df, pd.DataFrame):
@@ -594,9 +622,7 @@ class PecosQP2QModel(BaseModel):
             )
         num_queries = X.shape[0]
         LOGGER.info(f"Inferring pecos scores for {num_queries} samples.")
-        batch_indices = np.array_split(
-            np.arange(num_queries), max(num_queries // batch_size, 1)
-        )
+        batch_indices = np.array_split(np.arange(num_queries), max(num_queries // batch_size, 1))
         X = smat.csr_matrix(X, dtype=np.float32)
         gc.collect()
         Y_list = []
@@ -614,9 +640,7 @@ class PecosQP2QModel(BaseModel):
         LOGGER.info("Model prediction complete")
         return Y
 
-    def transform(
-        self, sparse_data_frame, query_features_df=None, inplace=False
-    ):
+    def transform(self, sparse_data_frame, query_features_df=None, inplace=False):
         """
         Method to featurize input sparse data and create X, y matrices for training.
 
@@ -642,9 +666,7 @@ class PecosQP2QModel(BaseModel):
         There is an option to load a pretrained vectorizer to featurize the Q-A matrix and use non-text query features if available.
         """
         self.label_universe = list(sparse_data_frame.i2c.values())
-        LOGGER.info(
-            f"Number of asins in label universe: {len(self.label_universe)}"
-        )
+        LOGGER.info(f"Number of asins in label universe: {len(self.label_universe)}")
 
         if self.load_trained_vectorizer:
             trained_vectorizer = self.vectorizer

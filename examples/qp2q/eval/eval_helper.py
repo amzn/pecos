@@ -82,7 +82,7 @@ class AbstractWorker(metaclass=WorkerMeta):
 
 
 class PecosSuggester(AbstractWorker):
-    """Generate Suggestions using PECOS Auto-complete suggestion model """
+    """Generate Suggestions using PECOS Auto-complete suggestion model"""
 
     def __init__(
         self,
@@ -144,11 +144,7 @@ class PrefFreqSuggester(AbstractWorker):
     Queries retrieve using smaller prefix are appended to list of queries that exactly match the prefix.
     """
 
-    def __init__(
-        self,
-        model_path,
-        topk
-    ):
+    def __init__(self, model_path, topk):
         """
         Initialize suggestor.
 
@@ -178,15 +174,17 @@ class PrefFreqSuggester(AbstractWorker):
         """
         if prefix in self.pref_to_topk:
             if len(self.pref_to_topk[prefix]) >= self.topk:
-                return self.pref_to_topk[prefix][:self.topk]
+                return self.pref_to_topk[prefix][: self.topk]
             elif len(prefix) > 0:
                 more_labels = self._get_suggestions(prefix=prefix[:-1])
                 perfect_match_labels, _ = zip(*self.pref_to_topk[prefix])
                 perfect_match_labels = set(perfect_match_labels)
-                all_labels = self.pref_to_topk[prefix] + [(l,f) for (l,f) in more_labels[:self.topk] if l not in perfect_match_labels]
-                return all_labels[:self.topk]
+                all_labels = self.pref_to_topk[prefix] + [
+                    (l, f) for (l, f) in more_labels[: self.topk] if l not in perfect_match_labels
+                ]
+                return all_labels[: self.topk]
             else:
-                return self.pref_to_topk[prefix][:self.topk]
+                return self.pref_to_topk[prefix][: self.topk]
         elif len(prefix) > 0:
             """
             In case prefix does not have top-k suggestions already computed, and  prefix is greater than 1 char,

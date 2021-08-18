@@ -25,6 +25,7 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 
+
 def _make_float_array():
     """Construct an array.array of a type suitable for scipy.sparse indices."""
     return array.array("f")
@@ -334,12 +335,8 @@ class TfidfQueryOnly(pecos_vects.Vectorizer):
 
         """
         os.makedirs(vectorizer_folder, exist_ok=True)
-        with open(
-            pathlib.Path(vectorizer_folder, "vectorizer_query.pkl"), "wb"
-        ) as pfile:
-            pickle.dump(
-                self.model_query, pfile, protocol=pickle.HIGHEST_PROTOCOL
-            )
+        with open(pathlib.Path(vectorizer_folder, "vectorizer_query.pkl"), "wb") as pfile:
+            pickle.dump(self.model_query, pfile, protocol=pickle.HIGHEST_PROTOCOL)
         with open(pathlib.Path(vectorizer_folder, "delim.json"), "w") as jfile:
             json.dump({"delim": self.delim}, jfile)
 
@@ -354,15 +351,11 @@ class TfidfQueryOnly(pecos_vects.Vectorizer):
             Folder to load the model from
 
         """
-        with open(
-            pathlib.Path(vectorizer_folder, "vectorizer_query.pkl"), "rb"
-        ) as pfile:
+        with open(pathlib.Path(vectorizer_folder, "vectorizer_query.pkl"), "rb") as pfile:
             model_query = pickle.load(pfile)
         with open(pathlib.Path(vectorizer_folder, "delim.json"), "r") as jfile:
             delim = json.load(jfile)["delim"]
-        return cls(
-            model_query=model_query, delim=delim
-        )
+        return cls(model_query=model_query, delim=delim)
 
     @classmethod
     def train(cls, trn_corpus, config={}, dtype=np.float32):
@@ -424,4 +417,3 @@ class TfidfQueryOnly(pecos_vects.Vectorizer):
         )
         query_features.sort_indices()
         return query_features
-
