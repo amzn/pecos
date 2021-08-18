@@ -36,10 +36,10 @@ def calc_mrr_bleu(gt_data_iterator, pred_data_iterator):
 
         wgtd_bleu_score = 0.
         normalizer = 0.
-        # for i, curr_pred in enumerate(preds):
-        #     wgtd_bleu_score += bleu_score.sentence_bleu([gt_label.split()], curr_pred.split(), smoothing_function=SmoothingFunction().method1)/(i+1)
-        #     normalizer += 1.0 / (i + 1)
-        # wgtd_bleu_score = wgtd_bleu_score/normalizer if normalizer > 0 else wgtd_bleu_score
+        for i, curr_pred in enumerate(preds):
+            wgtd_bleu_score += bleu_score.sentence_bleu([gt_label.split()], curr_pred.split(), smoothing_function=SmoothingFunction().method1)/(i+1)
+            normalizer += 1.0 / (i + 1)
+        wgtd_bleu_score = wgtd_bleu_score/normalizer if normalizer > 0 else wgtd_bleu_score
         all_bleu.append(wgtd_bleu_score)
 
     return {"mrr": np.mean(all_mrr),
