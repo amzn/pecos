@@ -21,13 +21,12 @@ random.seed(SEED)
 
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO,
-    )
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+)
 
 _FUNC = None  # place holder to Pool functions.
-
 
 
 def worker_init(func):
@@ -65,9 +64,7 @@ def parallel_array_apply(arr, func, threads=8, len_threshold=None):
     if len(arr) < len_threshold or threads == 1:
         return func(arr)
     chunks = np.array_split(arr, threads)
-    with Pool(
-        processes=threads, initializer=worker_init, initargs=(func,)
-    ) as pool:
+    with Pool(processes=threads, initializer=worker_init, initargs=(func,)) as pool:
         results = pool.map(worker, chunks)
     return np.concatenate(results)
 
@@ -157,15 +154,9 @@ class SparseDataFrame(object):
         -------------
         An object of the class
         """
-        data_matrix = smat.load_npz(
-            str(pathlib.Path(folder_path, "matrix.npz"))
-        )
-        i2r = pickle.load(
-            open(str(pathlib.Path(folder_path, "i2r.pkl")), "rb")
-        )
-        i2c = pickle.load(
-            open(str(pathlib.Path(folder_path, "i2c.pkl")), "rb")
-        )
+        data_matrix = smat.load_npz(str(pathlib.Path(folder_path, "matrix.npz")))
+        i2r = pickle.load(open(str(pathlib.Path(folder_path, "i2r.pkl")), "rb"))
+        i2c = pickle.load(open(str(pathlib.Path(folder_path, "i2c.pkl")), "rb"))
         return cls(data_matrix=data_matrix, columns=i2c, rows=i2r)
 
     @classmethod
@@ -191,9 +182,7 @@ class SparseDataFrame(object):
         """
         pdata = dataframe.loc[dataframe[col_val] != 0]
         pdata = pdata.set_index([col_row, col_col])
-        mat = smat.csr_matrix(
-            (pdata[col_val], (pdata.index.codes[0], pdata.index.codes[1]))
-        )
+        mat = smat.csr_matrix((pdata[col_val], (pdata.index.codes[0], pdata.index.codes[1])))
         return cls(
             data_matrix=mat,
             columns=pdata.index.levels[1],
@@ -224,9 +213,7 @@ class SparseDataFrame(object):
         k1 = np.array(key[1]).reshape(-1)
         out_data, rows, columns = self.get_submatrix_data(k0, k1)
         if isinstance(out_data, smat.csr_matrix):
-            return SparseDataFrame(
-                data_matrix=out_data, rows=rows, columns=columns
-            )
+            return SparseDataFrame(data_matrix=out_data, rows=rows, columns=columns)
         return out_data
 
     def get_submatrix_data(self, rows, columns):
@@ -336,9 +323,7 @@ class SparseDataFrame(object):
         sparse data-frame object transposed
         """
         data_matrix = smat.csc_matrix(self.data_matrix).transpose()
-        return SparseDataFrame(
-            data_matrix=data_matrix, rows=self.i2c, columns=self.i2r
-        )
+        return SparseDataFrame(data_matrix=data_matrix, rows=self.i2c, columns=self.i2r)
 
     def transpose_(self):
         """
@@ -351,9 +336,7 @@ class SparseDataFrame(object):
         self.i2r, self.i2c = self.i2c, self.i2r
         self.r2i, self.c2i = self.c2i, self.r2i
 
-    def set_values(
-        self, rows, columns, values, lil_matrix=False, merge_type="replace"
-    ):
+    def set_values(self, rows, columns, values, lil_matrix=False, merge_type="replace"):
         """
         Set the given indices with the given 'values'
         It might be more efficient to convert the matrix m in lil_matrix format
@@ -384,10 +367,7 @@ class SparseDataFrame(object):
         row_indices = self.get_rows2index(rows)
         column_indices = self.get_columns2index(columns)
         prev_values = np.array(
-            [
-                self.data_matrix[row_indices[i], column_indices[i]]
-                for i in range(len(row_indices))
-            ]
+            [self.data_matrix[row_indices[i], column_indices[i]] for i in range(len(row_indices))]
         )
         if merge_type == "replace":
             write_values = values
@@ -480,9 +460,7 @@ class SparseDataFrame(object):
         self.data_matrix = smat.coo_matrix(
             (values, (row, col)), shape=(len(new_i2r), len(new_i2c))
         ).tocsr()
-        sdf.data_matrix = (
-            sdf.data_matrix.tocsr()
-        )  # changed back to original format
+        sdf.data_matrix = sdf.data_matrix.tocsr()  # changed back to original format
         self.i2r = new_i2r
         self.r2i = new_r2i
         self.c2i = new_c2i
@@ -560,9 +538,7 @@ class SparseDataFrame(object):
         return new_i2o, new_o2i
 
     @staticmethod
-    def _map_rows_cols_join(
-        data_matrix, i2r, i2c, new_r2i, new_c2i, threads=1
-    ):
+    def _map_rows_cols_join(data_matrix, i2r, i2c, new_r2i, new_c2i, threads=1):
         """
         Helper function to map rows and columns to new indices,
         during join.
@@ -573,9 +549,7 @@ class SparseDataFrame(object):
         LOGGER.info("Created vectorized mappings of rows and columns")
         rows, cols = (
             parallel_array_apply(data_matrix.row, row_mapper, threads=threads),
-            parallel_array_apply(
-                data_matrix.col, column_mapper, threads=threads
-            ),
+            parallel_array_apply(data_matrix.col, column_mapper, threads=threads),
         )
         _FUNC = None
         gc.collect()

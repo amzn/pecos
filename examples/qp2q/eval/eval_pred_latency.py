@@ -9,6 +9,7 @@ import numpy as np
 import os.path as path
 
 from qp2q.eval.gen_pred_data import get_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,11 +95,13 @@ def eval_pred_latency(config_dict, pred_data_path, gt_data_file, num_samples, wa
     json.dump(config_dict, open(_out, "w"))
 
     latency_data_file = pred_data_path.replace("pred_data", "latency_data")
-    _benchmark_model(model=model,
-                     gt_data_file=gt_data_file,
-                     latency_data_file=latency_data_file,
-                     num_samples=num_samples,
-                     warmup_samples=warmup_samples)
+    _benchmark_model(
+        model=model,
+        gt_data_file=gt_data_file,
+        latency_data_file=latency_data_file,
+        num_samples=num_samples,
+        warmup_samples=warmup_samples,
+    )
 
     logger.info("Latency Eval finished")
 
@@ -138,15 +141,20 @@ def main(argv):
 
     args = parser.parse_args(argv)
     config_file = args.config_file
-    save_dir    = args.save_dir
-    gt_file     = args.gt_file
+    save_dir = args.save_dir
+    gt_file = args.gt_file
     num_samples = args.num_samples
-    warmup_samples  = args.warmup_samples
+    warmup_samples = args.warmup_samples
 
     with open(config_file, "r") as f:
         config_dict = json.load(f)
-    eval_pred_latency(config_dict=config_dict, save_dir=save_dir, gt_data_file=gt_file,
-                      num_samples=num_samples, warmup_samples=warmup_samples)
+    eval_pred_latency(
+        config_dict=config_dict,
+        save_dir=save_dir,
+        gt_data_file=gt_file,
+        num_samples=num_samples,
+        warmup_samples=warmup_samples,
+    )
 
 
 if __name__ == "__main__":
