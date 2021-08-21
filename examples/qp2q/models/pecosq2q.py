@@ -231,19 +231,6 @@ class PecosQP2QModel(BaseModel):
         with open(pathlib.Path(folder_path, "xlinear_ensemble/config.json"), "w") as f:
             json.dump(other_params, f)
 
-        # add layer-specific ranker configs
-        param_path = pathlib.Path(folder_path, "xlinear_ensemble/0/ranker/param.json")
-        with open(param_path, "r", encoding="utf-8") as fin:
-            ranker_param = json.loads(fin.read())
-        for layer_param_path in glob.glob(
-            os.path.join(folder_path, "xlinear_ensemble/0/ranker/*model", "param.json")
-        ):
-            with open(layer_param_path, "r", encoding="utf-8") as flayer:
-                layer_param = json.loads(flayer.read())
-                layer_param["pred_kwargs"] = ranker_param["pred_kwargs"]
-            with open(layer_param_path, "w", encoding="utf-8") as flayer:
-                flayer.write(json.dumps(layer_param, indent=4))
-
         LOGGER.info(f"Saved model and its attributes to {folder_path}")
 
     def get_output_items(self, indices):
