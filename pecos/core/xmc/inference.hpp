@@ -1130,7 +1130,7 @@ namespace pecos {
 
     // Prolongates the predictions of the previous layer to the select children of nodes.
     // The result is returned as a csr_t matrix.
-    csr_t prolongate_sparse_predictions(const csr_t& csr_codes, const csc_t& C, const csr_t& selected_outputs_csr) {
+    csr_t prolongate_sparse_predictions(const csr_t& prev_layer_pred, const csc_t& C, const csr_t& selected_outputs_csr) {
         typedef typename csr_t::mem_index_type mem_index_type;
         typedef typename csr_t::index_type index_type;
         typedef typename csr_t::value_type value_type;
@@ -1150,30 +1150,30 @@ namespace pecos {
         // Actually compute the resulting labels
 #pragma omp parallel for schedule(dynamic,4)
         for (index_type row = 0; row < rows; ++row) {
-            mem_index_type csr_codes_row_start = selected_outputs_csr.row_ptr[row];
-            mem_index_type csr_codes_row_end = selected_outputs_csr.row_ptr[row + 1];
+            mem_index_type prev_layer_pred_row_start = selected_outputs_csr.row_ptr[row];
+            mem_index_type prev_layer_pred_row_end = selected_outputs_csr.row_ptr[row + 1];
 
             unordered_set<index_type> valid_cols;
-            valid_cols.reserve(csr_codes_row_end - csr_codes_row_start);
-            for (mem_index_type i = csr_codes_row_start; i < csr_codes_row_end; ++i) {
+            valid_cols.reserve(prev_layer_pred_row_end - prev_layer_pred_row_start);
+            for (mem_index_type i = prev_layer_pred_row_start; i < prev_layer_pred_row_end; ++i) {
                 valid_cols.insert(selected_outputs_csr.col_idx[i]);
             }
 
-            mem_index_type csr_pred_row_start = csr_codes.row_ptr[row];
-            mem_index_type csr_pred_row_end = csr_codes.row_ptr[row + 1];
+            mem_index_type csr_pred_row_start = prev_layer_pred.row_ptr[row];
+            mem_index_type csr_pred_row_end = prev_layer_pred.row_ptr[row + 1];
 
             mem_index_type output_row_start = row_ptr[row];
             mem_index_type output_row_end = row_ptr[row + 1];
             mem_index_type k = output_row_start;
 
             for (mem_index_type i = csr_pred_row_start; i < csr_pred_row_end; ++i) {
-                mem_index_type C_col_start = C.col_ptr[csr_codes.col_idx[i]];
-                mem_index_type C_col_end = C.col_ptr[csr_codes.col_idx[i] + 1];
+                mem_index_type C_col_start = C.col_ptr[prev_layer_pred.col_idx[i]];
+                mem_index_type C_col_end = C.col_ptr[prev_layer_pred.col_idx[i] + 1];
 
                 for (mem_index_type j = C_col_start; j < C_col_end; ++j) {
                     if (valid_cols.count(C.row_idx[j])) {
                         col_idx[k] = C.row_idx[j];
-                        val[k] = csr_codes.val[i];
+                        val[k] = prev_layer_pred.val[i];
                         ++k;
                     }
                 }
@@ -1333,7 +1333,7 @@ namespace pecos {
         virtual void predict(
             const csr_t& X,
             const csr_t& prev_layer_pred,
-            bool is_first_layer,
+            bool no_prev_pred,
             const uint32_t overridden_only_topk,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
@@ -1342,7 +1342,7 @@ namespace pecos {
         virtual void predict(
             const drm_t& X,
             csr_t& prev_layer_pred,
-            bool is_first_layer,
+            bool no_prev_pred,
             const uint32_t overridden_only_topk,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
@@ -1352,8 +1352,8 @@ namespace pecos {
         virtual void predict_on_selected_outputs(
             const csr_t& X,
             const csr_t& selected_outputs_csr,
-            const csr_t& csr_codes,
-            bool is_first_layer,
+            const csr_t& prev_layer_pred,
+            bool no_prev_pred,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
             const int threads=-1
@@ -1361,8 +1361,8 @@ namespace pecos {
         virtual void predict_on_selected_outputs(
             const drm_t& X,
             const csr_t& selected_outputs_csr,
-            csr_t& csr_codes,
-            bool is_first_layer,
+            csr_t& prev_layer_pred,
+            bool no_prev_pred,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
             const int threads=-1
@@ -1712,8 +1712,8 @@ namespace pecos {
 
         // The internal prediction function for a layer, this method is templated to take any
         // supported query matrix type. It is called by both versions of the ModelLayer::predict method
-        // X should have the same number of rows as csr_codes
-        // csr_codes should have the same number of cols as layer_data.C
+        // X should have the same number of rows as prev_layer_pred
+        // prev_layer_pred should have the same number of cols as layer_data.C
         // If layer_data.bias > 0, the row number of layer_data.W, which is the dimension of W, should be one more than the number of cols of X.
         // If layer_data.bias > 0, the row number of layer_data.W, which is the dimension of W, should be one more than the number of cols of X.
         // If layer_data.bias <= 0, the row number of layer_data.W, which is the dimension of W, should be same as the number of cols of X.
@@ -1721,13 +1721,25 @@ namespace pecos {
         void predict_internal(
             const query_mat_t& X,
             const prediction_matrix_t& prev_layer_pred,
-            bool is_first_layer,
+            bool no_prev_pred,
             const uint32_t overridden_only_topk,
             const char* overridden_post_processor,
             prediction_matrix_t& curr_layer_pred,
             const int threads=-1,
             const bool b_sort_by_chunk=true
         ) {
+
+            // Check that the prev_layer_pred is of valid shape
+            if (prev_layer_pred.rows != X.rows) {
+                throw std::invalid_argument(
+                    "Instance dimension of query and prev_layer_pred matrix do not match"
+                );
+            }
+            if (prev_layer_pred.cols != layer_data.C.cols) {
+                throw std::invalid_argument(
+                    "Label dimension of prev_layer_pred and C matrix do not match"
+                );
+            }
 
             set_threads(threads);
 
@@ -1747,7 +1759,7 @@ namespace pecos {
 
             // Transform the predictions for this layer and combine with previous layer
             transform_matrix_csr(post_processor_to_use, curr_layer_pred);
-            if (!is_first_layer) {
+            if (!no_prev_pred) {
                 combine_matrices_csr(post_processor_to_use, curr_layer_pred, labels);
             }
             labels.free_underlying_memory();
@@ -1762,7 +1774,7 @@ namespace pecos {
         void predict(
             const csr_t& X,
             const csr_t& prev_layer_pred,
-            bool is_first_layer,
+            bool no_prev_pred,
             const uint32_t overridden_only_topk,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
@@ -1772,7 +1784,7 @@ namespace pecos {
             predict_internal<csr_t, csr_t>(
                 X,
                 prev_layer_pred,
-                is_first_layer,
+                no_prev_pred,
                 overridden_only_topk,
                 overridden_post_processor,
                 curr_layer_pred,
@@ -1784,7 +1796,7 @@ namespace pecos {
         void predict(
             const drm_t& X,
             csr_t& prev_layer_pred,
-            bool is_first_layer,
+            bool no_prev_pred,
             const uint32_t overridden_only_topk,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
@@ -1794,7 +1806,7 @@ namespace pecos {
             predict_internal<drm_t, csr_t>(
                 X,
                 prev_layer_pred,
-                is_first_layer,
+                no_prev_pred,
                 overridden_only_topk,
                 overridden_post_processor,
                 curr_layer_pred,
@@ -1805,13 +1817,13 @@ namespace pecos {
 
         // The internal prediction function for a sparse layer prediction, this method is templated to take any
         // supported query matrix type. It is called by both versions of the ModelLayer::predict_on_selected_outputs method
-        // X should have the same number of rows as csr_codes
+        // X should have the same number of rows as prev_layer_pred
         template <typename query_mat_t, typename prediction_matrix_t>
         void predict_on_selected_outputs_internal(
             const query_mat_t& X,
             const csr_t& selected_outputs_csr,
-            const prediction_matrix_t& csr_codes,
-            bool is_first_layer,
+            const prediction_matrix_t& prev_layer_pred,
+            bool no_prev_pred,
             const char* overridden_post_processor,
             prediction_matrix_t& curr_layer_pred,
             const int threads=-1,
@@ -1825,22 +1837,34 @@ namespace pecos {
                 );
             }
 
+            // Check that the prev_layer_pred is of valid shape
+            if (prev_layer_pred.rows != X.rows) {
+                throw std::invalid_argument(
+                    "Instance dimension of query and prev_layer_pred matrix do not match"
+                );
+            }
+            if (prev_layer_pred.cols != layer_data.C.cols) {
+                throw std::invalid_argument(
+                    "Label dimension of prev_layer_pred and C matrix do not match"
+                );
+            }
+
             set_threads(threads);
+
+            csr_t labels = prolongate_sparse_predictions(prev_layer_pred, layer_data.C, selected_outputs_csr);
 
             const PostProcessor<value_type>& post_processor_to_use =
                 (overridden_post_processor == nullptr) ? post_processor
                     : PostProcessor<value_type>::get(overridden_post_processor);
 
-            csr_t labels = prolongate_sparse_predictions(csr_codes, layer_data.C, selected_outputs_csr);
-
             // Compute predictions for this layer
             w_ops<w_matrix_t>::compute_sparse_predictions(X, layer_data.W,
                 labels.row_ptr, labels.col_idx,
-                b_sort_by_chunk, layer_data.bias, csr_codes, curr_layer_pred);
+                b_sort_by_chunk, layer_data.bias, prev_layer_pred, curr_layer_pred);
 
             // Transform the predictions for this layer and combine with previous layer
             transform_matrix_csr(post_processor_to_use, curr_layer_pred);
-            if (!is_first_layer) {
+            if (!no_prev_pred) {
                 combine_matrices_csr(post_processor_to_use, curr_layer_pred, labels);
             }
 
@@ -1850,8 +1874,8 @@ namespace pecos {
         void predict_on_selected_outputs(
             const csr_t& X,
             const csr_t& selected_outputs_csr,
-            const csr_t& csr_codes,
-            bool is_first_layer,
+            const csr_t& prev_layer_pred,
+            bool no_prev_pred,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
             const int threads=-1
@@ -1860,8 +1884,8 @@ namespace pecos {
             predict_on_selected_outputs_internal<csr_t, csr_t>(
                 X,
                 selected_outputs_csr,
-                csr_codes,
-                is_first_layer,
+                prev_layer_pred,
+                no_prev_pred,
                 overridden_post_processor,
                 curr_layer_pred,
                 threads,
@@ -1872,8 +1896,8 @@ namespace pecos {
         void predict_on_selected_outputs(
             const drm_t& X,
             const csr_t& selected_outputs_csr,
-            csr_t& csr_codes,
-            bool is_first_layer,
+            csr_t& prev_layer_pred,
+            bool no_prev_pred,
             const char* overridden_post_processor,
             csr_t& curr_layer_pred,
             const int threads=-1
@@ -1882,8 +1906,8 @@ namespace pecos {
             predict_on_selected_outputs_internal<drm_t, csr_t>(
                 X,
                 selected_outputs_csr,
-                csr_codes,
-                is_first_layer,
+                prev_layer_pred,
+                no_prev_pred,
                 overridden_post_processor,
                 curr_layer_pred,
                 threads,
@@ -2099,13 +2123,13 @@ namespace pecos {
 
                 // Determine topk for this layer
                 uint32_t local_only_topk = (i_layer == prediction_depth - 1) ? overridden_only_topk : overridden_beam_size;
-                bool is_first_layer = (i_layer == 0);
+                bool no_prev_pred = (i_layer == 0);
                 // Run beam search for one layer
                 prediction_matrix_t curr_layer_pred;
                 layer->predict(
                     queries,
                     prev_layer_pred,
-                    is_first_layer,
+                    no_prev_pred,
                     local_only_topk,
                     overridden_post_processor,
                     curr_layer_pred,
@@ -2178,14 +2202,14 @@ namespace pecos {
             for (uint32_t i_layer = 0; i_layer < prediction_depth; ++i_layer) {
                 ISpecializedModelLayer* layer = model_layers[i_layer];
 
-                bool is_first_layer = (i_layer == 0);
+                bool no_prev_pred = (i_layer == 0);
                 // Find the prediction for one layer
                 prediction_matrix_t curr_layer_pred;
                 layer->predict_on_selected_outputs(
                     queries,
                     selected_outputs_csrs[prediction_depth - 1 - i_layer],
                     prev_layer_pred,
-                    is_first_layer,
+                    no_prev_pred,
                     overridden_post_processor,
                     curr_layer_pred,
                     threads
