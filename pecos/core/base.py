@@ -865,13 +865,18 @@ class corelib(object):
         else:
             raise NotImplementedError("type(X) = {} not implemented".format(type(X)))
 
-        # csr_codes and pC might be null
-        if csr_codes is not None:
-            csr_codes = ScipyCsrF32.init_from(csr_codes)
-
         if C is None:
             C = smat.csc_matrix(np.ones((W.shape[1], 1), dtype=W.dtype))
         C = ScipyCscF32.init_from(C)
+
+        # csr_codes and pC might be null
+        if csr_codes is not None:
+            # Check that the csr_code is of valid shape
+            if csr_codes.shape[0] != X.shape[0]:
+                raise ValueError("Instance dimension of query and csr_codes matrix do not match")
+            if csr_codes.shape[1] != C.shape[1]:
+                raise ValueError("Label dimension of csr_codes and C matrix do not match")
+            csr_codes = ScipyCsrF32.init_from(csr_codes)
 
         c_single_layer_predict(
             byref(X),
@@ -935,13 +940,18 @@ class corelib(object):
         else:
             raise NotImplementedError("type(X) = {} not implemented".format(type(X)))
 
-        # prev_pred_csr and pC might be null
-        if csr_codes is not None:
-            csr_codes = ScipyCsrF32.init_from(csr_codes)
-
         if C is None:
             C = smat.csc_matrix(np.ones((W.shape[1], 1), dtype=W.dtype))
         C = ScipyCscF32.init_from(C)
+
+        # csr_codes and pC might be null
+        if csr_codes is not None:
+            # Check that the csr_code is of valid shape
+            if csr_codes.shape[0] != X.shape[0]:
+                raise ValueError("Instance dimension of query and csr_codes matrix do not match")
+            if csr_codes.shape[1] != C.shape[1]:
+                raise ValueError("Label dimension of csr_codes and C matrix do not match")
+            csr_codes = ScipyCsrF32.init_from(csr_codes)
 
         c_single_layer_predict(
             byref(X),

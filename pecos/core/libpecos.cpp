@@ -107,14 +107,14 @@ extern "C" {
         const float bias, \
         py_sparse_allocator_t pred_alloc) { \
         C_MAT X(input_x); \
-        pecos::csr_t last_layer_pred; \
-        bool is_first_layer; \
+        pecos::csr_t prev_layer_pred; \
+        bool no_prev_pred; \
         if (csr_codes) { \
-            last_layer_pred = pecos::csr_t(csr_codes).deep_copy(); \
-            is_first_layer = false; \
+            prev_layer_pred = pecos::csr_t(csr_codes).deep_copy(); \
+            no_prev_pred = false; \
         } else { \
-            last_layer_pred.fill_ones(X.rows, 1); \
-            is_first_layer = true; \
+            prev_layer_pred.fill_ones(X.rows, C->cols); \
+            no_prev_pred = true; \
         } \
         pecos::csc_t C_; \
         C_ = pecos::csc_t(C); \
@@ -122,11 +122,11 @@ extern "C" {
         pecos::csc_t W_ = pecos::csc_t(W); \
         pecos::MLModelMetadata metadata(bias, only_topk, post_processor_str); \
         pecos::MLModel<pecos::csc_t> layer(W_, C_, 0, false, metadata); \
-        layer.predict(X, last_layer_pred, is_first_layer, only_topk, \
+        layer.predict(X, prev_layer_pred, no_prev_pred, only_topk, \
             post_processor_str, cur_layer_pred, num_threads); \
         cur_layer_pred.create_pycsr(pred_alloc); \
         cur_layer_pred.free_underlying_memory(); \
-        last_layer_pred.free_underlying_memory(); \
+        prev_layer_pred.free_underlying_memory(); \
     }
     C_XLINEAR_SINGLE_LAYER_PREDICT(_csr_f32, ScipyCsrF32, pecos::csr_t)
     C_XLINEAR_SINGLE_LAYER_PREDICT(_drm_f32, ScipyDrmF32, pecos::drm_t)
@@ -146,13 +146,13 @@ extern "C" {
         C_MAT X(input_x); \
         pecos::csr_t curr_outputs_csr = pecos::csr_t(selected_outputs_csr).deep_copy(); \
         pecos::csr_t prev_layer_pred; \
-        bool is_first_layer; \
+        bool no_prev_pred; \
         if (csr_codes) { \
             prev_layer_pred = pecos::csr_t(csr_codes).deep_copy(); \
-            is_first_layer = false; \
+            no_prev_pred = false; \
         } else { \
-            prev_layer_pred.fill_ones(X.rows, 1); \
-            is_first_layer = true; \
+            prev_layer_pred.fill_ones(X.rows, C->cols); \
+            no_prev_pred = true; \
         } \
         pecos::csc_t C_; \
         C_ = pecos::csc_t(C); \
@@ -160,7 +160,7 @@ extern "C" {
         pecos::csc_t W_ = pecos::csc_t(W); \
         pecos::MLModelMetadata metadata(bias, 0, post_processor_str); \
         pecos::MLModel<pecos::csc_t> layer(W_, C_, 0, false, metadata); \
-        layer.predict_on_selected_outputs(X, curr_outputs_csr, prev_layer_pred, is_first_layer, \
+        layer.predict_on_selected_outputs(X, curr_outputs_csr, prev_layer_pred, no_prev_pred, \
             post_processor_str, cur_layer_pred, num_threads); \
         cur_layer_pred.create_pycsr(pred_alloc); \
         cur_layer_pred.free_underlying_memory(); \
