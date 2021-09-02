@@ -107,26 +107,22 @@ PECOS also offers optimized C++ implementation for fast real-time inference
 
 If you find PECOS useful, please consider citing our papers.
 
-* H. Yu, K. Zhong, I. Dhillon, [PECOS: Prediction for Enormous and Correlated Output Spaces](https://arxiv.org/pdf/2010.05878.pdf), Arxiv 2020. 
-```bibtex
-@article{yu2020pecos,
-  title={PECOS: Prediction for Enormous and Correlated Output Spaces},
-  author={Yu, Hsiang-Fu and Zhong, Kai and Dhillon, Inderjit S},
-  journal={arXiv preprint arXiv:2010.05878},
-  year={2020}
-}
-```
+* [PECOS: Prediction for Enormous and Correlated Output Spaces (Yu et al., 2020)](https://arxiv.org/pdf/2010.05878.pdf) [[bib]](./bibtex/yu2020pecos.bib)
 
-* W. Chang, H. Yu, K. Zhong, Y. Yang, I. Dhillon, [Taming pretrained transformers for extreme multi-label text classification](https://arxiv.org/pdf/1905.02331.pdf), KDD 2020.
-```bibtex
-@inproceedings{chang2020taming,
-  title={Taming pretrained transformers for extreme multi-label text classification},
-  author={Chang, Wei-Cheng and Yu, Hsiang-Fu and Zhong, Kai and Yang, Yiming and Dhillon, Inderjit S},
-  booktitle={Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery \& Data Mining},
-  pages={3163--3171},
-  year={2020}
-}
-```
+* [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., 2021)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
+
+* [Label Disentanglement in Partition-based Extreme Multilabel Classification (Liu et al., 2021)](https://arxiv.org/pdf/2106.12751.pdf) [[bib]](./bibtex/liu2021label.bib)
+
+* [Enabling Efficiency-Precision Trade-offs for Label Trees in Extreme Classification (Baharav et al., 2021)](https://arxiv.org/pdf/2106.00730.pdf) [[bib]](./bibtex/baharav2021enabling.bib)
+
+* [Extreme Multi-label Learning for Semantic Matching in Product Search (Chang et al., KDD 2021)](https://arxiv.org/pdf/2106.12657.pdf) [[bib]](./bibtex/chang2021extreme.bib)
+
+* [Session-Aware Query Auto-completion using Extreme Multi-label Ranking (Yadav et al., KDD 2021)](https://arxiv.org/pdf/2012.07654.pdf)  [[bib]](./bibtex/yadav2021session.bib)
+
+* [Top-k eXtreme Contextual Bandits with Arm Hierarchy (Sen et al., ICML 2021)](https://arxiv.org/pdf/2102.07800.pdf) [[bib]](./bibtex/sen2021top.bib)
+
+* [Taming pretrained transformers for extreme multi-label text classification (Chang et al., KDD 2020)](https://arxiv.org/pdf/1905.02331.pdf) [[bib]](./bibtex/chang2020taming.bib)
+
 
 ## License
 

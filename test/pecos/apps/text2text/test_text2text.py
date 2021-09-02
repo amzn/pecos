@@ -192,3 +192,32 @@ def test_cli(tmpdir):
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     assert process.returncode == 0
+
+    # Training with pifa_lf_concat
+    Z_pifa_file = "test/tst-data/apps/text2text/Z.pifa.npz"
+    cmd = []
+    cmd += ["python3 -m pecos.apps.text2text.train"]
+    cmd += ["-i {}".format(train_file)]
+    cmd += ["-q {}".format(item_file)]
+    cmd += ["-m {}".format(model_folder)]
+    cmd += ["--label-embed-type pifa_lf_concat::Z={}".format(Z_pifa_file)]
+    print(" ".join(cmd))
+    process = subprocess.run(
+        shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert process.returncode == 0
+
+    cmd = []
+    cmd += ["python3 -m pecos.apps.text2text.predict"]
+    cmd += ["-i {}".format(test_file)]
+    cmd += ["-m {}".format(model_folder)]
+    cmd += ["-o {}".format(test_pred_file)]
+    process = subprocess.run(
+        shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    print(" ".join(cmd))
+    assert process.returncode == 0
+    for line_test, line_true in zip(
+        open(test_pred_file, "r", encoding="utf-8"), open(true_pred_file, "r", encoding="utf-8")
+    ):
+        assert_json_string(line_test, line_true)

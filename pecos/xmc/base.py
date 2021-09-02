@@ -21,7 +21,14 @@ import dataclasses as dc
 import numpy as np
 import pecos
 import scipy.sparse as smat
-from pecos.core import ScipyCompressedSparseAllocator, ScipyCscF32, ScipyCsrF32, ScipyDrmF32, clib
+from pecos.core import (
+    ScipyCompressedSparseAllocator,
+    ScipyCscF32,
+    ScipyCsrF32,
+    ScipyDrmF32,
+    clib,
+    XLINEAR_INFERENCE_MODEL_TYPES,
+)
 from pecos.utils import smat_util
 from pecos.utils.cluster_util import ClusterChain, hierarchical_kmeans
 from sklearn.preprocessing import normalize
@@ -818,6 +825,61 @@ class MLModel(pecos.BaseClass):
 
         return pred_alloc.get()
 
+    def predict_on_selected_outputs(
+        self,
+        X,
+        selected_outputs_csr,
+        csr_codes=None,
+        pred_params=None,
+        **kwargs,
+    ):
+        """Predict on given input data
+
+        Args:
+            X (csr_matrix or ndarray): instance feature matrix to predict on
+            selected_outputs_csr (csr_matrix): the selected outputs to predict
+            csr_codes (csr_matrix): the prediction from previous matchers (nr_inst, nr_codes).
+                Default None to ignore
+            pred_params (MLModel.PredParams, optional): instance of MLModel.PredParams.
+                Default None to use the pred_params used in model training.
+            kwargs: overriding prediction parameters for backward compatibility
+                post_processor (str, optional):  override the post_processor in pred_params
+                    Default None to disable overriding
+                threads (int, optional): override the number of threads to use for training in pred_params
+                    Default to -1 to disable overriding
+
+        Returns:
+            pred_csr (csr_matrix): prediction matrix (nr_inst, nr_labels)
+        """
+        if X.shape[1] != self.nr_features:
+            raise ValueError("Feature dimension of query matrix does not match weight matrix")
+        if X.shape[0] != selected_outputs_csr.shape[0]:
+            raise ValueError("Instance dimension of query and selected output matrix do not match")
+
+        if selected_outputs_csr.shape[1] != self.nr_labels:
+            raise ValueError("Label dimension of selected output matrix does not match")
+
+        pred_params = self.get_pred_params() if pred_params is None else pred_params
+        pred_params.override_with_kwargs(kwargs)
+        if not pred_params.is_valid():
+            raise ValueError("pred_params is not valid!")
+
+        pred_alloc = ScipyCompressedSparseAllocator()
+
+        clib.xlinear_single_layer_predict_on_selected_outputs(
+            X,
+            selected_outputs_csr,
+            csr_codes,
+            self.W,
+            self.C,
+            pred_params.post_processor,
+            kwargs.get("threads", -1),
+            self.bias,
+            pred_alloc,
+        )
+
+        return pred_alloc.get()
+
     def get_submodel(self, selected_codes=None, selected_labels=None, reindex=False):
         """Slice/sparsify the model based on connections to given code and labels.
 
@@ -1051,6 +1113,26 @@ class HierarchicalMLModel(pecos.BaseClass):
             return clib.xlinear_get_int_attr(self.model_chain, "nr_labels")
         else:
             return self.model_chain[-1].nr_labels
+
+    def get_weight_matrix_type(self, layer_depth):
+        """Get the weight matrix type of a layer at a certain depth
+
+        Args:
+            layer_depth (int): The depth of the layer type to get
+
+        Returns:
+            weight_matrix_type (string): If is_predict_only=True, the weight matrix type of
+                the specified layer is returned. Otherwise if is_predict_only=False, the default
+                type "CSC" is returned.
+
+        """
+        if self.is_predict_only:
+            weight_matrix_value = clib.xlinear_get_layer_type(self.model_chain, layer_depth)
+            return list(XLINEAR_INFERENCE_MODEL_TYPES.keys())[
+                list(XLINEAR_INFERENCE_MODEL_TYPES.values()).index(weight_matrix_value)
+            ]
+        else:
+            return "CSC"
 
     def __add__(self, other):
         if self.is_predict_only:
@@ -1411,6 +1493,120 @@ class HierarchicalMLModel(pecos.BaseClass):
 
             return pred_csr
 
+    def predict_on_selected_outputs(
+        self,
+        X,
+        selected_outputs_csr,
+        pred_params=None,
+        **kwargs,
+    ):
+        """Predict on given input data
+        Args:
+            X (csr_matrix or ndarray): instance feature matrix to predict on
+            selected_outputs_csr (csr_matrix): the selected outputs to predict
+            pred_params (HierarchicalMLModel.PredParams, optional): instance of HierarchicalMLModel.PredParams.
+                Default None to use the pred_params used in model training.
+            kwargs: overriding prediction parameters for backward compatibility
+                post_processor (str, optional):  override the post_processor specified in pred_params (all layers)
+                    Default None to disable overriding
+                threads (int, optional): the number of threads to use for training.
+                    Defaults to -1 to use all
+        Returns:
+            pred_csr (csr_matrix): prediction matrix (nr_inst, nr_labels)
+        """
+        if X.dtype != np.float32:
+            raise ValueError("X.dtype = {} is not supported".format(X.dtype))
+        if not isinstance(X, smat.csr_matrix) and not (
+            isinstance(X, np.ndarray) and X.flags["C_CONTIGUOUS"]
+        ):
+            raise ValueError("type(X) = {} is not supported".format(type(X)))
+        if X.shape[1] != self.nr_features:
+            raise ValueError("Feature dimension of query matrix does not match weight matrix")
+
+        if not isinstance(selected_outputs_csr, smat.csr_matrix):
+            raise ValueError(
+                "type(selected_outputs_csr) = {} is not supported".format(
+                    type(selected_outputs_csr)
+                )
+            )
+        if selected_outputs_csr.shape[1] != self.nr_labels:
+            raise ValueError("Label dimension of selected output matrix does not match")
+
+        if X.shape[0] != selected_outputs_csr.shape[0]:
+            raise ValueError("Instance dimension of query and selected output matrix do not match")
+
+        # construct pred_params
+        if pred_params is None:
+            pred_params = self.get_pred_params()
+        elif isinstance(pred_params, self.PredParams):
+            pred_params = self.PredParams.from_dict(pred_params)
+            pred_params = self._duplicate_fields_with_name_ending_with_chain(
+                pred_params, self.PredParams, self.depth
+            )
+        else:
+            raise ValueError("unknown type(pred_params)!!")
+        pred_params.override_with_kwargs(kwargs)
+
+        if self.is_predict_only:
+            for layer_depth in range(self.depth):
+                if self.get_weight_matrix_type(layer_depth) != "CSC":
+                    raise NotImplementedError(
+                        "is_predict_only=True not supported for weight_matrix_type = {}".format(
+                            self.get_weight_matrix_type(layer_depth)
+                        )
+                    )
+
+            old_chain = self.get_pred_params().model_chain
+            new_chain = pred_params.model_chain
+
+            # check if post_processor is valid (support by C++) after overriding
+            if all(
+                old_p.post_processor == new_p.post_processor
+                for (old_p, new_p) in zip(old_chain, new_chain)
+            ):
+                overridden_post_processor = None
+            elif all(new_chain[0].post_processor == new_p.post_processor for new_p in new_chain):
+                overridden_post_processor = new_chain[0].post_processor
+            else:
+                raise NotImplementedError(
+                    "when is_predict_only=True, post_processor is not supported for overriddng"
+                )
+
+            # Call C++ code
+            pred_alloc = ScipyCompressedSparseAllocator()
+            clib.xlinear_predict_on_selected_outputs(
+                self.model_chain,
+                X,
+                selected_outputs_csr,
+                overridden_post_processor,
+                kwargs.get("threads", -1),
+                pred_alloc,
+            )
+
+            return pred_alloc.get()
+        else:
+            selected_outputs_csrs = []
+            selected_outputs_csrs.insert(0, selected_outputs_csr)
+            for d in range(self.depth - 2, -1, -1):
+                prev_csr = clib.sparse_matmul(
+                    selected_outputs_csrs[0],
+                    self.model_chain[d + 1].C,
+                    threads=kwargs.get("threads", -1),
+                ).tocsr()
+                selected_outputs_csrs.insert(0, prev_csr)
+
+            prev_pred_csr = None
+            for d in range(self.depth):
+                prev_pred_csr = self.model_chain[d].predict_on_selected_outputs(
+                    X=X,
+                    selected_outputs_csr=selected_outputs_csrs[d],
+                    csr_codes=prev_pred_csr,
+                    pred_params=pred_params.model_chain[d],
+                    threads=kwargs.get("threads", -1),
+                )
+
+            return prev_pred_csr
+
     def set_output_constraint(self, labels_to_keep):
         """
         Prune clustering tree to only output labels in labels_to_keep set.
@@ -1529,6 +1725,7 @@ class LabelEmbeddingFactory(object):
             method (string): label embedding method. (default pifa)
             kwargs:
                 Z (smat.csr_matrix or np.ndarray): label feature matrix (num_samples x num_label_features)
+                alpha (float, int or np.ndarray): weight(s) for pifa. The value(s) of alpha should be between 0.0 and 1.0.
                 threads (int): number of threads for doing sparse matrix multiplication in parallel.
                 normalized_Y (bool): if true, the rows of Y will be l2-normalized.
         Returns:

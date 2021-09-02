@@ -1,0 +1,20 @@
+{
+  "exp_id": "config_8",
+  "seed": 0,
+
+  "data_type": "aol",
+  "f_compressed": false,
+  "misc": "08",
+
+  "query_prefix_delimiter": "<@@>",
+
+  "pref_vectorizer": "poswgtd_c-tfidf",
+  "prefix_vect_data": "train_data",
+
+  "use_label_feat": true,
+  "label_vectorizer": "use_prefix_vectorizer",
+  "label_vect_data": "",
+
+  "indexer_type": "hybridindexer",
+  "depth": 3
+}

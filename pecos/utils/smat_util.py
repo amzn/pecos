@@ -440,6 +440,50 @@ def hstack_csr(matrices, dtype=None):
     return csr_matrix((data, indices, indptr), shape=(nr_rows, total_cols))
 
 
+def block_diag_csr(matrices, dtype=None):
+    """Memory efficient method to stack csr_matrices block diagonally.
+
+    The returned matrix will retain the indices order.
+
+    Args:
+        matrices (list or tuple of csr_matrix): the matrices to stack in order, with shape (NR1 x NC1), (NR2 x NC2), ...
+        dtype (dtype, optional): The data-type of the output matrix. Default None to infer from matrices
+
+    Returns:
+        csr_matrix with shape (NR1 + NR2 + ..., NC1 + NC2 + ...)
+    """
+    if not isinstance(matrices, (list, tuple)):
+        raise ValueError("matrices should be either list or tuple")
+    if any(not isinstance(X, smat.csr_matrix) for X in matrices):
+        raise ValueError("all matrix in matrices need to be csr_matrix!")
+    if len(matrices) <= 1:
+        return matrices[0] if len(matrices) == 1 else None
+
+    total_nnz = sum([int(mat.nnz) for mat in matrices])
+    total_rows = sum([int(mat.shape[0]) for mat in matrices])
+    total_cols = sum([int(mat.shape[1]) for mat in matrices])
+    # infer result dtypes from inputs
+    int32max = np.iinfo(np.int32).max
+    if dtype is None:
+        dtype = smat.sputils.upcast(*[mat.dtype for mat in matrices])
+    indices_dtype = np.int64 if total_rows > int32max else np.int32
+    indptr_dtype = np.int64 if total_nnz > int32max else np.int32
+
+    indptr = np.empty(total_rows + 1, dtype=indptr_dtype)
+    indices = np.empty(total_nnz, dtype=indices_dtype)
+    data = np.empty(total_nnz, dtype=dtype)
+    cur_row, cur_col, cur_nnz = 0, 0, 0
+    indptr[0] = 0
+    for mat in matrices:
+        data[cur_nnz : cur_nnz + mat.nnz] = mat.data
+        indices[cur_nnz : cur_nnz + mat.nnz] = mat.indices + cur_col
+        indptr[1 + cur_row : 1 + cur_row + mat.shape[0]] = mat.indptr[1:] + indptr[cur_row]
+        cur_col += mat.shape[1]
+        cur_row += mat.shape[0]
+        cur_nnz += mat.nnz
+    return csr_matrix((data, indices, indptr), shape=(total_rows, total_cols))
+
+
 def vstack_csc(matrices, dtype=None):
     """Memory efficient method to stack csc_matrices vertically.
 
@@ -482,6 +526,60 @@ def hstack_csc(matrices, dtype=None):
     if len(matrices) <= 1:
         return matrices[0] if len(matrices) == 1 else None
     return transpose(vstack_csr([transpose(mat) for mat in matrices], dtype=dtype))
+
+
+def block_diag_csc(matrices, dtype=None):
+    """Memory efficient method to stack csc_matrices block diagonally.
+
+    The returned matrix will retain the indices order.
+
+    Args:
+        matrices (list or tuple of csr_matrix): the matrices to stack in order, with shape (NR1 x NC1), (NR2 x NC2), ...
+        dtype (dtype, optional): The data-type of the output matrix. Default None to infer from matrices
+
+    Returns:
+        csc_matrix with shape (NR1+ NR2 + ..., NC1 + NC2 + ...)
+    """
+    if not isinstance(matrices, (list, tuple)):
+        raise ValueError("matrices should be either list or tuple")
+    if any(not isinstance(X, smat.csc_matrix) for X in matrices):
+        raise ValueError("all matrix in matrices need to be csc_matrix!")
+
+    if len(matrices) <= 1:
+        return matrices[0] if len(matrices) == 1 else None
+    return transpose(block_diag_csr([transpose(mat) for mat in matrices], dtype=dtype))
+
+
+def get_csc_col_nonzero(matrix):
+    """Given a matrix, returns the nonzero row ids of each col
+
+    The returned ndarray will retain the indices order.
+
+    Args:
+        matrix: the matrix to operate on, with shape (N x M)
+
+    Returns:
+        list of ndarray [a_1, a_2, a_3, ...], where a_i is an array indicate the nonzero row ids of col i
+    """
+    if not isinstance(matrix, smat.csc_matrix):
+        raise ValueError("matrix need to be csc_matrix!")
+    return [matrix.indices[matrix.indptr[i] : matrix.indptr[i + 1]] for i in range(matrix.shape[1])]
+
+
+def get_csr_row_nonzero(matrix):
+    """Given a matrix, returns the nonzero col ids of each row
+
+    The returned ndarray will retain the indices order.
+
+    Args:
+        matrix: the matrix to operate on, with shape (N x M)
+
+    Returns:
+        list of ndarray [a_1, a_2, a_3, ...], where a_i is an array indicate the nonzero col ids of row i
+    """
+    if not isinstance(matrix, smat.csr_matrix):
+        raise ValueError("matrix need to be csr_matrix!")
+    return [matrix.indices[matrix.indptr[i] : matrix.indptr[i + 1]] for i in range(matrix.shape[0])]
 
 
 def get_row_submatrices(matrices, row_indices):

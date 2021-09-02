@@ -92,6 +92,13 @@ def test_stack_csr():
     assert X_vstack.todense() == approx(np.vstack([X0, X0]))
     assert X_vstack.dtype == X1.dtype
     assert type(X_vstack) == smat.csr_matrix
+    X_block_diag = smat_util.block_diag_csr([X1, X2])
+    X_np_block_diag = np.hstack(
+        [np.vstack([X0, np.zeros_like(X0)]), np.vstack([np.zeros_like(X0), X0])]
+    )
+    assert X_block_diag.todense() == approx(X_np_block_diag)
+    assert X_block_diag.dtype == X1.dtype
+    assert type(X_block_diag) == smat.csr_matrix
 
 
 def test_stack_csc():
@@ -110,6 +117,47 @@ def test_stack_csc():
     assert X_vstack.todense() == approx(np.vstack([X0, X0]))
     assert X_vstack.dtype == X1.dtype
     assert type(X_vstack) == smat.csc_matrix
+    X_block_diag = smat_util.block_diag_csc([X1, X2])
+    X_np_block_diag = np.hstack(
+        [np.vstack([X0, np.zeros_like(X0)]), np.vstack([np.zeros_like(X0), X0])]
+    )
+    assert X_block_diag.todense() == approx(X_np_block_diag)
+    assert X_block_diag.dtype == X1.dtype
+    assert type(X_block_diag) == smat.csc_matrix
+
+
+def test_get_col_row_nonzero():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    X = np.array([[-5.0, 1.0, 0.0, 10.0], [0.0, 2.0, 0.0, 1.0], [-10.0, 11.0, 2.0, 0.0]])
+    X_csr = smat.csr_matrix(X)
+    X_csr.sort_indices()
+    row_nonzero = smat_util.get_csr_row_nonzero(X_csr)
+    X_csc = smat.csc_matrix(X)
+    X_csc.sort_indices()
+    col_nonzero = smat_util.get_csc_col_nonzero(X_csc)
+    np_row_nonzero = [[] for _ in range(X.shape[0])]
+    np_col_nonzero = [[] for _ in range(X.shape[1])]
+    xs, ys = np.nonzero(X)
+    for x, y in zip(xs, ys):
+        np_row_nonzero[x].append(y)
+        np_col_nonzero[y].append(x)
+    np_row_nonzero = [np.array(ys) for ys in np_row_nonzero]
+    np_col_nonzero = [np.array(xs) for xs in np_col_nonzero]
+
+    assert len(np_row_nonzero) == len(row_nonzero)
+    for i in range(len(row_nonzero)):
+        assert len(row_nonzero) == len(np_row_nonzero)
+        for ys, np_ys in zip(row_nonzero, np_row_nonzero):
+            assert np.all(ys == np_ys)
+
+    assert len(np_col_nonzero) == len(col_nonzero)
+    for i in range(len(col_nonzero)):
+        assert len(col_nonzero) == len(np_col_nonzero)
+        for xs, np_xs in zip(col_nonzero, np_col_nonzero):
+            assert np.all(xs == np_xs)
 
 
 def test_csr_rowwise_mul():
