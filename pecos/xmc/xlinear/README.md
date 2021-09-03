@@ -8,7 +8,7 @@ It takes sparse or dense numerical vectors as the input and outputs relevant lab
 
 Basic Training and predicting:
 ```bash
-  > python3 -m pecos.xmc.xlinear.train -x ${X_path} -y ${Y_path} -o ${model_dir}
+  > python3 -m pecos.xmc.xlinear.train -x ${X_path} -y ${Y_path} -m ${model_dir}
   > python3 -m pecos.xmc.xlinear.predict -x ${Xt_path} -m ${model_dir} -o ${Yp_path}
 ```
 
