@@ -1152,9 +1152,9 @@ class PolicyGradientNew:
         L1 = CV / 2 * (np.linalg.norm(V - self.resultV)) ** 2
         L21 = self.tau * np.sum(xlogy(self.resultM, self.resultM))
         L22 = self.tau * np.sum(xlogy(self.resultM, M))
-        L22 += self.tau * c / (1 - c) * np.sum(xlogy(tmp_b, tmp_b))
+        L22 -= self.tau * c / (1 - c) * np.sum(xlogy(tmp_b, tmp_b))
         L23 = self.tau * c / (1 - c) * np.sum(xlogy(tmp_b, tmp_M))
-        L23 += self.tau / (1 - c) * np.sum(M - self.resultM)
+        L23 -= self.tau / (1 - c) * np.sum(M - self.resultM)
         return L1 + L21 - L22 - L23
 
     def train_primal_dual_pseudo_mix(
