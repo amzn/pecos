@@ -14,8 +14,11 @@
 #include "utils/clustering.hpp"
 #include "utils/matrix.hpp"
 #include "utils/tfidf.hpp"
+#include "utils/parallel.hpp"
 #include "xmc/inference.hpp"
 #include "xmc/linear_solver.hpp"
+#include "ann/feat_vectors.hpp"
+#include "ann/hnsw.hpp"
 
 // ===== C Interface of Functions ======
 // C Interface of Types/Structures can be found in utils/matrix.hpp
@@ -341,4 +344,102 @@ extern "C" {
             throw std::runtime_error("Invalid nr_doc " + std::to_string(nr_doc));
         }
     }
+
+    // ==== C Interface of HNSW ====
+
+    typedef pecos::ann::HNSW<float, pecos::ann::FeatVecSparseIPSimd<uint32_t, float>> hnsw_csr_ip_t;
+    typedef pecos::ann::HNSW<float, pecos::ann::FeatVecSparseL2Simd<uint32_t, float>> hnsw_csr_l2_t;
+    typedef pecos::ann::HNSW<float, pecos::ann::FeatVecDenseIPSimd<float>> hnsw_drm_ip_t;
+    typedef pecos::ann::HNSW<float, pecos::ann::FeatVecDenseL2Simd<float>> hnsw_drm_l2_t;
+
+    #define C_ANN_HNSW_TRAIN(SUFFIX, PY_MAT, C_MAT, HNSW_T) \
+    void* c_ann_hnsw_train ## SUFFIX( \
+        const PY_MAT* pX, \
+        uint32_t M, \
+        uint32_t efC, \
+        uint32_t max_level, \
+        int threads) { \
+        C_MAT feat_mat(pX); \
+        HNSW_T *model_ptr = new HNSW_T(); \
+        model_ptr->train(feat_mat, M, efC, max_level, threads); \
+        return static_cast<void*>(model_ptr); \
+    }
+    C_ANN_HNSW_TRAIN(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_ip_t)
+    C_ANN_HNSW_TRAIN(_csr_l2_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_l2_t)
+    C_ANN_HNSW_TRAIN(_drm_ip_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_ip_t)
+    C_ANN_HNSW_TRAIN(_drm_l2_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_l2_t)
+
+    #define C_ANN_HNSW_DESTRUCT(SUFFIX, HNSW_T) \
+    void c_ann_hnsw_destruct ## SUFFIX(void* model_ptr) { \
+        delete static_cast<HNSW_T*>(model_ptr); \
+    }
+    C_ANN_HNSW_DESTRUCT(_drm_ip_f32, hnsw_drm_ip_t)
+    C_ANN_HNSW_DESTRUCT(_drm_l2_f32, hnsw_drm_l2_t)
+    C_ANN_HNSW_DESTRUCT(_csr_ip_f32, hnsw_csr_ip_t)
+    C_ANN_HNSW_DESTRUCT(_csr_l2_f32, hnsw_csr_l2_t)
+
+    #define C_ANN_HNSW_SEARCHERS_CREATE(SUFFIX, HNSW_T) \
+    void* c_ann_hnsw_searchers_create ## SUFFIX(void* model_ptr, uint32_t num_searcher) { \
+	    typedef typename HNSW_T::Searcher searcher_t; \
+        const auto &model = *static_cast<HNSW_T*>(model_ptr); \
+        auto searchers_ptr = new std::vector<searcher_t>(); \
+        for (int t=0; t < num_searcher; t++) { \
+            searchers_ptr->emplace_back(model.create_searcher()); \
+        } \
+        return static_cast<void*>(searchers_ptr); \
+    }
+    C_ANN_HNSW_SEARCHERS_CREATE(_drm_ip_f32, hnsw_drm_ip_t)
+    C_ANN_HNSW_SEARCHERS_CREATE(_drm_l2_f32, hnsw_drm_l2_t)
+    C_ANN_HNSW_SEARCHERS_CREATE(_csr_ip_f32, hnsw_csr_ip_t)
+    C_ANN_HNSW_SEARCHERS_CREATE(_csr_l2_f32, hnsw_csr_l2_t)
+
+    #define C_ANN_HNSW_SEARCHERS_DESTRUCT(SUFFIX, HNSW_T) \
+    void c_ann_hnsw_searchers_destruct ## SUFFIX(void* searchers_ptr) { \
+        typedef typename HNSW_T::Searcher searcher_t; \
+        delete static_cast<std::vector<searcher_t>*>(searchers_ptr); \
+    }
+    C_ANN_HNSW_SEARCHERS_DESTRUCT(_drm_ip_f32, hnsw_drm_ip_t)
+    C_ANN_HNSW_SEARCHERS_DESTRUCT(_drm_l2_f32, hnsw_drm_l2_t)
+    C_ANN_HNSW_SEARCHERS_DESTRUCT(_csr_ip_f32, hnsw_csr_ip_t)
+    C_ANN_HNSW_SEARCHERS_DESTRUCT(_csr_l2_f32, hnsw_csr_l2_t)
+
+    #define OMP_PARA_FOR _Pragma("omp parallel for schedule(dynamic,1)")
+    #define C_ANN_HNSW_PREDICT(SUFFIX, PY_MAT, C_MAT, HNSW_T) \
+    void c_ann_hnsw_predict ## SUFFIX( \
+        void* model_ptr, \
+        const PY_MAT* pX, \
+        uint32_t* ret_idx, \
+        float* ret_val, \
+        uint32_t efS, \
+        uint32_t topk, \
+        int32_t threads, \
+        void* searchers_ptr) { \
+        C_MAT feat_mat(pX); \
+	    typedef typename HNSW_T::Searcher searcher_t; \
+        const auto &model = *static_cast<HNSW_T*>(model_ptr); \
+        std::vector<searcher_t> searchers_tmp; \
+        if (searchers_ptr == NULL) { \
+            threads = (threads <= 0) ? omp_get_num_procs() : threads; \
+            for (int t=0; t < threads; t++) { \
+                searchers_tmp.emplace_back(model.create_searcher()); \
+            } \
+        } \
+        auto& searchers = (searchers_ptr == NULL) ? searchers_tmp : *static_cast<std::vector<searcher_t>*>(searchers_ptr); \
+        threads = searchers.size(); \
+        omp_set_num_threads(threads); \
+    OMP_PARA_FOR \
+        for (uint32_t qid=0; qid < feat_mat.rows; qid++) { \
+            int thread_id = omp_get_thread_num(); \
+            auto ret_pairs = searchers[thread_id].predict_single(feat_mat.get_row(qid), efS, topk); \
+            for (uint32_t k=0; k < ret_pairs.size(); k++) { \
+                ret_val[qid * topk + k] = ret_pairs[k].first; \
+                ret_idx[qid * topk + k] = ret_pairs[k].second; \
+            } \
+        } \
+    }
+    C_ANN_HNSW_PREDICT(_drm_ip_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_ip_t)
+    C_ANN_HNSW_PREDICT(_drm_l2_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_l2_t)
+    C_ANN_HNSW_PREDICT(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_ip_t)
+    C_ANN_HNSW_PREDICT(_csr_l2_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_l2_t)
+
 }
