@@ -503,6 +503,7 @@ class corelib(object):
         self.link_sparse_operations()
         self.link_clustering()
         self.link_tfidf_vectorizer()
+        self.link_ann_hnsw_methods()
 
     def link_xlinear_methods(self):
         """
@@ -1511,6 +1512,87 @@ class corelib(object):
                 pred_alloc.cfunc,
             )
         return pred_alloc.get()
+
+    def link_ann_hnsw_methods(self):
+        """
+        Specify C-lib's ANN HNSW method argument and return type.
+        """
+        data_type_map = {"drm": POINTER(ScipyDrmF32), "csr": POINTER(ScipyCsrF32)}
+        metric_type_list = ["ip", "l2"]
+        self.ann_hnsw_fn_dict = {}
+        for data_type in data_type_map:
+            for metric_type in metric_type_list:
+                local_fn_dict = {"data_type": data_type, "metric_type": metric_type}
+
+                fn_name = "train"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = c_void_p  # pointer to C/C++ pecos::ann::HNSW
+                arg_list = [
+                    data_type_map[data_type],
+                    c_uint32,  # M
+                    c_uint32,  # efC
+                    c_uint32,  # max_level
+                    c_int,  # threads
+                ]
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
+                fn_name = "destruct"
+                c_fn_name = f"c_ann_hnsw_destruct_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = None
+                arg_list = [c_void_p]  # pointer to C/C++ pecos::ann::HNSW
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
+                fn_name = "searchers_create"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = c_void_p  # pointer to C/C++ std::vector<pecos::ann::HNSW::Searcher>
+                arg_list = [
+                    c_void_p,  # pointer C/C++ pecos::ann::HNSW
+                    c_uint32,  # number of searcher
+                ]
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
+                fn_name = "searchers_destruct"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = None
+                arg_list = [c_void_p]  # pointer to C/C++ std::vector<pecos::ann::HNSW::Searcher>
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
+                fn_name = "predict"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = None
+                arg_list = [
+                    c_void_p,
+                    data_type_map[data_type],
+                    POINTER(c_uint32),  # uint32_t* ret_idx
+                    POINTER(c_float),  # float* ret_val
+                    c_uint32,  # efS
+                    c_uint32,  # topk
+                    c_int,  # threads
+                    c_void_p,  # pointer to C/C++ std::vector<pecos::ann::HNSW::Searcher>
+                ]
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
+                self.ann_hnsw_fn_dict[data_type, metric_type] = local_fn_dict
+
+    def ann_hnsw_init(self, data_type, metric_type):
+        """Python to C/C++ interface for ANN-HNSW initialization
+        Args:
+            data_type (str): data type for items/query matrices, can be either drm or csr
+            metric_type (str): metric type for computing distance functions, can be either ip or l2
+        Returns:
+            ann_hnsw_fn_dict (dict): a dictionary that holds clib's C/C++ functions for Python to call
+        """
+
+        if (data_type, metric_type) not in self.ann_hnsw_fn_dict:
+            raise NotImplementedError(
+                "data_type={} and metric_type={} is not implemented".format(data_type, metric_type)
+            )
+        return self.ann_hnsw_fn_dict[data_type, metric_type]
 
 
 clib = corelib(os.path.join(os.path.dirname(os.path.abspath(pecos.__file__)), "core"), "libpecos")

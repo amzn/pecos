@@ -27,6 +27,9 @@ namespace pecos {
 
 namespace ann {
 
+    typedef uint32_t index_type;
+    typedef uint64_t mem_index_type;
+
     struct NeighborHood {
         index_type* degree_ptr;
         index_type* neighbor_ptr;
@@ -65,7 +68,6 @@ namespace ann {
     };
 
     struct GraphBase {
-
         virtual const NeighborHood get_neighborhood(index_type node_id, index_type dummy_level_id=0) const = 0;
 
         NeighborHood get_neighborhood(index_type node_id, index_type dummy_level_id=0) {
@@ -112,9 +114,17 @@ namespace ann {
             return feat_vec_t(const_cast<void*>(get_node_feat_ptr(node_id)));
         }
 
+        inline void prefetch_node_feat(index_type node_id) const {
+#ifdef USE_SSE
+             _mm_prefetch((char*)get_node_feat_ptr(node_id), _MM_HINT_T0);
+#elif defined(__GNUC__)
+             __builtin_prefetch((char*)get_node_feat_ptr(node_id), 0, 0);
+#endif
+        }
+
         inline const void* get_node_feat_ptr(index_type node_id) const {
             if(feat_vec_t::is_fixed_size::value) {
-                return &buffer[node_id * node_mem_size + neighborhood_memory_size()];
+                return &buffer[node_id * (mem_index_type) node_mem_size + neighborhood_memory_size()];
             } else {
                 return &buffer[mem_start_of_node[node_id] + neighborhood_memory_size()];
             }
@@ -127,7 +137,7 @@ namespace ann {
         inline const NeighborHood get_neighborhood(index_type node_id, index_type dummy_level_id=0) const {
             const index_type *neighborhood_ptr = nullptr;
             if(feat_vec_t::is_fixed_size::value) {
-                neighborhood_ptr = reinterpret_cast<const index_type*>(&buffer.data()[node_id * node_mem_size]);
+                neighborhood_ptr = reinterpret_cast<const index_type*>(&buffer.data()[node_id * (mem_index_type) node_mem_size]);
             } else {
                 neighborhood_ptr = reinterpret_cast<const index_type*>(&buffer[mem_start_of_node[node_id]]);
             }
@@ -150,11 +160,11 @@ namespace ann {
             this->max_degree = max_degree;
             this->level_mem_size = 1 + max_degree;
             this->node_mem_size = max_level * this->level_mem_size;
-            buffer.resize(num_node * this->node_mem_size, 0);
+            buffer.resize(num_node * (mem_index_type) this->node_mem_size, 0);
         }
 
         inline const NeighborHood get_neighborhood(index_type node_id, index_type level_id=0) const {
-            const index_type *neighborhood_ptr = &buffer[node_id * this->node_mem_size + (level_id - 1) * this->level_mem_size];
+            const index_type *neighborhood_ptr = &buffer[node_id * (mem_index_type) this->node_mem_size + (level_id - 1) * (mem_index_type) this->level_mem_size];
             return NeighborHood((void*)neighborhood_ptr);
         }
     };
@@ -183,16 +193,20 @@ namespace ann {
         }
     };
 
+    template <typename T>
+    struct CompareByFirst {
+        constexpr bool operator()(T const &a, T const &b) const noexcept {
+            return a.first < b.first;
+        }
+    };
+
     // PECOS-HNSW Interface
     template<typename dist_t, class FeatVec_T>
     struct HNSW {
         typedef FeatVec_T feat_vec_t;
         typedef SetOfVistedNodes<unsigned short int> set_of_visited_nodes_t;
         typedef typename std::pair<dist_t, index_type> pair_t;
-        struct CompareByFirst {
-            constexpr bool operator()(pair_t const &a, pair_t const &b) const noexcept { return a.first < b.first; }
-        };
-        typedef typename std::priority_queue<pair_t, std::vector<pair_t>, CompareByFirst> max_heap_t;
+        typedef typename std::priority_queue<pair_t, std::vector<pair_t>, CompareByFirst<pair_t>> max_heap_t;
 
         struct Searcher : SetOfVistedNodes<unsigned short int> {
             typedef HNSW<dist_t, FeatVec_T> hnsw_t;
@@ -206,10 +220,14 @@ namespace ann {
                 return hnsw->search_layer(query, init_node, efS, level, *this);
             }
 
-            max_heap_t predict_single(const feat_vec_t& query, index_type efS, index_type topk) {
+            std::vector<pair_t> predict_single(const feat_vec_t& query, index_type efS, index_type topk) {
                 return hnsw->predict_single(query, efS, topk, *this);
             }
         };
+
+        Searcher create_searcher() const {
+            return Searcher(this);
+        }
 
         // scalar variables
         index_type num_node;
@@ -225,6 +243,8 @@ namespace ann {
         std::vector<index_type> node2level_vec;
         std::default_random_engine level_generator_;
 
+        // destructor
+        ~HNSW() {}
         // line 4 of Algorithm 1 in HNSW paper
         int get_random_level(double mult_l) {
             std::uniform_real_distribution<double> distribution(0.0, 1.0);
@@ -478,7 +498,14 @@ namespace ann {
 
         // Algorithm 2 of HNSW paper
         template<bool lock_free=true>
-        max_heap_t search_layer(const feat_vec_t& query, index_type init_node, index_type efS, index_type level, Searcher& searcher, std::vector<std::mutex>* mtx_nodes=nullptr) const {
+        max_heap_t search_layer(
+            const feat_vec_t& query,
+            index_type init_node,
+            index_type efS,
+            index_type level,
+            Searcher& searcher,
+            std::vector<std::mutex>* mtx_nodes=nullptr
+        ) const {
             max_heap_t topk_queue;
             max_heap_t cand_queue;
             searcher.reset();
@@ -513,7 +540,10 @@ namespace ann {
                 }
                 // visiting neighbors of candidate node
                 const auto neighbors = G->get_neighborhood(cand_node, level);
-                for(auto& next_node : neighbors) {
+                graph_l0.prefetch_node_feat(neighbors[0]);
+                for (index_type j = 0; j < neighbors.degree(); j++) {
+                    graph_l0.prefetch_node_feat(neighbors[j + 1]);
+                    auto next_node = neighbors[j];
                     if (!searcher.is_visited(next_node)) {
                         searcher.mark_visited(next_node);
                         dist_t next_lb_dist;
@@ -521,9 +551,10 @@ namespace ann {
                             query,
                             graph_l0.get_node_feat(next_node)
                         );
-                        if (next_lb_dist < topk_ub_dist || topk_queue.size() < efS) {
-                            topk_queue.emplace(next_lb_dist, next_node);
+                        if (topk_queue.size() < efS || next_lb_dist < topk_ub_dist) {
                             cand_queue.emplace(-next_lb_dist, next_node);
+                            graph_l0.prefetch_node_feat(cand_queue.top().second);
+                            topk_queue.emplace(next_lb_dist, next_node);
                             if (topk_queue.size() > efS) {
                                 topk_queue.pop();
                             }
@@ -532,7 +563,6 @@ namespace ann {
                             }
                         }
                     }
-
                 }
                 if(!lock_free){
                     delete lock_node;
@@ -541,14 +571,8 @@ namespace ann {
             return topk_queue;
         }
 
-        // Algorithm 5 of HNSW paper
-        // current implementation is not thread safe
-        max_heap_t predict_single(const feat_vec_t& query, index_type efS, index_type topk) const {
-            Searcher searcher(this);
-            return predict_single(query, efS, topk, searcher);
-        }
-
-        max_heap_t predict_single(const feat_vec_t& query, index_type efS, index_type topk, Searcher& searcher) const {
+        // Algorithm 5 of HNSW paper, thread-safe inference
+        std::vector<pair_t> predict_single(const feat_vec_t& query, index_type efS, index_type topk, Searcher& searcher) const {
             index_type curr_node = this->init_node;
             auto &G1 = graph_l1;
             auto &G0 = graph_l0;
@@ -562,7 +586,10 @@ namespace ann {
                 while (changed) {
                     changed = false;
                     const auto neighbors = G1.get_neighborhood(curr_node, curr_level);
-                    for(const auto& next_node : neighbors) {
+                    graph_l0.prefetch_node_feat(neighbors[0]);
+                    for (index_type j = 0; j < neighbors.degree(); j++) {
+                        graph_l0.prefetch_node_feat(neighbors[j + 1]);
+                        auto next_node = neighbors[j];
                         dist_t next_dist = feat_vec_t::distance(
                             query,
                             G0.get_node_feat(next_node)
@@ -581,18 +608,18 @@ namespace ann {
             while (topk_queue.size() > topk) {
                 topk_queue.pop();
             }
-            // reverse order from smallest distance indices first
-            max_heap_t results;
+            // return with smallest (distance,index) pair first
+            // if topk < number of indexed items
+            if (topk_queue.size() != topk) {
+                throw std::runtime_error("efS can not be smaller than topk. try to use larger efS or smaller topk!");
+            }
+            std::vector<pair_t> results(topk);
+            size_t sz = topk_queue.size();
             while (topk_queue.size() > 0) {
-                auto rez = topk_queue.top();
-                results.push(pair_t(rez.first, rez.second));
+                results[--sz] = topk_queue.top();
                 topk_queue.pop();
             }
             return results;
-        }
-
-        Searcher create_searcher() const {
-            return Searcher(this);
         }
     };
 
