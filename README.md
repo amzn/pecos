@@ -34,7 +34,7 @@ You should install PECOS in a [virtual environment](https://docs.python.org/3/li
 If you're unfamiliar with Python virtual environments, check out the [user guide](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/).
 
 ### Supporting Platforms
-* Ubuntu 16.04, 18.04 and 20.04
+* Ubuntu 18.04 and 20.04
 * Amazon Linux 2
 
 ### Installation from Wheel
@@ -48,7 +48,7 @@ pip3 install libpecos
 ### Installation from Source
 
 #### Prerequisite builder tools
-* For Ubuntu (16.04, 18.04, 20.04):
+* For Ubuntu (18.04, 20.04):
 ``` bash
 apt-get update && apt-get install -y build-essential git python3 python3-distutils python3-venv
 ```
