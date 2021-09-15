@@ -587,6 +587,61 @@ def test_split_model_at_depth():
     assert len(child_models[0][0].model.model_chain[0].W.data) == 20
 
 
+def test_reconstruct_model():
+    import numpy as np
+    import scipy.sparse as smat
+    from pecos.xmc.xlinear.model import XLinearModel
+    from pecos.xmc import MLModel, HierarchicalMLModel
+
+    c_matrix_1 = smat.csc_matrix([[1], [1]], dtype=np.float32)
+    w_matrix_1 = smat.csc_matrix(np.random.normal(size=(10, 2)), dtype=np.float32)
+    c_matrix_2 = smat.csc_matrix([[1, 0], [1, 0], [0, 1], [0, 1]], dtype=np.float32)
+    w_matrix_2 = smat.csc_matrix(np.random.normal(size=(10, 4)), dtype=np.float32)
+    model_chain = [MLModel(C=c_matrix_1, W=w_matrix_1), MLModel(C=c_matrix_2, W=w_matrix_2)]
+    xlm = XLinearModel(HierarchicalMLModel(model_chain))
+    model_group = xlm.split_model_at_depth(given_depth=1, reindex=True)
+    parent_model = model_group["parent_model"]
+    child_models_with_ids = model_group["child_models"]
+    child_models = [child_model_with_ids[0] for child_model_with_ids in child_models_with_ids]
+    new_xlm = XLinearModel.reconstruct_model(parent_model, child_models)
+
+    assert len(new_xlm.model.model_chain) == 2
+    assert new_xlm.model.model_chain[0].C.shape == (2, 1)
+    assert new_xlm.model.model_chain[0].W.shape == (10, 2)
+    assert new_xlm.model.model_chain[1].C.shape == (4, 2)
+    assert new_xlm.model.model_chain[1].W.shape == (10, 4)
+    assert (new_xlm.model.model_chain[0].C != xlm.model.model_chain[0].C).nnz == 0
+    assert (new_xlm.model.model_chain[0].W != xlm.model.model_chain[0].W).nnz == 0
+    assert (new_xlm.model.model_chain[1].C != xlm.model.model_chain[1].C).nnz == 0
+    assert (new_xlm.model.model_chain[1].W != xlm.model.model_chain[1].W).nnz == 0
+
+    # different c_matrix_2
+    c_matrix_1 = smat.csc_matrix([[1], [1]], dtype=np.float32)
+    w_matrix_1 = smat.csc_matrix(np.random.normal(size=(10, 2)), dtype=np.float32)
+    c_matrix_2 = smat.csc_matrix([[1, 0], [0, 1], [1, 0], [0, 1]], dtype=np.float32)
+    w_matrix_2 = smat.csc_matrix(np.random.normal(size=(10, 4)), dtype=np.float32)
+    model_chain = [MLModel(C=c_matrix_1, W=w_matrix_1), MLModel(C=c_matrix_2, W=w_matrix_2)]
+    xlm = XLinearModel(HierarchicalMLModel(model_chain))
+    model_group = xlm.split_model_at_depth(given_depth=1, reindex=True)
+    parent_model = model_group["parent_model"]
+    child_models_with_ids = model_group["child_models"]
+    child_models = [child_model_with_ids[0] for child_model_with_ids in child_models_with_ids]
+    Y_ids_of_child_models = [
+        child_model_with_ids[1] for child_model_with_ids in child_models_with_ids
+    ]
+    new_xlm = XLinearModel.reconstruct_model(parent_model, child_models, Y_ids_of_child_models)
+
+    assert len(new_xlm.model.model_chain) == 2
+    assert new_xlm.model.model_chain[0].C.shape == (2, 1)
+    assert new_xlm.model.model_chain[0].W.shape == (10, 2)
+    assert new_xlm.model.model_chain[1].C.shape == (4, 2)
+    assert new_xlm.model.model_chain[1].W.shape == (10, 4)
+    assert (new_xlm.model.model_chain[0].C != xlm.model.model_chain[0].C).nnz == 0
+    assert (new_xlm.model.model_chain[0].W != xlm.model.model_chain[0].W).nnz == 0
+    assert (new_xlm.model.model_chain[1].C != xlm.model.model_chain[1].C).nnz == 0
+    assert (new_xlm.model.model_chain[1].W != xlm.model.model_chain[1].W).nnz == 0
+
+
 def test_manual_init(tmpdir):
     import numpy as np
     from pecos.xmc.xlinear.model import XLinearModel
