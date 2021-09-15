@@ -105,9 +105,11 @@ PECOS also offers optimized C++ implementation for fast real-time inference
 
 ## Citation
 
-If you find PECOS useful, please consider citing our papers.
+If you find PECOS useful, please consider citing the following paper:
 
 * [PECOS: Prediction for Enormous and Correlated Output Spaces (Yu et al., 2020)](https://arxiv.org/pdf/2010.05878.pdf) [[bib]](./bibtex/yu2020pecos.bib)
+
+Some papers from our group using PECOS:
 
 * [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., 2021)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
 

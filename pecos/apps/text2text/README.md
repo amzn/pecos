@@ -40,7 +40,7 @@ Machine learning researchers
 Turing Award laureates
 Deep Learning
 ```
-Each line in the file is a representation of an output label, categories in Wikipedia.
+Each line is a text description of an output label, namely categories in Wikipedia.
 
 
 Now, we training the text2text model, which include feature vectorization and learning PECOS model.
@@ -48,7 +48,7 @@ We use toy TFIDF hyper-parameters in `config.json`, which can be found at [link]
 ```
 python3 -m pecos.apps.text2text.train \
   --input-text-path ./training-data.txt \
-  --vectorizer-config-path ./config.josn \
+  --vectorizer-config-path ./config.json \
   --output-item-path ./output-labels.txt \
   --model-folder ./pecos-text2text-model
 ```
