@@ -46,9 +46,9 @@ __version__ = "%s"
                 git_tag = git_desc.stdout.decode('utf-8')
                 assert re.match(r'v\d+.\d+.\d+', git_tag), f"We use tags like v0.1.0, but got {git_tag}"
                 ver = git_tag[len("v"):].strip()
-        
+
         # If cannot get version info, raise warning
-        if ver == "0.0.0":            
+        if ver == "0.0.0":
             warnings.warn(f"Unable to run retrieve version from git info, "
                         f"maybe not in a Git repository, or tag info missing? "
                         f"Will write dummy version 0.0.0 to {cls.__VERSION_FP}")
@@ -154,7 +154,7 @@ ext_module = setuptools.Extension(
     include_dirs=["pecos/core", "/usr/include/", "/usr/local/include"],
     libraries=["gomp"] + blas_lib,
     library_dirs=blas_dir,
-    extra_compile_args=["-fopenmp", "-O3", "-std=c++14"],
+    extra_compile_args=["-fopenmp", "-O3", "-std=c++14", "-mavx"],
     extra_link_args=['-Wl,--no-as-needed', f"-Wl,-rpath,{':'.join(blas_dir)}"]
     )
 

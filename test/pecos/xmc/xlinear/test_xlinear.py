@@ -128,7 +128,7 @@ def test_predict_consistency_between_python_and_cpp(tmpdir):
                 py_pred, abs=1e-6
             ), f"model:{model} (dense, bin-search) post_processor:{pp}"
             assert py_hash_chunked_dense_pred == approx(
-                py_pred, abs=1e-6
+                py_pred, abs=3e-6
             ), f"model:{model} (dense, hash) post_processor:{pp}"
             assert py_csc_dense_pred == approx(
                 py_pred, abs=1e-6
@@ -176,7 +176,7 @@ def test_predict_consistency_between_python_and_cpp(tmpdir):
                     py_pred, abs=1e-6
                 ), f"model:{model} (dense, bin-search) post_processor:{pp}, inst:{i}"
                 assert py_hash_chunked_dense_pred == approx(
-                    py_pred, abs=1e-6
+                    py_pred, abs=3e-6
                 ), f"model:{model} (dense, hash) post_processor:{pp}, inst:{i}"
                 assert py_csc_dense_pred == approx(
                     py_pred, abs=1e-6
