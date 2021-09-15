@@ -38,7 +38,12 @@ from pecos.utils import smat_util
 
 LOGGER = logging.getLogger("__name__")
 
-XLINEAR_SOLVERS = {"L2R_L2LOSS_SVC_DUAL": 1, "L2R_L1LOSS_SVC_DUAL": 3, "L2R_LR_DUAL": 7}
+XLINEAR_SOLVERS = {
+    "L2R_L2LOSS_SVC_DUAL": 1, 
+    "L2R_L1LOSS_SVC_DUAL": 3, 
+    "L2R_LR_DUAL": 7, 
+    "L2R_L2LOSS_SVC_PRIMAL": 2,
+}
 # Ordering must be consistent with with layer_type_t definition within inference.hpp
 XLINEAR_INFERENCE_MODEL_TYPES = {"CSC": 0, "HASH_CHUNKED": 1, "BINARY_SEARCH_CHUNKED": 2}
 TFIDF_TOKENIZER_CODES = {"word": 10, "char": 20, "char_wb": 30}
