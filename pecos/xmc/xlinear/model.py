@@ -299,6 +299,73 @@ class XLinearModel(pecos.BaseClass):
             )
         return split_model
 
+    @classmethod
+    def reconstruct_model(cls, parent_model, child_models, Y_ids_of_child_models=None):
+        """Reconstruct the model with parent_model and child_models
+
+        Args:
+            parent_model: a XLinearModel that has model_chain of the
+                top part of original model
+            child_models: A list of child models, each child model is a XLinearModel
+            Y_ids_of_child_models: A list of list of index mapping to original labels from the child model output.
+                For example, Y_ids_of_child_models[i][j] is the final label index of local label j from model i
+
+        Returns:
+            model: a XLinearModel that composed by parent_model and child_models
+
+        Notes:
+            As an example if parent_model is 2*1 XLinearModel, child_models are two: 2*1 XLinearModel,
+            and Y_ids_of_child_models is [[0,1], [2,3]]
+            After reconstruction, we will have a model that is a complete binary tree of depth 2, where
+            its first layer is same as parent models and the second layer is same as the concat of two child_models.
+        """
+        parent_leaf_nr = parent_model.model.model_chain[-1].C.shape[0]
+        if len(child_models) != parent_leaf_nr:
+            raise ValueError("child models number should be same as parent leaf number")
+        child_leaf_nr = child_models[0].model.model_chain[-1].C.shape[0]
+        child_depth = len(child_models[0].model.model_chain)
+        for child_model in child_models:
+            if child_depth != len(child_model.model.model_chain):
+                raise ValueError("child models should have the same depth")
+            if child_leaf_nr != child_model.model.model_chain[-1].C.shape[0]:
+                raise ValueError("child models should have the same leaf number")
+
+        if Y_ids_of_child_models is None:
+            permuted_Y_label = np.arange(int(parent_leaf_nr * child_leaf_nr))
+        else:
+            if len(Y_ids_of_child_models) != parent_leaf_nr:
+                raise ValueError("len of Y_ids_of_child_models shild be same as parent leaf number")
+            for Y_ids in Y_ids_of_child_models:
+                if len(Y_ids) != child_leaf_nr:
+                    raise ValueError("len of Y_ids should same as child leaf number")
+            permuted_Y_label = np.concatenate(Y_ids_of_child_models)
+        inv_permuted_Y_label = np.empty(len(permuted_Y_label), dtype=int)
+        for i, c in enumerate(permuted_Y_label):
+            inv_permuted_Y_label[c] = i
+        model_chain = [model for model in parent_model.model.model_chain]
+        subtree_depth = len(child_models[0].model.model_chain)
+        for d in range(subtree_depth):
+            subtree_Ws = [xlm.model.model_chain[d].W for xlm in child_models]
+            new_W = smat_util.hstack_csc(subtree_Ws)
+            subtree_Cs = [xlm.model.model_chain[d].C for xlm in child_models]
+            new_C = smat_util.block_diag_csc(subtree_Cs)
+            # this step is to avoid inconsistant of data type in large scale data
+            new_W = smat.csc_matrix((new_W.data, new_W.indices, new_W.indptr), shape=new_W.shape)
+            new_C = smat.csc_matrix((new_C.data, new_C.indices, new_C.indptr), shape=new_C.shape)
+            if d == subtree_depth - 1:
+                new_W = new_W[:, inv_permuted_Y_label]
+                new_C.indices = permuted_Y_label[new_C.indices]
+            model_chain.append(
+                MLModel(C=new_C, W=new_W, bias=child_models[0].model.model_chain[d].bias)
+            )
+        new_params = parent_model.model.get_pred_params() + child_models[0].model.get_pred_params()
+        return cls(
+            HierarchicalMLModel(
+                model_chain,
+                pred_params=new_params,
+            )
+        )
+
     @staticmethod
     def save_feature_matrix(tgt, feat_mat):
         """Save feature matrix to file
