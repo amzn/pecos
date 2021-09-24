@@ -13,18 +13,22 @@ jobs:
       uses: actions/setup-python@v1
       with:
         python-version: 3.7
+      continue-on-error: false
     - name: Install dependencies
       run: |
         python -m pip install pip
         python -m pip install --upgrade pip
+      continue-on-error: false
     - name: Black checks
       run: |
         pip install black
         make black VFLAG=-v
+      continue-on-error: true
     - name: Flake8 checks
       run: |
         pip install flake8
         make flake8 VFLAG=-v
+      continue-on-error: true
     - name: Mypy checks
       run: |
         pip install mypy
