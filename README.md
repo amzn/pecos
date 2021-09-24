@@ -34,7 +34,7 @@ You should install PECOS in a [virtual environment](https://docs.python.org/3/li
 If you're unfamiliar with Python virtual environments, check out the [user guide](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/).
 
 ### Supporting Platforms
-* Ubuntu 16.04, 18.04 and 20.04
+* Ubuntu 18.04 and 20.04
 * Amazon Linux 2
 
 ### Installation from Wheel
@@ -48,7 +48,7 @@ pip3 install libpecos
 ### Installation from Source
 
 #### Prerequisite builder tools
-* For Ubuntu (16.04, 18.04, 20.04):
+* For Ubuntu (18.04, 20.04):
 ``` bash
 apt-get update && apt-get install -y build-essential git python3 python3-distutils python3-venv
 ```
@@ -105,9 +105,11 @@ PECOS also offers optimized C++ implementation for fast real-time inference
 
 ## Citation
 
-If you find PECOS useful, please consider citing our papers.
+If you find PECOS useful, please consider citing the following paper:
 
 * [PECOS: Prediction for Enormous and Correlated Output Spaces (Yu et al., 2020)](https://arxiv.org/pdf/2010.05878.pdf) [[bib]](./bibtex/yu2020pecos.bib)
+
+Some papers from our group using PECOS:
 
 * [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., 2021)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
 
