@@ -81,7 +81,13 @@ To send us a pull request, please:
     git commit -a --amend
     git push -f
     ```
-11. Once the pull request is approved and merged, pull the changes from upstream to your local repo and delete your extra branch(es).
+11. Once the pull request is approved, do the following:
+
+    a. Check if your branch need updates from newest `mainline`. If so, click on the button and GitHub will automatically update for you.
+
+    b. Click on the draw-down menu, click on **squash-and-merge** button to merge the pull request.
+
+12. Pull the changes from upstream to your local repo and delete your extra branch(es).
 
 GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
 [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
