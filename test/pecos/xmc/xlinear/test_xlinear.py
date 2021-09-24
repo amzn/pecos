@@ -240,7 +240,7 @@ def test_consistency_of_primal(tmpdir):
             print_test_X = smat_util.load_matrix(test_X)
             print("true_Yt_pred", true_Yt_pred[:1])
             print("Yt_pred", Yt_pred[:1])
-            print("print_test_X", print_test_X[:1])
+            print("print_test_X", print_test_X[:1]) # 
             assert Yt_pred.todense() == approx(true_Yt_pred.todense(), abs=1e-6)
 
             # Select Inference
