@@ -444,30 +444,50 @@ class XLinearModel(pecos.BaseClass):
                     Default None to disable overriding
                 post_processor (str, optional):  override the post_processor specified in the model
                     Default None to disable overriding
-                threads (int, optional): the number of threads to use for training.
+                threads (int, optional): the number of threads to use for prediction.
                     Defaults to -1 to use all
+                batch_size (int, optional): the number of instances to predict in a batch.
 
         Returns:
             Y_pred (csr_matrix): If a selected output matrix is provided, the prediction for the
                 indicated output is returned. Otherwise, a prediction matrix for some topk
                 scores is returned.
         """
-        if selected_outputs_csr is None:
-            if pred_params is None:
-                Y_pred = self.model.predict(X, pred_params=None, **kwargs)
-            elif isinstance(pred_params, self.PredParams):
-                Y_pred = self.model.predict(X, pred_params=pred_params.hlm_args, **kwargs)
+        if (pred_params is not None) and (not isinstance(pred_params, self.PredParams)):
+            raise TypeError("type(pred_kwargs) is not supported")
+
+        batch_size = kwargs.get("batch_size", None)
+
+        if batch_size is None:
+            if selected_outputs_csr is None:
+                Y_pred = self.model.predict(
+                    X,
+                    pred_params=None if pred_params is None else pred_params.hlm_args,
+                    **kwargs,
+                )
             else:
-                raise TypeError("type(pred_kwargs) is not supported")
+                Y_pred = self.model.predict_on_selected_outputs(
+                    X,
+                    selected_outputs_csr,
+                    pred_params=None if pred_params is None else pred_params.hlm_args,
+                    **kwargs,
+                )
+        elif isinstance(batch_size, int):
+            Ys = []
+            new_kwargs = kwargs.copy()
+            new_kwargs.pop("batch_size")
+            for i in range(0, X.shape[0], batch_size):
+                Ye = self.predict(
+                    X[i : i + batch_size, :],
+                    pred_params=pred_params,
+                    selected_outputs_csr=selected_outputs_csr[i : i + batch_size, :]
+                    if selected_outputs_csr is not None
+                    else None,
+                    **new_kwargs,
+                )
+                Ys.append(Ye)
+            Y_pred = smat_util.vstack_csr(Ys)
         else:
-            if pred_params is None:
-                Y_pred = self.model.predict_on_selected_outputs(
-                    X, selected_outputs_csr, pred_params=None, **kwargs
-                )
-            elif isinstance(pred_params, self.PredParams):
-                Y_pred = self.model.predict_on_selected_outputs(
-                    X, selected_outputs_csr, pred_params=pred_params.hlm_args, **kwargs
-                )
-            else:
-                raise TypeError("type(pred_kwargs) is not supported")
+            raise TypeError("type(batch_size) is not supported.")
+
         return Y_pred

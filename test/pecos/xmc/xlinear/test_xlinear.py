@@ -665,6 +665,22 @@ def test_manual_init(tmpdir):
     assert Yt_pred.todense() == approx(Yt_pred_manual.todense(), abs=1e-6)
 
 
+def test_batch_prediction_mode(tmpdir):
+    import numpy as np
+    from pecos.xmc.xlinear.model import XLinearModel
+    from pecos.utils import smat_util
+
+    train_X = smat_util.load_matrix("test/tst-data/xmc/xlinear/X.npz").astype(np.float32)
+    train_Y = smat_util.load_matrix("test/tst-data/xmc/xlinear/Y.npz").astype(np.float32)
+    test_X = smat_util.load_matrix("test/tst-data/xmc/xlinear/Xt.npz").astype(np.float32)
+
+    xlm = XLinearModel.train(train_X, train_Y, bias=1.0)
+
+    Yt_pred = xlm.predict(test_X)
+    Yt_pred_batch = xlm.predict(test_X, batch_size=2)
+    assert Yt_pred.todense() == approx(Yt_pred_batch.todense(), abs=1e-6)
+
+
 def test_matcher_ranker_mode():
     from pecos.utils import smat_util
     from pecos.xmc.xlinear.model import XLinearModel
