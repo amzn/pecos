@@ -137,31 +137,15 @@ def do_predict(args):
         xlinear_model = XLinearModel.load(args.model_folder, is_predict_only=True)
 
     # Model Predicting
-    if args.batch_size is not None:
-        Yts = []
-        for i in range(0, Xt.shape[0], args.batch_size):
-            Yte = xlinear_model.predict(
-                Xt[i : i + args.batch_size, :],
-                selected_outputs_csr=selected_outputs_csr[i : i + args.batch_size, :]
-                if selected_outputs_csr is not None
-                else None,
-                only_topk=args.only_topk,
-                beam_size=args.beam_size,
-                post_processor=args.post_processor,
-                threads=args.threads,
-            )
-            Yts.append(Yte)
-        # vstack_csr will retain indices order
-        Yt_pred = smat_util.vstack_csr(Yts)
-    else:
-        Yt_pred = xlinear_model.predict(
-            Xt,
-            selected_outputs_csr=selected_outputs_csr,
-            only_topk=args.only_topk,
-            beam_size=args.beam_size,
-            post_processor=args.post_processor,
-            threads=args.threads,
-        )
+    Yt_pred = xlinear_model.predict(
+        Xt,
+        selected_outputs_csr=selected_outputs_csr,
+        only_topk=args.only_topk,
+        beam_size=args.beam_size,
+        post_processor=args.post_processor,
+        threads=args.threads,
+        batch_size=args.batch_size,
+    )
 
     # Save prediction
     if args.save_pred_path:
