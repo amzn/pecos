@@ -19,19 +19,19 @@ class MLProblemWithText(object):
 
         X_text (list of str or dict of tensors): instance text, len(text) = nr_inst
                 or dictionary of tokenized text (dict of torch.tensor)
-        X (csr_matrix or ndarray): instance numerical features, shape = (nr_inst, nr_features)
         Y (csr_matrix): training labels, shape = (nr_inst, nr_labels)
+        X_feat (csr_matrix or ndarray): instance numerical features, shape = (nr_inst, nr_features)
         C (csc_matrix, optional): clustering matrix, shape = (nr_labels, nr_codes)
         M (csr_matrix, optional): matching matrix, shape = (nr_inst, nr_codes)
                 model will be trained only on its non-zero indices
                 its values will not be used.
     """
 
-    def __init__(self, X_text, X, Y, C=None, M=None):
+    def __init__(self, X_text, Y, X_feat=None, C=None, M=None):
         self.X_text = X_text
 
-        self.X = X
         self.Y = Y
+        self.X_feat = X_feat
         self.C = C
         self.M = M
 
@@ -42,7 +42,7 @@ class MLProblemWithText(object):
         return isinstance(self.X_text, dict)
 
     def type_check(self):
-        if not isinstance(self.X, (smat.csr_matrix, np.ndarray)):
+        if self.X_feat is not None and not isinstance(self.X_feat, (smat.csr_matrix, np.ndarray)):
             raise TypeError(f"Expect X to be csr_matrix or ndarray, got {type(self.X)}")
         if not isinstance(self.Y, smat.csr_matrix):
             raise TypeError(f"Expect Y to be csr_matrix, got {type(self.Y)}")
@@ -57,11 +57,11 @@ class MLProblemWithText(object):
 
     @property
     def nr_features(self):
-        return self.X.shape[1]
+        return None if self.X_feat is None else self.X_feat.shape[1]
 
     @property
     def nr_codes(self):
-        return self.C.shape[1]
+        return None if self.C is None else self.C.shape[1]
 
 
 class XMCDataset(Dataset):

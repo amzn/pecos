@@ -17,7 +17,8 @@ from itertools import chain, repeat
 import numpy as np
 import scipy.sparse as smat
 from pecos.utils import smat_util
-from sklearn.preprocessing import normalize
+from pecos.core import clib
+from sklearn.preprocessing import normalize as sk_normalize
 
 LOGGER = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ class ClusterChain(object):
         return cls(chain)
 
     @classmethod
-    def from_partial_chain(cls, C, min_codes=2, nr_splits=2):
+    def from_partial_chain(cls, C, min_codes=None, nr_splits=16):
         """Creates the clustering matrices necessary for a valid hierarchical clustering chain.
 
         Except for the bottom level of the hierarchy chain provided, all other levels are filled with dummy CSC matrices (all-one).
@@ -146,6 +147,8 @@ class ClusterChain(object):
         Returns:
             ClusterChain: The completed hierarchical clustering chain.
         """
+        if min_codes is None:
+            min_codes = nr_splits
 
         if isinstance(C, smat.spmatrix):
             cluster_chain = [C.tocsc()]
@@ -173,24 +176,15 @@ class ClusterChain(object):
             cluster_chain = [new_C] + cluster_chain
         return cls(cluster_chain)
 
-    def genearate_matching_chain(self, M_dict):
-        """Generate a chain of instance to cluster matching matrix for user supplied negative (usn) from partial matching chain.
+    def matrix_chain_dimension_check(self, M_dict):
+        """Check dimension of matrix chain provided by dictionary with keys being number of layers above leaf elements.
 
         Args:
-            M_dict (dict): dictionary of partial matching chains, with keys being number of layers above leaf elements.
-                M_dict[i].shape[0] == nr_inst, for all i.
-                M_dict[0].shape[1] == self.chain[-1].shape[0],
-                M_dict[i].shape[1] == self.chain[-i].shape[1], for i >= 1
-                M_dict.keys() \subset range(len(self.chain)+1)
+            M_dict (dict): dictionary of partial matrix chains to check.
 
         Returns:
-            matching_chain: list of csc matrices for user supplied negatives
+            (nr_insts, nr_labels)
         """
-
-        matching_chain = [None] * (len(self) + 1)
-        # if nothing is given, return a chain of None
-        if M_dict is None or all(M_dict[x] is None for x in M_dict):
-            return matching_chain
         # get/check the dimensions
         assert isinstance(M_dict, dict)
         nr_labels = self.chain[-1].shape[0]
@@ -205,20 +199,85 @@ class ClusterChain(object):
             assert M_dict[0].shape[1] == self.chain[-1].shape[0]
         for i in range(1, len(self) + 1):
             if M_dict.get(i, None) is not None:
-                assert M_dict[i].shape[1] == self.chain[-i].shape[1]
+                assert (
+                    M_dict[i].shape[1] == self.chain[-i].shape[1]
+                ), f"{i}: {M_dict[i].shape}!={self.chain[-i].shape}"
+
+        return nr_insts, nr_labels
+
+    def generate_matching_chain(self, M_dict):
+        """Generate a chain of instance to cluster matching matrix for user supplied negative (usn) from partial matching chain.
+
+        Args:
+            M_dict (dict): dictionary of partial matching chains, with keys being number of layers above leaf elements.
+                M_dict[i].shape[0] == nr_inst, for all i.
+                M_dict[0].shape[1] == self.chain[-1].shape[0],
+                M_dict[i].shape[1] == self.chain[-i].shape[1], for i >= 1
+                M_dict.keys() \subset range(len(self.chain)+1)
+
+        Returns:
+            matching_chain: list of csc matrices for user supplied negatives
+        """
+        matching_chain = [None] * (len(self) + 1)
+        # if nothing is given, return a chain of None
+        if M_dict is None or all(M_dict[x] is None for x in M_dict):
+            return matching_chain
+
+        nr_insts, nr_labels = self.matrix_chain_dimension_check(M_dict)
+
         # construct matching chain from incomplete chain
         if M_dict.get(0, None) is not None:
             matching_chain[0] = smat_util.binarized(M_dict[0])
         else:
-            matching_chain[0] = smat.csc_matrix((nr_insts, nr_labels))
+            matching_chain[0] = smat.csc_matrix((nr_insts, nr_labels), dtype=np.float32)
         for i in range(1, len(self) + 1):
-            matching_chain[i] = matching_chain[i - 1] * self.chain[-i]
+            matching_chain[i] = clib.sparse_matmul(matching_chain[i - 1], self.chain[-i])
             if M_dict.get(i, None) is not None:
                 matching_chain[i] += smat_util.binarized(M_dict[i])
             matching_chain[i] = matching_chain[i].tocsc().sorted_indices()
         matching_chain.reverse()
 
         return matching_chain[:-1]
+
+    def generate_relevance_chain(self, R_dict, norm_type=None, induce=True):
+        """Generate a chain of instance to cluster relevance matrix for cost sensitive learning from partial relevance chain.
+
+        Args:
+            R_dict (dict): dictionary of partial relevance chains, with keys being number of layers above leaf elements.
+                R_dict[i].shape[0] == nr_inst, for all i.
+                R_dict[0].shape[1] == self.chain[-1].shape[0],
+                R_dict[i].shape[1] == self.chain[-i].shape[1], for i >= 1
+                R_dict.keys() \subset range(len(self.chain)+1)
+            norm_type (str, optional): row wise normalziation of resulting relevance matrices. Defatult None to ignore.
+                Options: ‘l1’, ‘l2’, ‘max’, 'no-norm', None
+            induce (bool, optional): whether to induce missing relevance matrix by label aggregation. Default True
+
+        Returns:
+            relevance_chain: list of csc matrices for relevance
+        """
+
+        relevance_chain = [None] * (len(self) + 1)
+        # if nothing is given, return a chain of None
+        if R_dict is None or all(R_dict[x] is None for x in R_dict):
+            return relevance_chain
+
+        self.matrix_chain_dimension_check(R_dict)
+
+        # construct relevance chain from incomplete chain
+        relevance_chain[0] = R_dict.get(0, None)
+        for i in range(1, len(self) + 1):
+            if R_dict.get(i, None) is not None:
+                relevance_chain[i] = R_dict[i]
+            elif relevance_chain[i - 1] is not None and induce:
+                relevance_chain[i] = clib.sparse_matmul(relevance_chain[i - 1], self.chain[-i])
+            else:
+                relevance_chain[i] = None
+        relevance_chain.reverse()
+
+        if norm_type not in [None, "no-norm"]:
+            relevance_chain = [sk_normalize(rr.tocsr(), norm=norm_type) for rr in relevance_chain]
+
+        return relevance_chain[1:]
 
 
 def hierarchical_kmeans(
@@ -278,8 +337,8 @@ def hierarchical_kmeans(
             c1 = feat_mat[indexer].sum(0)
             c2 = feat_mat[~indexer].sum(0)
             if spherical:
-                c1 = normalize(c1)
-                c2 = normalize(c2)
+                c1 = sk_normalize(c1)
+                c2 = sk_normalize(c2)
         return indexer
 
     global feat_mat_global

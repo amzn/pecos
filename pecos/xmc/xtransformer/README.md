@@ -1,44 +1,106 @@
-# PECOS eXtreme Multi-label Classification: XTransformer
+# PECOS eXtreme Multi-label Classification: XR-Transformer
 
 `pecos.xmc.xtransformer` is a PECOS module for extreme multi-label classification and ranking using transformer models.
-It takes both numerical vectors and instance text as the input and outputs relevant labels for the input vectors.
+It takes both numerical vectors and instance text as the input and outputs relevant labels for the inputs.
 GPUs with CUDA support is recommended to achieve the best performance of the module.
+
 
 ## Getting started
 
-### Command line usage
-Basic Training command:
+### Basic Command line usage
+
+Basic Training and predicting:
 ```bash
-  > python3 -m pecos.xmc.xtransformer.train --trn-text-path ${X_txt_path} \
-                                            --trn-feat-path ${X_path}  \
-                                            --trn-label-path ${Y_path} \
-                                            --model-dir ${model_dir}
+  > python3 -m pecos.xmc.xtransformer.train -t ${T_path} -x ${X_path} -y ${Y_path} -m ${model_dir}
+  > python3 -m pecos.xmc.xtransformer.predict -t ${Tt_path} -x ${Xt_path} -m ${model_dir} -o ${Pt_path}
 ```
-Predict on training dataset
+
+To get the evaluation metrics for top-10 predictions:
 ```bash
-  > python3 -m pecos.xmc.xtransformer.predict --feat-path ${X_path} \
-                                              --text-path ${X_txt_path} \
-                                              --model-folder ${model_dir} \
-                                              --output-dir ${Yp_path}
+  > python3 -m pecos.xmc.xlinear.evaluate -y ${Yt_path} -p ${Pt_path} -k 10
 ```
+
+You can also get the fine-tuned text embeddings via:
+```bash
+  > python3 -m pecos.xmc.xtransformer.encode -t ${Tt_path} -m ${model_dir} -o ${Emb_path}
+```
+
 where
-* `X_txt_path` is the path to the input text file of the training instances. Should be a text file with `N` lines where each line is the text feature of the corresponding training instance.
-* `X_path` is the path to the CSR npz or Row-majored npy file of the training feature matrices with shape `(N, d)`.
-* `Y_path` is the path to the CSR npz file of the training label matrices with shape `(N, L)`.
+* `T_path` and `Tt_path` are the paths to the input text file of the training/test instances. Text files with `N`/`Nt` lines where each line is the text feature of the corresponding training/test instance.
+* `X_path` and `Xt_path` are the paths to the CSR npz or Row-majored npy files of the training/test feature matrices with shape `(N, d)` and `(Nt, d)`.
+  * Note that you can use the PECOS built in text preprocessing/vectorizing module [pecos.utils.featurization.text.preprocess](https://github.com/amzn/pecos/tree/mainline/pecos/utils/featurization/text) to generate numerical features if you do not already have them.
+  * Usually providing instance numerical features is recommended. However, if you choose not to provide numerical features, `code-path` or `label-feat-path` is required to generate the hierarchical label trees.
+* `Y_path` and `Yt_path` are the paths to the CSR npz files of the training/test label matrices with shape `(N, L)` and `(Nt, L)`.
 * `model_dir` is the path to the model folder where the trained model will be saved to, will be created if not exist.
-* `Yp_path` is the path to save the prediction label matrix with shape `(N, L)`
-
-
-
-To get the evaluation metrics for top-10 predictions
-```bash
-  > python3 -m pecos.xmc.xlinear.evaluate -y ${Y_path} -p ${Yp_path} -k 10
-```
+* `Pt_path` is the path to save the prediction label matrix with shape `(Nt, L)`
+* `Emb_path` is the path to save the prediction label matrix with shape `(Nt, hidden_dim)`
 
 For detailed usage, please refer to
 ```bash
   > python3 -m pecos.xmc.xtransformer.train --help
   > python3 -m pecos.xmc.xtransformer.predict --help
+  > python3 -m pecos.xmc.xtransformer.encode --help
+```
+
+### Advanced Usage: Train/Pred params via JSON input
+`pecos.xmc.xtransformer` supports accepting training and predicting parameters from an input JSON file.
+Moreover, `python3 -m pecos.xmc.xtransformer.train` helpfully provide the option to generate all parameters in JSON format to stdout.
+
+You can generate train/pred parameter to `.json` files
+with all of the parameters that you can edit and fill in.
+```bash
+  > python3 -m pecos.xmc.xtransformer.train --generate-train-params-skeleton &> train_params.json
+  > python3 -m pecos.xmc.xtransformer.train --generate-pred-params-skeleton &> pred_params.json
+```
+After editing the `train_params.json` and `pred_params.json` files, you can do training via:
+```bash
+  > python3 -m pecos.xmc.xtransformer.train -t ${T_path} -x ${X_path} -y ${Y_path} -m ${model_dir} \
+					--train-params-path train_params.json \
+					--pred-params-path pred_params.json
+```
+
+### Python Example
+This toy example demonstrates how to train and predict with PECOS XR-Transformer module using Python API.
+
+Loading the training data
+```python
+# load training numerical feature with shape=(N, d) and label with shape=(N, L)
+from pecos.utils import smat_util
+X = smat_util.load_matrix("test/tst-data/xmc/xtransformer/train_feat.npz")
+Y = smat_util.load_matrix("test/tst-data/xmc/xtransformer/train_label.npz")
+# load training text features
+from pecos.utils.featurization.text.preprocess import Preprocessor
+_, text = Preprocessor.load_data_from_file("test/tst-data/xmc/xtransformer/train.txt", text_pos=0)
+```
+Train the XR-Transformer model
+```python
+from pecos.xmc.xtransformer.model import XTransformer
+from pecos.xmc.xtransformer.module import MLProblemWithText
+prob = MLProblemWithText(text, Y, X_feat=X)
+xtf = XTransformer.train(prob)
+```
+
+Save and load model to/from the disk.
+```python
+xtf.save("model")
+xtf = XTransformer.load("model")
+```
+
+Predict
+```python
+# P is a csr_matrix with shape=(N, L)
+P = xtf.predict(text, X)
+```
+Evaluate prediction result
+```python
+metric = smat_util.Metrics.generate(Y, P, topk=10)
+print(metric)
+```
+
+You can also get the text embeddings using the fine-tuned transformer model via:
+```python
+# X_emb is a ndarray with shape=(N, hidden_dim)
+X_emb = xtf.encode(text)
 ```
 
 ***

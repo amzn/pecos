@@ -82,19 +82,36 @@ class HierarchicalKMeans(Indexer):
     KMEANS = 0  # KMEANS
     SKMEANS = 5  # Spherical KMEANS
 
+    @dc.dataclass
+    class TrainParams(pecos.BaseParams):  # type: ignore
+        """Training Parameters of Hierarchical K-means.
+
+        nr_splits (int, optional): The out-degree of each internal node of the tree. Ignored if `imbalanced_ratio != 0` because imbalanced clustering supports only 2-means. Default is `2`.
+        min_codes (int): The number of direct child nodes that the top level of the hierarchy should have.
+        max_leaf_size (int, optional): The maximum size of each leaf node of the tree. Default is `100`.
+        imbalanced_ratio (float, optional): Value between `0.0` and `0.5` (inclusive). Indicates how relaxed the balancedness constraint of 2-means can be. Specifically, if an iteration of 2-means is clustering `L` labels, the size of the output 2 clusters will be within approx `imbalanced_ratio * 2 * L` of each other. Default is `0.0`.
+        imbalanced_depth (int, optional): Maximum depth of imbalanced clustering. After depth `imbalanced_depth` is reached, balanced clustering will be used. Default is `100`.
+        spherical (bool, optional): True will l2-normalize the centroids of k-means after each iteration. Default is `True`.
+        seed (int, optional): Random seed. Default is `0`.
+        max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
+        threads (int, optional): Number of threads to use. `-1` denotes all CPUs. Default is `-1`.
+        """
+
+        nr_splits: int = 16
+        min_codes: int = None  # type: ignore
+        max_leaf_size: int = 100
+        imbalanced_ratio: float = 0.0
+        imbalanced_depth: int = 100
+        spherical: bool = True
+        seed: int = 0
+        max_iter: int = 20
+        threads: int = -1
+
     @classmethod
     def gen(
         cls,
         feat_mat,
-        nr_splits=2,
-        min_codes=None,
-        max_leaf_size=100,
-        imbalanced_ratio=0.0,
-        imbalanced_depth=100,
-        spherical=True,
-        seed=0,
-        max_iter=20,
-        threads=-1,
+        train_params=None,
         dtype=np.float32,
         **kwargs,
     ):
@@ -102,34 +119,31 @@ class HierarchicalKMeans(Indexer):
 
         Args:
             feat_mat (numpy.ndarray or scipy.sparse.csr.csr_matrix): Matrix of label features.
-            nr_splits (int, optional): The out-degree of each internal node of the tree. Ignored if `imbalanced_ratio != 0` because imbalanced clustering supports only 2-means. Default is `2`.
-            min_codes (int): The number of direct child nodes that the top level of the hierarchy should have.
-            max_leaf_size (int, optional): The maximum size of each leaf node of the tree. Default is `100`.
-            imbalanced_ratio (float, optional): Value between `0.0` and `0.5` (inclusive). Indicates how relaxed the balancedness constraint of 2-means can be. Specifically, if an iteration of 2-means is clustering `L` labels, the size of the output 2 clusters will be within approx `imbalanced_ratio * 2 * L` of each other. Default is `0.0`.
-            imbalanced_depth (int, optional): Maximum depth of imbalanced clustering. After depth `imbalanced_depth` is reached, balanced clustering will be used. Default is `100`.
-            spherical (bool, optional): True will l2-normalize the centroids of k-means after each iteration. Default is `True`.
-            seed (int, optional): Random seed. Default is `0`.
-            max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
-            threads (int, optional): Number of threads to use. `-1` denotes all CPUs. Default is `-1`.
+            train_params (HierarchicalKMeans.TrainParams, optional): training parameters for indexing.
             dtype (type, optional): Data type for matrices. Default is `numpy.float32`.
             **kwargs: Ignored.
 
         Returns:
             ClusterChain: The generated cluster chain.
         """
-        if min_codes is None:
-            min_codes = nr_splits
+        if train_params is None:
+            train_params = cls.TrainParams.from_dict(kwargs)
+        else:
+            train_params = cls.TrainParams.from_dict(train_params)
+
+        if train_params.min_codes is None:
+            train_params.min_codes = train_params.nr_splits
 
         # use optimized c++ clustering code if doing balanced clustering
-        if imbalanced_ratio == 0:
+        if train_params.imbalanced_ratio == 0:
             nr_instances = feat_mat.shape[0]
-            depth = max(1, int(math.ceil(math.log2(nr_instances / max_leaf_size))))
+            depth = max(1, int(math.ceil(math.log2(nr_instances / train_params.max_leaf_size))))
             if (2 ** depth) > nr_instances:
                 raise ValueError(
                     f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {nr_instances} to avoid empty clusters"
                 )
 
-            algo = cls.SKMEANS if spherical else cls.KMEANS
+            algo = cls.SKMEANS if train_params.spherical else cls.KMEANS
 
             assert feat_mat.dtype == np.float32
             if isinstance(feat_mat, (smat.csr_matrix, ScipyCsrF32)):
@@ -143,22 +157,28 @@ class HierarchicalKMeans(Indexer):
 
             codes = np.zeros(py_feat_mat.rows, dtype=np.uint32)
             codes = clib.run_clustering(
-                py_feat_mat, depth, algo, seed, codes=codes, max_iter=max_iter, threads=threads
+                py_feat_mat,
+                depth,
+                algo,
+                train_params.seed,
+                codes=codes,
+                max_iter=train_params.max_iter,
+                threads=train_params.threads,
             )
             C = cls.convert_codes_to_csc_matrix(codes, depth)
             cluster_chain = ClusterChain.from_partial_chain(
-                C, min_codes=min_codes, nr_splits=nr_splits
+                C, min_codes=train_params.min_codes, nr_splits=train_params.nr_splits
             )
         else:
             cluster_chain = hierarchical_kmeans(
                 feat_mat,
-                max_leaf_size=max_leaf_size,
-                imbalanced_ratio=imbalanced_ratio,
-                imbalanced_depth=imbalanced_depth,
-                spherical=spherical,
-                seed=seed,
-                max_iter=max_iter,
-                threads=threads,
+                max_leaf_size=train_params.max_leaf_size,
+                imbalanced_ratio=train_params.imbalanced_ratio,
+                imbalanced_depth=train_params.imbalanced_depth,
+                spherical=train_params.spherical,
+                seed=train_params.seed,
+                max_iter=train_params.max_iter,
+                threads=train_params.threads,
             )
             cluster_chain = ClusterChain(cluster_chain)
         return cluster_chain
@@ -636,7 +656,7 @@ class MLModel(pecos.BaseClass):
         """
         if C is not None:
             if isinstance(C, ScipyCscF32):
-                assert C.buf.shape[0] == W.shape[1]
+                assert C.buf.shape[0] == W.shape[1], "C:{} W:{}".format(C.buf.shape, W.shape)
             else:
                 assert C.shape[0] == W.shape[1], "C:{} W:{}".format(C.shape, W.shape)
         else:
@@ -971,7 +991,7 @@ class HierarchicalMLModel(pecos.BaseClass):
                 Default None.
         """
 
-        neg_mining_chain: str = None  # type: ignore
+        neg_mining_chain: str = "tfn"
         model_chain: MLModel.TrainParams = None  # type: ignore
 
     @dc.dataclass
@@ -1006,21 +1026,30 @@ class HierarchicalMLModel(pecos.BaseClass):
             Returns:
                 self (PredParams): Overriden self instance.
             """
-            if pred_kwargs is not None:
-                if not isinstance(pred_kwargs, dict):
-                    raise TypeError("type(pred_kwargs) must be dict")
-                # TODO need to make sure self.model_chain is list/tuple
+            if pred_kwargs is None:
+                return self
+            if not isinstance(pred_kwargs, dict):
+                raise TypeError("type(pred_kwargs) must be dict")
+
+            overridden_beam_size = pred_kwargs.get("beam_size", None)
+            overridden_only_topk = pred_kwargs.get("only_topk", None)
+            overridden_post_processor = pred_kwargs.get("post_processor", None)
+
+            if isinstance(self.model_chain, (list, tuple)):
                 depth = len(self.model_chain)
                 for d in range(depth):
-                    overridden_beam_size = pred_kwargs.get("beam_size", None)
-                    overridden_only_topk = pred_kwargs.get("only_topk", None)
-                    overridden_post_processor = pred_kwargs.get("post_processor", None)
                     if overridden_beam_size and d < (depth - 1):
                         self.model_chain[d].only_topk = overridden_beam_size
                     if overridden_only_topk and d == (depth - 1):
                         self.model_chain[d].only_topk = overridden_only_topk
                     if overridden_post_processor:
                         self.model_chain[d].post_processor = overridden_post_processor
+            elif isinstance(self.model_chain, MLModel.PredParams):
+                if overridden_only_topk:
+                    self.model_chain.only_topk = overridden_only_topk
+                if overridden_post_processor:
+                    self.model_chain.post_processor = overridden_post_processor
+
             return self
 
     @staticmethod
@@ -1241,6 +1270,7 @@ class HierarchicalMLModel(pecos.BaseClass):
         cls,
         prob,
         clustering=None,
+        relevance_chain=None,
         matching_chain=None,
         train_params=None,
         pred_params=None,
@@ -1252,6 +1282,9 @@ class HierarchicalMLModel(pecos.BaseClass):
             prob (MLProblem): the problem to solve
             clustering (ClusterChain or None, optional): cluster chain for the model hierarchy
                 Default None for the One-Versus-All problem.
+            relevance_chain (list of spmatrix): the relevance_chain for cost sensitive learning.
+                skip cost-sensitive learning for level i if relevance_chain[i] is None,
+                Default None to ignore.
             matching_chain (list of csr_matrix): the matching_chain generated by user-supplied-negatives.
                 Their indices will be added to the negative samples if 'usn' in negative_sampling_scheme.
                 Default None to ignore.
@@ -1264,11 +1297,6 @@ class HierarchicalMLModel(pecos.BaseClass):
         Returns:
             HierarchicalMLModel: the trained HierarchicalMLModel
         """
-
-        if prob.R is not None:
-            raise NotImplementedError(
-                "Cost-senstive learning for HierarchicalMLModel is not yet supported"
-            )
 
         if clustering is None or clustering is False:
             depth = 1
@@ -1313,6 +1341,8 @@ class HierarchicalMLModel(pecos.BaseClass):
             )
         else:
             train_params = cls.TrainParams.from_dict(train_params)
+            if train_params.neg_mining_chain is None:
+                train_params.neg_mining_chain = kwargs.get("negative_sampling_scheme", "tfn")
             train_params = cls._duplicate_fields_with_name_ending_with_chain(
                 train_params, cls.TrainParams, depth
             )
@@ -1342,9 +1372,16 @@ class HierarchicalMLModel(pecos.BaseClass):
             Y_chain.append(Y_t)
         Y_chain.reverse()
 
+        if matching_chain is None:
+            matching_chain = [None for _ in range(depth)]
+        if relevance_chain is None:
+            relevance_chain = [None for _ in range(depth)]
+
         cur_prob, M_pred = prob, None
         model_chain = []
-        for t, (Y, C, M_usn) in enumerate(zip(Y_chain, clustering, matching_chain)):
+        for t, (Y, C, R, M_usn) in enumerate(
+            zip(Y_chain, clustering, relevance_chain, matching_chain)
+        ):
             negative_sampling_scheme = train_params.neg_mining_chain[t]
             cur_train_params = train_params.model_chain[t]
             cur_pred_params = pred_params.model_chain[t]
@@ -1363,7 +1400,6 @@ class HierarchicalMLModel(pecos.BaseClass):
                     if "tfn" in negative_sampling_scheme:
                         M_true = clib.sparse_matmul(Y, C, threads=matmul_threads).tocsc()
                         M += smat_util.binarized(M_true)
-                cur_prob = MLProblem(cur_prob.pX, Y, C=C, M=M, threads=matmul_threads)
             else:
                 # Preparing negative sampling for M
                 shape = (cur_prob.Y.shape[0], C.shape[1])
@@ -1378,7 +1414,8 @@ class HierarchicalMLModel(pecos.BaseClass):
                     M_pred = model_chain[-1].predict(cur_prob.pX, csr_codes=M_pred)
                 if "man" in negative_sampling_scheme:
                     M += smat_util.binarized(M_pred)
-                cur_prob = MLProblem(cur_prob.pX, Y, C=C, M=M, threads=matmul_threads)
+
+            cur_prob = MLProblem(cur_prob.pX, Y, R=R, C=C, M=M, threads=matmul_threads)
             cur_model = MLModel.train(
                 cur_prob, train_params=cur_train_params, pred_params=cur_pred_params
             )
