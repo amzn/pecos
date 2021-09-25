@@ -107,7 +107,7 @@ class HNSW(object):
         return cls(model_ptr, pX.rows, pX.cols, M, efC, max_level, fn_dict)
 
     def searchers_create(self, num_searcher=1):
-        """create searchers that pre-allocate set of visited nodes for inference
+        """create searchers that pre-allocate intermediate variables (e.g., set of visited nodes, priority queues, etc) for HNSW graph search
         Args:
             num_searcher: number of searcher for multi-thread inference
         Returns:
