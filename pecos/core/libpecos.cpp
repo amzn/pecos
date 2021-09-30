@@ -357,11 +357,11 @@ extern "C" {
         const PY_MAT* pX, \
         uint32_t M, \
         uint32_t efC, \
-        uint32_t max_level, \
-        int threads) { \
+        int threads, \
+        int max_level_upper_bound) { \
         C_MAT feat_mat(pX); \
         HNSW_T *model_ptr = new HNSW_T(); \
-        model_ptr->train(feat_mat, M, efC, max_level, threads); \
+        model_ptr->train(feat_mat, M, efC, threads, max_level_upper_bound); \
         return static_cast<void*>(model_ptr); \
     }
     C_ANN_HNSW_TRAIN(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_ip_t)
@@ -430,10 +430,10 @@ extern "C" {
     OMP_PARA_FOR \
         for (uint32_t qid=0; qid < feat_mat.rows; qid++) { \
             int thread_id = omp_get_thread_num(); \
-            auto ret_pairs = searchers[thread_id].predict_single(feat_mat.get_row(qid), efS, topk); \
+            auto& ret_pairs = searchers[thread_id].predict_single(feat_mat.get_row(qid), efS, topk); \
             for (uint32_t k=0; k < ret_pairs.size(); k++) { \
-                ret_val[qid * topk + k] = ret_pairs[k].first; \
-                ret_idx[qid * topk + k] = ret_pairs[k].second; \
+                ret_val[qid * topk + k] = ret_pairs[k].dist; \
+                ret_idx[qid * topk + k] = ret_pairs[k].node_id; \
             } \
         } \
     }

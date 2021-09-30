@@ -1532,8 +1532,8 @@ class corelib(object):
                     data_type_map[data_type],
                     c_uint32,  # M
                     c_uint32,  # efC
-                    c_uint32,  # max_level
                     c_int,  # threads
+                    c_int,  # max_level_upper_bound
                 ]
                 corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
 
