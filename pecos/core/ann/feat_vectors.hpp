@@ -690,7 +690,7 @@ namespace ann {
             return 1.0 - ret;
         }
 
-        // a implementation faster than std::lower_bound
+        // an implementation faster than std::lower_bound
         template<class T>
         static T* lower_bound(T* first, T* last, const T& key) {
             intptr_t n = last - first;

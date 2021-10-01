@@ -41,12 +41,12 @@ mypy:
 # Install and unit test
 libpecos:
 	python3 -m pip install --upgrade pip
-	pip install ${VFLAG} --editable .
+	python3 -m pip install ${VFLAG} --editable .
 
 .PHONY: test
 test: libpecos
-	pip install pytest pytest-coverage
-	pytest
+	python3 -m pip install pytest pytest-coverage
+	python3 -m pytest
 
 # Clean
 clean:

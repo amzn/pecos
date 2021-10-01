@@ -27,7 +27,7 @@ def test_predict_and_recall():
     random.seed(1234)
     np.random.seed(1234)
     M, efC, top_k = 32, 100, 10
-    max_level, threads = 5, 8
+    max_level_upper_bound, threads = 5, 8
     efS_list = [50, 75, 100]
     num_searcher_online = 2
 
@@ -52,7 +52,14 @@ def test_predict_and_recall():
     Y_true = np.argsort(Y_true)[:, :top_k]
 
     # test dense features
-    model = HNSW.train(X_trn, M, efC, max_level, metric_type, threads)
+    model = HNSW.train(
+        X_trn,
+        M=M,
+        efC=efC,
+        max_level_upper_bound=max_level_upper_bound,
+        metric_type=metric_type,
+        threads=threads,
+    )
     searchers = model.searchers_create(num_searcher_online)
     for efS in efS_list:
         Y_pred, _ = model.predict(X_tst, efS, top_k, searchers=searchers, ret_csr=False)
@@ -65,7 +72,15 @@ def test_predict_and_recall():
     # test csr features, we just reuse the Y_true since data are the same
     X_trn = smat.csr_matrix(X_trn).astype(np.float32)
     X_tst = smat.csr_matrix(X_tst).astype(np.float32)
-    model = HNSW.train(X_trn, M, efC, max_level, metric_type, threads)
+
+    model = HNSW.train(
+        X_trn,
+        M=M,
+        efC=efC,
+        max_level_upper_bound=max_level_upper_bound,
+        metric_type=metric_type,
+        threads=threads,
+    )
     searchers = model.searchers_create(num_searcher_online)
     for efS in efS_list:
         Y_pred, _ = model.predict(X_tst, efS, top_k, searchers=searchers, ret_csr=False)
