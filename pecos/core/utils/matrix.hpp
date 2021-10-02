@@ -665,6 +665,35 @@ namespace pecos {
         return do_dot_product(y, x);
     }
 
+    // ===== do_ax2py =====
+    template <class VX, class VY, typename T>
+    void do_ax2py(T alpha, const dense_vec_t<VX> &x, dense_vec_t<VY> &y) {
+        for (size_t i = 0; i < x.len; i++) {
+            y[i] += x[i] * x[i] * alpha;
+        }
+    }
+
+    template <class IX, class VX, class VY, typename T>
+    void do_ax2py(T alpha, const sparse_vec_t<IX, VX> &x, dense_vec_t<VY> &y) {
+        for (size_t s = 0; s < x.nnz; s++) {
+            y[x.idx[s]] += x.val[s] * x.val[s] * alpha;
+        }
+    }
+
+    // ===== do_xp2y =====
+    template <class VX, class VY>
+    void do_xp2y(const dense_vec_t<VX> &x, dense_vec_t<VY> &y) {
+        for (size_t i = 0; i < x.len; i++) {
+            y[i] = x[i] + 2 * y[i];
+        }
+    }
+
+    template <class IX, class VX, class VY>
+    void do_xp2y(const sparse_vec_t<IX, VX> &x, dense_vec_t<VY> &y) {
+        for (size_t s = 0; s < x.nnz; s++) {
+            y[x.idx[s]] = x.val[s] + 2 * y[x.idx[s]];
+        }
+    }
 
     // ===== do_axpy =====
     template<typename val_type, typename T>
