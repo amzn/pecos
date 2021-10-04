@@ -49,14 +49,18 @@ class XLinearModel(pecos.BaseClass):
                 Ignored if shallow is True. Defaults to 2.
             min_codes (int, optional): the minimal number of clusters in the cluster chain. Defaults to nr_splits
             shallow (bool, optional): whether to continue constructing a full cluster chain based on the C given, default False
+            rel_norm (str, optional): norm type to row-wise normalzie relevance matrix for cost-sensitive learning
+            rel_induce (bool, optional): if True, induce relevance matrix into relvance chain by label aggregation.
             hlm_args (HierarchicalMLModel.TrainParams, optional): HierarchicalMLModel.TrainParams. Default None.
         """
 
         mode: str = "full-model"
         ranker_level: int = 1
-        nr_splits: int = 2
+        nr_splits: int = 16
         min_codes: int = None  # type: ignore
         shallow: bool = False
+        rel_norm: str = "l1"
+        rel_induce: bool = True
         hlm_args: HierarchicalMLModel.TrainParams = None  # type: ignore
 
     @dc.dataclass
@@ -145,6 +149,7 @@ class XLinearModel(pecos.BaseClass):
         X,
         Y,
         C=None,
+        R=None,
         user_supplied_negatives=None,
         train_params=None,
         pred_params=None,
@@ -157,6 +162,7 @@ class XLinearModel(pecos.BaseClass):
             Y (csc_matrix(float32)): label matrix of shape (nr_inst, nr_labels)
             C (csc_matrix(float32), list/tuple of csc_matrices or ClusterChain, optional): indexer matrix or cluster chain.
                 Defaults to None
+            R (csc_matrix(float32)): relevance matrix for cost sensitive learning. Default None.
             user_supplied_negatives (dict, optional): dictionary of usn matching matrices.
                 See ClusterChain.generate_matching_chain. Defaults to None.
             train_params (XLinearModel.TrainParams, optional): instance of XLinearModel.TrainParams
@@ -191,6 +197,7 @@ class XLinearModel(pecos.BaseClass):
         if C is None or (isinstance(C, (list, tuple)) and len(C) == 0):
             clustering = None
             matching_chain = None
+            relevance_chain = None
         else:
             if train_params.shallow:
                 clustering = ClusterChain.from_partial_chain(C, min_codes=None)
@@ -198,7 +205,12 @@ class XLinearModel(pecos.BaseClass):
                 clustering = ClusterChain.from_partial_chain(
                     C, min_codes=train_params.min_codes, nr_splits=train_params.nr_splits
                 )
-            matching_chain = clustering.genearate_matching_chain(user_supplied_negatives)
+            matching_chain = clustering.generate_matching_chain(user_supplied_negatives)
+            relevance_chain = clustering.generate_relevance_chain(
+                {0: R},
+                norm_type=train_params.rel_norm,
+                induce=train_params.rel_induce,
+            )
 
         if train_params.mode == "full-model":
             pass
@@ -209,19 +221,23 @@ class XLinearModel(pecos.BaseClass):
                 Y = Y.dot(cc).tocsc()
             clustering = ClusterChain(clustering[: -train_params.ranker_level])
             matching_chain = matching_chain[: -train_params.ranker_level]
+            relevance_chain = relevance_chain[: -train_params.ranker_level]
         elif train_params.mode == "ranker":
             if clustering is None:
                 raise ValueError("Expect non-trivial clustering for ranker mode")
             clustering = ClusterChain(clustering[-train_params.ranker_level :])
             matching_chain = matching_chain[-train_params.ranker_level :]
+            relevance_chain = relevance_chain[-train_params.ranker_level :]
         else:
             raise ValueError(f"Wrong value for the mode attribute: {train_params.mode}")
 
-        prob = MLProblem(X, Y)
+        # include R in prob for OVA training
+        prob = MLProblem(X, Y, R=R if C is None else None)
 
         model = HierarchicalMLModel.train(
             prob,
             clustering=clustering,
+            relevance_chain=relevance_chain,
             matching_chain=matching_chain,
             train_params=train_params.hlm_args,
             pred_params=pred_params.hlm_args,
@@ -446,7 +462,7 @@ class XLinearModel(pecos.BaseClass):
                     Default None to disable overriding
                 threads (int, optional): the number of threads to use for prediction.
                     Defaults to -1 to use all
-                batch_size (int, optional): the number of instances to predict in a batch.
+                max_pred_chunk (int, optional): the number of instances to predict in a batch. Set to None to ignore. Default 10^7
 
         Returns:
             Y_pred (csr_matrix): If a selected output matrix is provided, the prediction for the
@@ -456,9 +472,11 @@ class XLinearModel(pecos.BaseClass):
         if (pred_params is not None) and (not isinstance(pred_params, self.PredParams)):
             raise TypeError("type(pred_kwargs) is not supported")
 
-        batch_size = kwargs.get("batch_size", None)
+        max_pred_chunk = kwargs.get("max_pred_chunk", 10 ** 7)
+        if not isinstance(max_pred_chunk, (int, None)):
+            raise TypeError("type(max_pred_chunk) is not supported.")
 
-        if batch_size is None:
+        if max_pred_chunk is None or max_pred_chunk >= X.shape[0]:
             if selected_outputs_csr is None:
                 Y_pred = self.model.predict(
                     X,
@@ -472,22 +490,20 @@ class XLinearModel(pecos.BaseClass):
                     pred_params=None if pred_params is None else pred_params.hlm_args,
                     **kwargs,
                 )
-        elif isinstance(batch_size, int):
+        else:
             Ys = []
             new_kwargs = kwargs.copy()
-            new_kwargs.pop("batch_size")
-            for i in range(0, X.shape[0], batch_size):
+            new_kwargs.pop("max_pred_chunk", None)
+            for i in range(0, X.shape[0], max_pred_chunk):
                 Ye = self.predict(
-                    X[i : i + batch_size, :],
+                    X[i : i + max_pred_chunk, :],
                     pred_params=pred_params,
-                    selected_outputs_csr=selected_outputs_csr[i : i + batch_size, :]
+                    selected_outputs_csr=selected_outputs_csr[i : i + max_pred_chunk, :]
                     if selected_outputs_csr is not None
                     else None,
                     **new_kwargs,
                 )
                 Ys.append(Ye)
             Y_pred = smat_util.vstack_csr(Ys)
-        else:
-            raise TypeError("type(batch_size) is not supported.")
 
         return Y_pred

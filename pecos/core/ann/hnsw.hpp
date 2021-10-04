@@ -21,6 +21,7 @@
 #include <type_traits>
 
 #include "utils/matrix.hpp"
+#include "utils/random.hpp"
 #include "ann/feat_vectors.hpp"
 
 namespace pecos {
@@ -193,10 +194,48 @@ namespace ann {
         }
     };
 
-    template <typename T>
-    struct CompareByFirst {
-        constexpr bool operator()(T const &a, T const &b) const noexcept {
-            return a.first < b.first;
+    template <typename T1, typename T2>
+    struct Pair {
+        T1 dist;
+        T2 node_id;
+        Pair(const T1& dist=T1(), const T2& node_id=T2()): dist(dist), node_id(node_id) {}
+        bool operator<(const Pair<T1, T2>& other) const { return dist < other.dist; }
+        bool operator>(const Pair<T1, T2>& other) const { return dist > other.dist; }
+    };
+
+    template<typename T, typename _Compare = std::less<T>>
+    struct heap_t : public std::vector<T> {
+        typedef typename std::vector<T> container_type;
+        typedef typename container_type::value_type value_type;
+        typedef typename container_type::reference reference;
+        typedef typename container_type::const_reference const_reference;
+        typedef typename container_type::size_type size_type;
+        typedef _Compare value_compare;
+
+        _Compare comp;
+
+        const_reference top() const { return this->front(); }
+
+        void push(const value_type& __x) {
+            this->push_back(__x);
+            std::push_heap(this->begin(), this->end(), comp);
+        }
+
+#if __cplusplus >= 201103L
+        void push(value_type&& __x) {
+            this->push_back(std::move(__x));
+            std::push_heap(this->begin(), this->end(), comp);
+        }
+
+        template<typename... _Args>
+        void emplace(_Args&&... __args) {
+            this->emplace_back(std::forward<_Args>(__args)...);
+            std::push_heap(this->begin(), this->end(), comp);
+        }
+#endif
+        void pop() {
+            std::pop_heap(this->begin(), this->end(), comp);
+            this->pop_back();
         }
     };
 
@@ -204,23 +243,36 @@ namespace ann {
     template<typename dist_t, class FeatVec_T>
     struct HNSW {
         typedef FeatVec_T feat_vec_t;
-        typedef SetOfVistedNodes<unsigned short int> set_of_visited_nodes_t;
-        typedef typename std::pair<dist_t, index_type> pair_t;
-        typedef typename std::priority_queue<pair_t, std::vector<pair_t>, CompareByFirst<pair_t>> max_heap_t;
+        typedef Pair<dist_t, index_type> pair_t;
+        typedef heap_t<pair_t, std::less<pair_t>> max_heap_t;
+        typedef heap_t<pair_t, std::greater<pair_t>> min_heap_t;
 
         struct Searcher : SetOfVistedNodes<unsigned short int> {
+            typedef SetOfVistedNodes<unsigned short int> set_of_visited_nodes_t;
             typedef HNSW<dist_t, FeatVec_T> hnsw_t;
+            typedef heap_t<pair_t, std::less<pair_t>> max_heap_t;
+            typedef heap_t<pair_t, std::greater<pair_t>> min_heap_t;
+
             const hnsw_t* hnsw;
+            max_heap_t topk_queue;
+            min_heap_t cand_queue;
 
-            Searcher(const hnsw_t* hnsw=nullptr):
-                SetOfVistedNodes<unsigned short int>(hnsw? hnsw->num_node : 0),
-                hnsw(hnsw) {}
+            Searcher(const hnsw_t* _hnsw=nullptr):
+                SetOfVistedNodes<unsigned short int>(_hnsw? _hnsw->num_node : 0),
+                hnsw(_hnsw)
+            {}
 
-            max_heap_t search_layer(const feat_vec_t& query, index_type init_node, index_type efS, index_type level) {
-                return hnsw->search_layer(query, init_node, efS, level, *this);
+            void reset() {
+                set_of_visited_nodes_t::reset();
+                topk_queue.clear();
+                cand_queue.clear();
             }
 
-            std::vector<pair_t> predict_single(const feat_vec_t& query, index_type efS, index_type topk) {
+            max_heap_t& search_level(const feat_vec_t& query, index_type init_node, index_type efS, index_type level) {
+                return hnsw->search_level(query, init_node, efS, level, *this);
+            }
+
+            max_heap_t& predict_single(const feat_vec_t& query, index_type efS, index_type topk) {
                 return hnsw->predict_single(query, efS, topk, *this);
             }
         };
@@ -231,35 +283,27 @@ namespace ann {
 
         // scalar variables
         index_type num_node;
-        index_type maxM;  // number of max out degree for layer l=1,...,L
-        index_type maxM0; // number of max out degree for layer l=0
+        index_type maxM;  // max number of out-degree for level l=1,...,L
+        index_type maxM0; // max number of out-degree for level l=0
         index_type efC;   // size of priority queue for construction time
         index_type max_level;
         index_type init_node;
 
         // data structures for multi-level graph
-        GraphL0<feat_vec_t> graph_l0;   // neighborhood graph along with feature vectors at Level 0
-        GraphL1 graph_l1;               // neighborhood graphs from Level 1 and above
-        std::vector<index_type> node2level_vec;
-        std::default_random_engine level_generator_;
+        GraphL0<feat_vec_t> graph_l0;   // neighborhood graph along with feature vectors at level 0
+        GraphL1 graph_l1;               // neighborhood graphs from level 1 and above
 
         // destructor
         ~HNSW() {}
-        // line 4 of Algorithm 1 in HNSW paper
-        int get_random_level(double mult_l) {
-            std::uniform_real_distribution<double> distribution(0.0, 1.0);
-            double r = -log(distribution(level_generator_)) * mult_l;
-            return (int) r;
-        }
 
         // Algorithm 4 of HNSW paper
         void get_neighbors_heuristic(max_heap_t &top_candidates, const index_type M) {
             if (top_candidates.size() < M) { return; }
 
-            std::priority_queue<pair_t> queue_closest;
+            min_heap_t queue_closest;
             std::vector<pair_t> return_list;
             while (top_candidates.size() > 0) {
-                queue_closest.emplace(-top_candidates.top().first, top_candidates.top().second);
+                queue_closest.emplace(top_candidates.top());
                 top_candidates.pop();
             }
 
@@ -268,14 +312,14 @@ namespace ann {
                     break;
                 }
                 auto curent_pair = queue_closest.top();
-                dist_t dist_to_query = -curent_pair.first;
+                dist_t dist_to_query = curent_pair.dist;
                 queue_closest.pop();
                 bool good = true;
 
                 for (auto& second_pair : return_list) {
                     dist_t curdist = feat_vec_t::distance(
-                        graph_l0.get_node_feat(second_pair.second),
-                        graph_l0.get_node_feat(curent_pair.second)
+                        graph_l0.get_node_feat(second_pair.node_id),
+                        graph_l0.get_node_feat(curent_pair.node_id)
                     );
                     if (curdist < dist_to_query) {
                         good = false;
@@ -288,11 +332,12 @@ namespace ann {
             }
 
             for (auto& curent_pair : return_list) {
-                top_candidates.emplace(-curent_pair.first, curent_pair.second);
+                top_candidates.emplace(curent_pair);
             }
         }
 
         // line 10-17, Algorithm 1 of HNSW paper
+        // it is the caller's responsibility to make sure top_candidates are available in the graph of this level.
         template<bool lock_free=true>
         index_type mutually_connect(index_type query_id, max_heap_t &top_candidates, index_type level, std::vector<std::mutex>* mtx_nodes=nullptr) {
             index_type Mcurmax = level ? this->maxM : this->maxM0;
@@ -304,7 +349,7 @@ namespace ann {
             std::vector<index_type> selected_neighbors;
             selected_neighbors.reserve(this->maxM);
             while (top_candidates.size() > 0) {
-                selected_neighbors.push_back(top_candidates.top().second);
+                selected_neighbors.push_back(top_candidates.top().node_id);
                 top_candidates.pop();
             }
 
@@ -327,8 +372,6 @@ namespace ann {
                     throw std::runtime_error("Bad value of size of neighbors for this src node");
                 if (src == dst)
                     throw std::runtime_error("Trying to connect an element to itself");
-                if (level > node2level_vec[src])
-                    throw std::runtime_error("Trying to make a link on a non-existent level");
 
                 if (neighbors.degree() < Mcurmax) {
                     neighbors.push_back(dst);
@@ -353,7 +396,7 @@ namespace ann {
                     neighbors.clear();
                     index_type indx = 0;
                     while (candidates.size() > 0) {
-                        neighbors.push_back(candidates.top().second);
+                        neighbors.push_back(candidates.top().node_id);
                         candidates.pop();
                         indx++;
                     }
@@ -374,28 +417,19 @@ namespace ann {
         }
 
         // train, Algorithm 1 of HNSW paper (i.e., construct HNSW graph)
+        // if max_level_upper_bound >= 0, the number of lavels in the hierarchical part is upper bounded by the give number
         template<class MAT_T>
-        void train(const MAT_T &X_trn, index_type M, index_type efC, index_type max_level_upper_bound, int threads=1) {
-
-            this->num_node = X_trn.rows;
-            this->maxM = M;
-            this->maxM0 = 2 * M;
-            this->efC = efC;
-
-            graph_l0.init(X_trn, this->maxM0);
-            graph_l1.init(X_trn, this->maxM, max_level_upper_bound);
-            node2level_vec.resize(num_node);
-
-            this->max_level = 0;
-            this->init_node = 0;
+        void train(const MAT_T &X_trn, index_type M, index_type efC, int threads=1, int max_level_upper_bound=-1) {
 
             // workspace to store thread-local variables
             struct workspace_t {
                 HNSW<dist_t, FeatVec_T>& hnsw;
                 std::mutex mtx_global;
                 std::vector<std::mutex> mtx_nodes;
+                std::vector<index_type> node2level;
                 std::vector<Searcher> searchers;
-                workspace_t(HNSW<dist_t, FeatVec_T>& hnsw, int threads=1): hnsw(hnsw), mtx_nodes(hnsw.num_node) {
+                workspace_t(HNSW<dist_t, FeatVec_T>& hnsw, int threads=1):
+                    hnsw(hnsw), mtx_nodes(hnsw.num_node), node2level(hnsw.num_node) {
                     for(int i = 0; i < threads; i++) {
                         searchers.emplace_back(Searcher(&hnsw));
                     }
@@ -408,12 +442,9 @@ namespace ann {
                 auto& graph_l0 = hnsw.graph_l0;
                 auto& graph_l1 = hnsw.graph_l1;
                 auto& searcher = ws.searchers[thread_id];
-                // this is m_l defined in Sec 4.1 of HNSW paper
-                float mult_l = 1.0 / log(1.0 * hnsw.maxM);
 
                 // sample the query node's level
-                index_type query_level = std::min<index_type>(hnsw.get_random_level(mult_l), graph_l1.max_level);
-                hnsw.node2level_vec[query_id] = query_level;
+                auto query_level = ws.node2level[query_id];
 
                 // obtain the global lock as we might need to change max_level and init_node
                 std::unique_lock<std::mutex>* lock_global = nullptr;
@@ -461,19 +492,19 @@ namespace ann {
                     }
                     if(lock_free) {
                         for (auto level = std::min(query_level, max_level); ; level--) {
-                            auto top_candidates = search_layer<true>(query_feat_ptr, curr_node, this->efC, level, searcher, &ws.mtx_nodes);
+                            auto& top_candidates = search_level<true>(query_feat_ptr, curr_node, this->efC, level, searcher, &ws.mtx_nodes);
                             curr_node = mutually_connect<true>(query_id, top_candidates, level, &ws.mtx_nodes);
                             if (level == 0) { break; }
                         }
                     } else {
                         for (auto level = std::min(query_level, max_level); ; level--) {
-                            auto top_candidates = search_layer<false>(query_feat_ptr, curr_node, this->efC, level, searcher, &ws.mtx_nodes);
+                            auto& top_candidates = search_level<false>(query_feat_ptr, curr_node, this->efC, level, searcher, &ws.mtx_nodes);
                             curr_node = mutually_connect<false>(query_id, top_candidates, level, &ws.mtx_nodes);
                             if (level == 0) { break; }
                         }
                     }
 
-                    // if(query_level > hnsw.node2level_vec[hnsw.enterpoint_id])  // used is nmslib.
+                    // if(query_level > ws.node2level[hnsw.enterpoint_id])  // used in nmslib.
                     if(query_level > hnsw.max_level) {  // used in hnswlib.
                         hnsw.max_level = query_level;
                         hnsw.init_node = query_id;
@@ -485,9 +516,37 @@ namespace ann {
                 }
             }; // end of add_point
 
+            this->num_node = X_trn.rows;
+            this->maxM = M;
+            this->maxM0 = 2 * M;
+            this->efC = efC;
+
             threads = (threads <= 0) ? omp_get_num_procs() : threads;
             omp_set_num_threads(threads);
             workspace_t ws(*this, threads);
+
+            // pre-compute level for each node
+            auto& node2level = ws.node2level;
+            node2level.resize(num_node);
+            const float mult_l = 1.0 / log(1.0 * this->maxM); // m_l in Sec 4.1 of the HNSW paper
+            random_number_generator<> rng;
+            for(index_type node_id = 0; node_id < num_node; node_id++) {
+                // line 4 of Algorithm 1 in HNSW paper
+                node2level[node_id] = (index_type)(-log(rng.uniform(0.0, 1.0)) * mult_l);
+                // if max_level_upper_bound is given, we cap the the level
+                if(max_level_upper_bound >= 0) {
+                    node2level[node_id] = std::min<index_type>(node2level[node_id], (index_type)max_level_upper_bound);
+                }
+            }
+
+            max_level_upper_bound = *std::max_element(node2level.begin(), node2level.end());
+
+            graph_l0.init(X_trn, this->maxM0);
+            graph_l1.init(X_trn, this->maxM, max_level_upper_bound);
+
+            this->max_level = 0;
+            this->init_node = 0;
+
             bool lock_free = (threads == 1);
 #pragma omp parallel for schedule(dynamic, 1)
             for (index_type query_id = 0; query_id < num_node; query_id++) {
@@ -498,7 +557,7 @@ namespace ann {
 
         // Algorithm 2 of HNSW paper
         template<bool lock_free=true>
-        max_heap_t search_layer(
+        max_heap_t& search_level(
             const feat_vec_t& query,
             index_type init_node,
             index_type efS,
@@ -506,16 +565,16 @@ namespace ann {
             Searcher& searcher,
             std::vector<std::mutex>* mtx_nodes=nullptr
         ) const {
-            max_heap_t topk_queue;
-            max_heap_t cand_queue;
             searcher.reset();
+            max_heap_t& topk_queue = searcher.topk_queue;
+            min_heap_t& cand_queue = searcher.cand_queue;
 
             dist_t topk_ub_dist = feat_vec_t::distance(
                 query,
                 graph_l0.get_node_feat(init_node)
             );
             topk_queue.emplace(topk_ub_dist, init_node);
-            cand_queue.emplace(-topk_ub_dist, init_node);
+            cand_queue.emplace(topk_ub_dist, init_node);
             searcher.mark_visited(init_node);
 
             const GraphBase *G;
@@ -528,12 +587,12 @@ namespace ann {
             // Best First Search loop
             while (!cand_queue.empty()) {
                 pair_t cand_pair = cand_queue.top();
-                if (-cand_pair.first > topk_ub_dist) {
+                if (cand_pair.dist > topk_ub_dist) {
                     break;
                 }
                 cand_queue.pop();
 
-                index_type cand_node = cand_pair.second;
+                index_type cand_node = cand_pair.node_id;
                 std::unique_lock<std::mutex>* lock_node = nullptr;
                 if(!lock_free){
                     lock_node = new std::unique_lock<std::mutex>(mtx_nodes->at(cand_node));
@@ -552,18 +611,19 @@ namespace ann {
                             graph_l0.get_node_feat(next_node)
                         );
                         if (topk_queue.size() < efS || next_lb_dist < topk_ub_dist) {
-                            cand_queue.emplace(-next_lb_dist, next_node);
-                            graph_l0.prefetch_node_feat(cand_queue.top().second);
+                            cand_queue.emplace(next_lb_dist, next_node);
+                            graph_l0.prefetch_node_feat(cand_queue.top().node_id);
                             topk_queue.emplace(next_lb_dist, next_node);
                             if (topk_queue.size() > efS) {
                                 topk_queue.pop();
                             }
                             if (!topk_queue.empty()) {
-                                topk_ub_dist = topk_queue.top().first;
+                                topk_ub_dist = topk_queue.top().dist;
                             }
                         }
                     }
                 }
+
                 if(!lock_free){
                     delete lock_node;
                 }
@@ -572,11 +632,11 @@ namespace ann {
         }
 
         // Algorithm 5 of HNSW paper, thread-safe inference
-        std::vector<pair_t> predict_single(const feat_vec_t& query, index_type efS, index_type topk, Searcher& searcher) const {
+        max_heap_t& predict_single(const feat_vec_t& query, index_type efS, index_type topk, Searcher& searcher) const {
             index_type curr_node = this->init_node;
             auto &G1 = graph_l1;
             auto &G0 = graph_l0;
-            // specialized search_layer for layer l=1,...,L because its faster for efS=1
+            // specialized search_level for level l=1,...,L because its faster for efS=1
             dist_t curr_dist = feat_vec_t::distance(
                 query,
                 G0.get_node_feat(init_node)
@@ -602,24 +662,17 @@ namespace ann {
                     }
                 }
             }
-            // generalized search_layer for layer=0 for efS >= 1
-            auto topk_queue = search_layer(query, curr_node, std::max(efS, topk), 0, searcher);
-            // remove extra when efS > topk
-            while (topk_queue.size() > topk) {
-                topk_queue.pop();
+            // generalized search_level for level=0 for efS >= 1
+            searcher.search_level(query, curr_node, std::max(efS, topk), 0);
+            auto& topk_queue = searcher.topk_queue;
+            if(topk < efS) {
+                // remove extra when efS > topk
+                while (topk_queue.size() > topk) {
+                    topk_queue.pop();
+                }
             }
-            // return with smallest (distance,index) pair first
-            // if topk < number of indexed items
-            if (topk_queue.size() != topk) {
-                throw std::runtime_error("efS can not be smaller than topk. try to use larger efS or smaller topk!");
-            }
-            std::vector<pair_t> results(topk);
-            size_t sz = topk_queue.size();
-            while (topk_queue.size() > 0) {
-                results[--sz] = topk_queue.top();
-                topk_queue.pop();
-            }
-            return results;
+            std::sort_heap(topk_queue.begin(), topk_queue.end());
+            return topk_queue;
         }
     };
 

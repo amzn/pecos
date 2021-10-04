@@ -37,7 +37,7 @@ class HNSW(object):
         def ctypes(self):
             return self.searchers_ptr
 
-    def __init__(self, model_ptr, num_item, feat_dim, M, efC, max_level, fn_dict):
+    def __init__(self, model_ptr, num_item, feat_dim, M, efC, fn_dict):
         """constructor of HNSW class
         Args:
             model_ptr (c_void_p): pointer to C instance pecos::ann:HNSW. It's obtained from HNSW.train()
@@ -45,7 +45,6 @@ class HNSW(object):
             feat_dim (int): feature dimension of each item
             M (int): maximum number of edges per node for HNSW graph construction at layer l=1,...,L. For layer l=0, its 2*M.
             efC (int): size of the priority queue when performing best first search during construction
-            max_level (int): number of maximum layers in the hiearchical graph
             fn_dict (dict): dictionary that stores the C/C++ functions to call
         """
         self.model_ptr = model_ptr
@@ -53,7 +52,6 @@ class HNSW(object):
         self.feat_dim = feat_dim
         self.M = M
         self.efC = efC
-        self.max_level = max_level
         self.fn_dict = fn_dict
 
     def __del__(self):
@@ -90,21 +88,22 @@ class HNSW(object):
         return pX, data_type
 
     @classmethod
-    def train(cls, X, M=24, efC=100, max_level=5, metric_type="ip", threads=0):
+    def train(cls, X, M=24, efC=100, metric_type="ip", max_level_upper_bound=5, threads=0):
         """train and return the ANN/HNSW indexer
         Args:
             X (nd.array/ScipyDrmF32, scipy.sparse.csr_matrix/ScipyCsrF32): database matrix to be indexed. (num_item x feat_dim).
             M (int): maximum number of edges per node for HNSW graph construction at layer l=1,...,L. For layer l=0, its 2*M.
             efC (int): size of the priority queue when performing best first search during construction
-            max_level (int): number of maximum layers in the hiearchical graph
+            metric_type (str): distance metric type, can be "ip" for inner product or "l2" for Euclidean distance
+            max_level_upper_bound (int): number of maximum layers in the hierarchical graph
             threads (int, default 0): number of threads to use for training HNSW indexer, set to 0 to use all
         Returns:
             HNSW: the trained HNSW model (class object)
         """
         pX, data_type = cls.create_pymat(X)
         fn_dict = pecos_clib.ann_hnsw_init(data_type, metric_type)
-        model_ptr = fn_dict["train"](pX, M, efC, max_level, threads)
-        return cls(model_ptr, pX.rows, pX.cols, M, efC, max_level, fn_dict)
+        model_ptr = fn_dict["train"](pX, M, efC, threads, max_level_upper_bound)
+        return cls(model_ptr, pX.rows, pX.cols, M, efC, fn_dict)
 
     def searchers_create(self, num_searcher=1):
         """create searchers that pre-allocate intermediate variables (e.g., set of visited nodes, priority queues, etc) for HNSW graph search

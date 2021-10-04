@@ -89,10 +89,11 @@ def parse_arguments():
 
     parser.add_argument(
         "-B",
-        "--batch-size",
+        "--max-pred-chunk",
+        default=10 ** 7,
+        metavar="INT",
         type=int,
-        default=None,
-        help="Batch size for prediction (default None)",
+        help="Max number of instances to predict on at once, set to avoid OOM. Set to None to predict on all instances at once. Default 10^7",
     )
 
     parser.add_argument(
@@ -144,7 +145,7 @@ def do_predict(args):
         beam_size=args.beam_size,
         post_processor=args.post_processor,
         threads=args.threads,
-        batch_size=args.batch_size,
+        max_pred_chunk=args.max_pred_chunk,
     )
 
     # Save prediction

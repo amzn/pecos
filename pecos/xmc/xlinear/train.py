@@ -67,7 +67,7 @@ def parse_arguments():
     parser.add_argument(
         "--nr-splits",
         type=int,
-        default=2,
+        default=16,
         metavar="INT",
         help="number of splits used to construct hierarchy (a power of 2 is recommended)",
     )
@@ -106,10 +106,11 @@ def parse_arguments():
 
     parser.add_argument(
         "--no-spherical",
-        action="store_true",
-        default=False,
+        action="store_false",
+        dest="spherical",
         help="Do not l2-normalize cluster centers while clustering",
     )
+    parser.set_defaults(spherical=True)
 
     parser.add_argument(
         "--seed", type=int, default=0, metavar="INT", help="random seed (default 0)"
@@ -140,6 +141,32 @@ def parse_arguments():
         metavar="PATH",
         help="path to the npz file of the code matrix (CSC, nr_labels * nr_codes)",
     )
+
+    parser.add_argument(
+        "-r",
+        "--rel-path",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="path to the npz file of the relevance matrix (CSR, nr_insts * nr_labels). Should have same sparsity pattern as label matrix.",
+    )
+
+    parser.add_argument(
+        "--rel-norm",
+        type=str,
+        choices=["l1", "l2", "max", "no-norm"],
+        default="l1",
+        metavar="STR",
+        help="",
+    )
+
+    parser.add_argument(
+        "--no-rel-induce",
+        dest="rel_induce",
+        action="store_false",
+        help="Disable inducing relevance matrix into relevance chain by label aggregation.",
+    )
+    parser.set_defaults(rel_induce=True)
 
     parser.add_argument(
         "-um",
@@ -282,7 +309,7 @@ def do_train(args):
             seed=args.seed,
             max_iter=args.max_iter,
             threads=args.threads,
-            spherical=not args.no_spherical,
+            spherical=args.spherical,
         )
 
     # load label importance matrix if given
@@ -297,6 +324,12 @@ def do_train(args):
         usn_match_mat = None
     usn_match_dict = {0: usn_label_mat, 1: usn_match_mat}
 
+    # load relevance matrix for cost-sensitive learning
+    if args.rel_path:
+        R = smat_util.load_matrix(args.rel_path)
+    else:
+        R = None
+
     pred_kwargs = {}
     for kw in ["beam_size", "only_topk", "post_processor"]:
         if getattr(args, kw, None) is not None:
@@ -306,6 +339,7 @@ def do_train(args):
         X,
         Y,
         cluster_chain,
+        R=R,
         user_supplied_negatives=usn_match_dict,
         negative_sampling_scheme=args.negative_sampling,
         pred_kwargs=pred_kwargs,
@@ -317,6 +351,8 @@ def do_train(args):
         bias=args.bias,
         threshold=args.threshold,
         max_nonzeros_per_label=args.max_nonzeros_per_label,
+        rel_norm=args.rel_norm,
+        rel_induce=args.rel_induce,
     )
 
     xlm.save(args.model_folder)

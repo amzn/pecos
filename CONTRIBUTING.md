@@ -50,7 +50,7 @@ To send us a pull request, please:
     * Add or change the documentation as needed.
 6. **Ensure local style/type checks and tests pass.** First ensure you install the following for style-checking and unit-testing
     ```
-	pip install flake8 black mypy
+	python3 -m pip install flake8 black mypy
     ```
 	Then you can use the `Makefile` commands to check:
     ```
