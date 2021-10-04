@@ -23,8 +23,8 @@ def test_cluster_chain(tmpdir):
     import numpy as np
     from pecos.utils.cluster_util import ClusterChain
 
-    C0 = smat.csc_matrix([[1], [1]])
-    C1 = smat.csc_matrix([[1, 0], [1, 0], [0, 1], [0, 1]])
+    C0 = smat.csc_matrix([[1], [1]], dtype=np.float32)
+    C1 = smat.csc_matrix([[1, 0], [1, 0], [0, 1], [0, 1]], dtype=np.float32)
     C2 = smat.csc_matrix(
         [
             [1, 0, 0, 0],
@@ -35,7 +35,8 @@ def test_cluster_chain(tmpdir):
             [0, 0, 1, 0],
             [0, 0, 0, 1],
             [0, 0, 0, 1],
-        ]
+        ],
+        dtype=np.float32,
     )
 
     chain_orig = ClusterChain([C0, C1, C2])
@@ -47,17 +48,30 @@ def test_cluster_chain(tmpdir):
     assert chain_orig == chain_loaded
 
     # test chain construction
-    chain_reconstructed = ClusterChain.from_partial_chain(chain_orig[-1])
+    chain_reconstructed = ClusterChain.from_partial_chain(chain_orig[-1], nr_splits=2)
     assert chain_orig == chain_reconstructed
 
     # test matching chain
-    Y = smat.csr_matrix([[1, 0, 0, 0, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0, 0, 0]])
-    M2 = smat.csr_matrix([[0, 1, 0, 0], [0, 0, 0, 1]])
-    matching_chain = chain_orig.genearate_matching_chain({0: Y, 1: M2, 2: None})
+    Y = smat.csr_matrix([[1, 0, 0, 0, 0, 1, 0, 0], [0, 0, 1, 0, 0, 0, 0, 0]], dtype=np.float32)
+    M2 = smat.csr_matrix([[0, 1, 0, 0], [0, 0, 0, 1]], dtype=np.float32)
+    matching_chain = chain_orig.generate_matching_chain({0: Y, 1: M2, 2: None})
     M2_res = np.array([[1, 1, 1, 0], [0, 1, 0, 1]])
     M1_res = np.array([[2, 1], [1, 1]])
     M0_res = np.array([[3], [2]])
     for pred, res in zip(matching_chain, [M0_res, M1_res, M2_res]):
+        assert pred.toarray() == approx(res)
+
+    # test relevance chain
+    R = smat.csr_matrix(
+        [[2.0, 0, 0, 0, 0, 0.5, 0, 0], [0, 0, 0.1, 0, 0, 0, 0, 0]], dtype=np.float32
+    )
+    R2 = smat.csr_matrix([[0.2, 0.2], [10.0, 0]], dtype=np.float32)
+
+    R0_res = np.array([[0.5, 0.5], [1.0, 0]], dtype=np.float32)
+    R1_res = np.array([[0.8, 0.0, 0.2, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype=np.float32)
+    R2_res = np.array([[0.8, 0, 0, 0, 0, 0.2, 0, 0], [0, 0, 1.0, 0, 0, 0, 0, 0]], dtype=np.float32)
+    relevance_chain = chain_orig.generate_relevance_chain({0: R, 2: R2, 3: None}, norm_type="l1")
+    for pred, res in zip(relevance_chain, [R0_res, R1_res, R2_res]):
         assert pred.toarray() == approx(res)
 
 

@@ -11,7 +11,6 @@
 import copy
 import json
 import logging
-import multiprocessing as mp
 import os
 import tempfile
 import time
@@ -23,10 +22,9 @@ import scipy.sparse as smat
 import torch
 import transformers
 from pecos.core import clib
-from pecos.utils import parallel_util, smat_util, torch_util
+from pecos.utils import smat_util, torch_util
 from pecos.xmc import MLModel, MLProblem, PostProcessor
 from sklearn.preprocessing import normalize as sk_normalize
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import AdamW, AutoConfig, get_scheduler
 
@@ -91,19 +89,16 @@ class TransformerMatcher(pecos.BaseClass):
         logging_steps (int): log training information every NUM updates steps. Default 50
         save_steps (int): save checkpoint every NUM updates steps. Default 100
 
+        cost_sensitive_ranker (bool, optional): if True, use clustering count aggregating for ranker's cost-sensitive learnin
+            Default False
+        use_gpu (bool, optional): whether to use GPU even if available. Default True
 
-        no_fine_tune (bool, optional): not to do fine-tuning on the transformer text_encoder. Default False
-        disable_gpu (bool, optional): not to use GPU even if available. Default False
-
-        model_dir (str): path to save training checkpoints. Default empty to use a temp dir.
+        checkpoint_dir (str): path to save training checkpoints. Default empty to use a temp dir.
         cache_dir (str): dir to store the pre-trained models downloaded from
             s3. Default empty to use a temp dir.
         init_model_dir (str): path to load checkpoint of TransformerMatcher. If given,
             start from the given checkpoint rather than downloading a
             pre-trained model from S3. Default empty to ignore
-        saved_trn_pt: (str): dir to save/load tokenized train tensors. Default empty to ignore
-        saved_val_pt: (str): dir to save/load tokenized validation tensors. Default empty to ignore
-        save_emb_dir (str): dir to save instance embeddings. Default empty to ignore
         """
 
         model_shortcut: str = "bert-base-cased"
@@ -124,21 +119,18 @@ class TransformerMatcher(pecos.BaseClass):
         gradient_accumulation_steps: int = 1
         weight_decay: float = 0
         max_grad_norm: float = 1.0
-        learning_rate: float = 5e-5
+        learning_rate: float = 1e-4
         adam_epsilon: float = 1e-8
         warmup_steps: int = 0
         logging_steps: int = 50
         save_steps: int = 100
 
-        no_fine_tune: bool = False
-        disable_gpu: bool = False
+        cost_sensitive_ranker: bool = False
+        use_gpu: bool = True
 
-        model_dir: str = ""
+        checkpoint_dir: str = ""
         cache_dir: str = ""
         init_model_dir: str = ""
-        saved_trn_pt: str = ""
-        saved_val_pt: str = ""
-        save_emb_dir: bool = False
 
     @dc.dataclass
     class PredParams(pecos.BaseParams):  # type: ignore
@@ -150,14 +142,14 @@ class TransformerMatcher(pecos.BaseClass):
             Default to "noop"
         ensemble_method (str, optional): micro ensemble method to generate prediction.
             Default to "transformer-only". See TransformerMatcher.ensemble_prediction for details.
-        truncate_length (int, optional): length to truncate input text, default None to skip truncation.
+        truncate_length (int, optional): length to truncate input text, default 128.
 
         """
 
         only_topk: int = 20
         post_processor: str = "noop"
         ensemble_method: str = "transformer-only"
-        truncate_length: int = None  # type: ignore
+        truncate_length: int = 128
 
         def override_with_kwargs(self, pred_kwargs):
             """Override Class attributes from prediction key-word arguments.
@@ -208,6 +200,8 @@ class TransformerMatcher(pecos.BaseClass):
                 embeddings and input numerical features to predict on label space
             train_params (TransformerMatcher.TrainParams, optional): instance of TransformerMatcher.TrainParams.
             pred_params (TransformerMatcher.PredParams, optional): instance of TransformerMatcher.PredParams.
+            model_folder (tempfile.TemporaryDirectory): Temporary directory object. This is a workaround for certain
+                tokenizer models that rely on Sentencepiece, which is not in memory.
         """
         self.text_encoder = text_encoder
         self.text_tokenizer = text_tokenizer
@@ -218,6 +212,12 @@ class TransformerMatcher(pecos.BaseClass):
 
         self.train_params = self.TrainParams.from_dict(train_params)
         self.pred_params = self.PredParams.from_dict(pred_params)
+
+        # This is for tokenizers that rely on Sentencepiece (e.x. XLNetTokenizer)
+        # re-pointing the text_tokenizer files to self.temp_folder.name
+        self.temp_folder = tempfile.TemporaryDirectory()
+        self.text_tokenizer.save_pretrained(self.temp_folder.name)
+        self.text_tokenizer = self.text_tokenizer.from_pretrained(self.temp_folder.name)
 
     def get_pred_params(self):
         return copy.deepcopy(self.pred_params)
@@ -283,6 +283,14 @@ class TransformerMatcher(pecos.BaseClass):
         """Get the number of labels"""
         return self.text_model.num_labels
 
+    @property
+    def model_type(self):
+        """Get the encoder model type"""
+        if hasattr(self.text_encoder, "module"):
+            return self.text_encoder.module.config.model_type
+        else:
+            return self.text_encoder.config.model_type
+
     def save(self, save_dir):
         """Save the models, text_tokenizer and training arguments to file
 
@@ -318,6 +326,7 @@ class TransformerMatcher(pecos.BaseClass):
         tokenizer_dir = os.path.join(save_dir, "text_tokenizer")
         os.makedirs(tokenizer_dir, exist_ok=True)
         self.text_tokenizer.save_pretrained(tokenizer_dir)
+
         # this creates text_model
         text_model_dir = os.path.join(save_dir, "text_model")
         torch.save(self.text_model, text_model_dir)
@@ -404,7 +413,7 @@ class TransformerMatcher(pecos.BaseClass):
         )
 
     @classmethod
-    def download_model(cls, model_shortcut, num_labels, hidden_dropout_prob=0.1, cache_dir=""):
+    def download_model(cls, model_shortcut, num_labels=2, hidden_dropout_prob=0.1, cache_dir=""):
         """Initialize a matcher by downloading a pre-trained model from s3
 
         Args:
@@ -444,12 +453,11 @@ class TransformerMatcher(pecos.BaseClass):
         text_model = TransformerLinearXMCHead(config.hidden_size, num_labels)
         return cls(text_encoder, text_tokenizer, text_model)
 
-    def text_to_tensor(self, corpus, num_workers=4, max_length=None):
+    def text_to_tensor(self, corpus, max_length=None, **kwargs):
         """Convert input text corpus into padded tensors
 
         Args:
             corpus (iterable over str): input text strings
-            num_workers (int, optional): number of processors to use for data encoding. Default 4
             max_length(int, optional): max length to which input text will be padded/truncated.
                                     Default None to use the max length in the corpus
 
@@ -469,67 +477,17 @@ class TransformerMatcher(pecos.BaseClass):
             "return_token_type_ids": True,
             "return_attention_mask": True,
         }
-        num_workers = min(len(corpus), num_workers)
-        # generate inst feature batches
-        chunk_size = (len(corpus) + num_workers - 1) // num_workers
-        data_chunks = [corpus[chunk_size * i : chunk_size * (i + 1)] for i in range(num_workers)]
-        LOGGER.info(
-            "***** Encoding data with {} workers, len={} truncation={}*****".format(
-                num_workers, len(corpus), max_length
-            )
-        )
+        # this it to disable the warning message for tokenizer
+        # REF: https://github.com/huggingface/transformers/issues/5486
+        os.environ["TOKENIZERS_PARALLELISM"] = "true"
+        LOGGER.info("***** Encoding data len={} truncation={}*****".format(len(corpus), max_length))
         t_start = time.time()
-        pool = mp.get_context("spawn").Pool(processes=num_workers)
-        async_results = [
-            pool.apply_async(
-                parallel_util.call_instance_method,
-                args=(
-                    self.text_tokenizer,
-                    self.text_tokenizer.batch_encode_plus.__name__,
-                    (),
-                    dict(
-                        convert_kwargs,
-                        batch_text_or_text_pairs=data_chunks[i],
-                    ),
-                ),
-            )
-            for i in range(num_workers)
-        ]
-        pool.close()
-        map(mp.pool.ApplyResult.get, async_results)
-        result_lists = [r.get() for r in async_results]
+        feature_tensors = self.text_tokenizer.batch_encode_plus(
+            batch_text_or_text_pairs=corpus,
+            **convert_kwargs,
+        )
 
         LOGGER.info("***** Finished with time cost={} *****".format(time.time() - t_start))
-        feature_tensors = {}
-
-        if len(result_lists) > 1:
-            keys_ = [
-                ("input_ids", self.text_tokenizer.pad_token_id),
-                ("attention_mask", 0),
-                ("token_type_ids", 1),
-            ]
-            # for split sequence chunks to list of sequences since pad_sequence requires
-            # all trailing dimensions to be the same
-            for kw, pad_val in keys_:
-                feature_tensors[kw] = (
-                    pad_sequence(
-                        sum(
-                            [
-                                list(torch.chunk(t[kw].T, t[kw].shape[0], dim=1))
-                                for t in result_lists
-                            ],
-                            [],
-                        ),
-                        batch_first=True,
-                        padding_value=pad_val,
-                    )
-                    .permute(1, 0, 2)
-                    .flatten(1)
-                    .T
-                )
-        else:
-            feature_tensors = result_lists[0]
-
         return feature_tensors
 
     @staticmethod
@@ -545,7 +503,7 @@ class TransformerMatcher(pecos.BaseClass):
             Y = smat.csr_matrix([[0, 1, 0, 2],
                                  [0, 0, 0, 3]])
             then the returned values will be:
-            label_indices = torch.LongTensor([[1, 3, 0], [3, 2, -1]])
+            label_indices = torch.IntTensor([[1, 3, 0], [3, 2, -1]])
             label_values = torch.FloatTensor([[1., 2., 0.], [3., 0., 0.]])
 
         Args:
@@ -564,7 +522,7 @@ class TransformerMatcher(pecos.BaseClass):
                 Default None to use max row nnz of M.
 
         Returns:
-            label_indices (torch.LongTensor or None): containing label indices with
+            label_indices (torch.IntTensor or None): containing label indices with
                 shape = (nr_inst, max_labels). Return None if M is None
             label_values (torch.FloatTensor or None): containing label values
                 with shape = (nr_inst, max_labels). If Y is None, return None
@@ -619,7 +577,7 @@ class TransformerMatcher(pecos.BaseClass):
 
             label_indices[i, offset : offset + neg_samples.size] = neg_samples
 
-        label_indices = torch.LongTensor(label_indices)
+        label_indices = torch.IntTensor(label_indices)
 
         return label_indices, None if Y is None else torch.FloatTensor(label_values)
 
@@ -699,9 +657,10 @@ class TransformerMatcher(pecos.BaseClass):
             kwargs:
                 batch_size (int, optional): total batch_size for (multi-GPU) forward propagation. Default 8
                 batch_gen_workers (int, optional): number of CPU workers for batch generation. Default 4
-                pred_chunk_size (int, optional): maximum number of instances to
+                max_pred_chunk (int, optional): maximum number of instances to
                         predict on for each round. Default None to predict on all
-                        instances at once.
+                        instances at once. Default 10^7
+                only_embeddings (bool, optional): if True, skip logit prediction and only produce embeddings
 
         Returns:
             label_pred (csr_matrix): label prediction logits, shape = (nr_inst, nr_labels)
@@ -722,9 +681,9 @@ class TransformerMatcher(pecos.BaseClass):
             )
 
         nr_inst = X_text["input_ids"].shape[0]
-        pred_chunk_size = kwargs.pop("pred_chunk_size", None)
+        max_pred_chunk = kwargs.pop("max_pred_chunk", 10 ** 7)
 
-        if pred_chunk_size is None or pred_chunk_size >= nr_inst:
+        if max_pred_chunk is None or max_pred_chunk >= nr_inst:
             label_pred, embeddings = self._predict(
                 X_text,
                 X_feat=X_feat,
@@ -736,17 +695,21 @@ class TransformerMatcher(pecos.BaseClass):
             # batch prediction to avoid OOM
             embedding_chunks = []
             P_chunks = []
-            for i in range(0, nr_inst, pred_chunk_size):
+            for i in range(0, nr_inst, max_pred_chunk):
                 cur_P, cur_embedding = self._predict(
-                    {k: v[i : i + pred_chunk_size] for k, v in X_text.items()},
-                    X_feat=None if X_feat is None else X_feat[i : i + pred_chunk_size, :],
-                    csr_codes=None if csr_codes is None else csr_codes[i : i + pred_chunk_size, :],
+                    {k: v[i : i + max_pred_chunk] for k, v in X_text.items()},
+                    X_feat=None if X_feat is None else X_feat[i : i + max_pred_chunk, :],
+                    csr_codes=None if csr_codes is None else csr_codes[i : i + max_pred_chunk, :],
                     pred_params=pred_params,
                     **kwargs,
                 )
                 embedding_chunks.append(cur_embedding)
                 P_chunks.append(cur_P)
-            label_pred = smat_util.vstack_csr(P_chunks)
+            if not all(pp is None for pp in P_chunks):
+                label_pred = smat_util.vstack_csr(P_chunks)
+            else:
+                # only_embeddings case
+                label_pred = None
             embeddings = np.vstack(embedding_chunks)
         return label_pred, embeddings
 
@@ -778,12 +741,14 @@ class TransformerMatcher(pecos.BaseClass):
             kwargs:
                 batch_size (int, optional): total batch_size for (multi-GPU) forward propagation. Default 8
                 batch_gen_workers (int, optional): number of CPU workers for batch generation. Default 4
+                only_embeddings (bool, optional): if True, skip logit prediction and only produce embeddings
 
         Returns:
             label_pred (csr_matrix): label prediction logits, shape = (nr_inst, nr_labels)
             embeddings (ndarray): array of instance embeddings shape = (nr_inst, hidden_dim)
         """
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
+        only_embeddings = kwargs.get("only_embeddings", False)
 
         if csr_codes is not None:
             # need to keep explicit zeros in csr_codes_next
@@ -849,78 +814,111 @@ class TransformerMatcher(pecos.BaseClass):
                     "label_indices": None if csr_codes_next is None else batch[-1],
                 }
 
-                text_model_W_seq, text_model_b_seq = self.text_model(
-                    output_indices=inputs["label_indices"],
-                    num_device=len(self.text_encoder.device_ids)
-                    if hasattr(self.text_encoder, "device_ids")
-                    else 1,
-                )
+                if not only_embeddings:
+                    text_model_W_seq, text_model_b_seq = self.text_model(
+                        output_indices=inputs["label_indices"],
+                        num_device=len(self.text_encoder.device_ids)
+                        if hasattr(self.text_encoder, "device_ids")
+                        else 1,
+                    )
 
                 outputs = self.text_encoder(
                     input_ids=inputs["input_ids"],
                     attention_mask=inputs["attention_mask"],
                     token_type_ids=inputs["token_type_ids"],
-                    label_embedding=(text_model_W_seq, text_model_b_seq),
+                    label_embedding=None
+                    if only_embeddings
+                    else (text_model_W_seq, text_model_b_seq),
                 )
-                c_pred = outputs["logits"]
-                # get topk prediction
-                if csr_codes_next is None:  # take all labels into consideration
-                    cpred_csr = smat.csr_matrix(c_pred.cpu().numpy())
-                    cpred_csr.data = PostProcessor.get(pred_params.post_processor).transform(
-                        cpred_csr.data, inplace=True
-                    )
-                    cpred_csr = smat_util.sorted_csr(cpred_csr, only_topk=local_topk)
-                    batch_cpred.append(cpred_csr)
-                else:
-                    cur_act_labels = csr_codes_next[inputs["instance_number"].cpu()]
-                    nnz_of_insts = cur_act_labels.indptr[1:] - cur_act_labels.indptr[:-1]
-                    inst_idx = np.repeat(np.arange(cur_batch_size, dtype=np.uint32), nnz_of_insts)
-                    label_idx = cur_act_labels.indices.astype(np.uint32)
-                    val = c_pred.cpu().numpy().flatten()
-                    val = val[
-                        np.argwhere(
-                            inputs["label_indices"].cpu().flatten() != self.text_model.label_pad
-                        )
-                    ].flatten()
-                    val = PostProcessor.get(pred_params.post_processor).transform(val, inplace=True)
-                    val = PostProcessor.get(pred_params.post_processor).combiner(
-                        val, cur_act_labels.data
-                    )
-                    cpred_csr = smat_util.sorted_csr_from_coo(
-                        cur_act_labels.shape, inst_idx, label_idx, val, only_topk=local_topk
-                    )
 
-                    batch_cpred.append(cpred_csr)
+                if not only_embeddings:
+                    c_pred = outputs["logits"]
+                    # get topk prediction
+                    if csr_codes_next is None:  # take all labels into consideration
+                        cpred_csr = smat.csr_matrix(c_pred.cpu().numpy())
+                        cpred_csr.data = PostProcessor.get(pred_params.post_processor).transform(
+                            cpred_csr.data, inplace=True
+                        )
+                        cpred_csr = smat_util.sorted_csr(cpred_csr, only_topk=local_topk)
+                        batch_cpred.append(cpred_csr)
+                    else:
+                        cur_act_labels = csr_codes_next[inputs["instance_number"].cpu()]
+                        nnz_of_insts = cur_act_labels.indptr[1:] - cur_act_labels.indptr[:-1]
+                        inst_idx = np.repeat(
+                            np.arange(cur_batch_size, dtype=np.uint32), nnz_of_insts
+                        )
+                        label_idx = cur_act_labels.indices.astype(np.uint32)
+                        val = c_pred.cpu().numpy().flatten()
+                        val = val[
+                            np.argwhere(
+                                inputs["label_indices"].cpu().flatten() != self.text_model.label_pad
+                            )
+                        ].flatten()
+                        val = PostProcessor.get(pred_params.post_processor).transform(
+                            val, inplace=True
+                        )
+                        val = PostProcessor.get(pred_params.post_processor).combiner(
+                            val, cur_act_labels.data
+                        )
+                        cpred_csr = smat_util.sorted_csr_from_coo(
+                            cur_act_labels.shape, inst_idx, label_idx, val, only_topk=local_topk
+                        )
+
+                        batch_cpred.append(cpred_csr)
 
                 embeddings.append(outputs["pooled_output"].cpu().numpy())
 
-        pred_csr_codes = smat_util.vstack_csr(batch_cpred)
         embeddings = np.concatenate(embeddings, axis=0)
-
-        ens_method = pred_params.ensemble_method
-        # concat_model prediction requires concat_model and X_feat
-        if all(v is not None for v in [self.concat_model, X_feat]):
-            cat_embeddings = sk_normalize(embeddings, axis=1, copy=True)
-            if isinstance(X_feat, smat.csr_matrix):
-                cat_embeddings = smat_util.dense_to_csr(cat_embeddings)
-                cat_embeddings = smat_util.hstack_csr([X_feat, cat_embeddings], dtype=np.float32)
-            else:
-                cat_embeddings = np.hstack([X_feat, cat_embeddings])
-            concat_pred_csr_codes = self.concat_model.predict(
-                cat_embeddings,
-                csr_codes=csr_codes,  # use original csr_codes rather than csr_codes_next
-                only_topk=local_topk,
-                post_processor=pred_params.post_processor,
-            )
-            pred_csr_codes = TransformerMatcher.ensemble_prediction(
-                pred_csr_codes, concat_pred_csr_codes, local_topk, ens_method
-            )
-        elif self.concat_model is not None and ens_method != "transformer-only":
-            LOGGER.warning(
-                f"X_feat is missing for {ens_method} prediction, fall back to transformer-only"
-            )
+        pred_csr_codes = None
+        if not only_embeddings:
+            pred_csr_codes = smat_util.vstack_csr(batch_cpred)
+            ens_method = pred_params.ensemble_method
+            # concat_model prediction requires concat_model and X_feat
+            if all(v is not None for v in [self.concat_model, X_feat]):
+                concat_pred_csr_codes = self.concat_model.predict(
+                    TransformerMatcher.concat_features(X_feat, embeddings, normalize_emb=True),
+                    csr_codes=csr_codes,  # use original csr_codes rather than csr_codes_next
+                    only_topk=local_topk,
+                    post_processor=pred_params.post_processor,
+                )
+                pred_csr_codes = TransformerMatcher.ensemble_prediction(
+                    pred_csr_codes, concat_pred_csr_codes, local_topk, ens_method
+                )
+            elif self.concat_model is not None and ens_method != "transformer-only":
+                LOGGER.warning(
+                    f"X_feat is missing for {ens_method} prediction, fall back to transformer-only"
+                )
 
         return pred_csr_codes, embeddings
+
+    @staticmethod
+    def concat_features(X_feat, X_emb, normalize_emb=True):
+        """Concatenate instance numerical features with transformer embeddings
+
+        Args:
+            X_feat (csr_matrix or ndarray): instance numerical features of shape (nr_inst, nr_features)
+            X_emb (ndarray): instance embeddings of shape (nr_inst, hidden_dim)
+            normalize_emb (bool, optional): if True, rowwise normalize X_emb before concatenate.
+                Default False
+
+        Returns:
+            X_cat (csr_matrix or ndarray): the concatenated features
+        """
+        if normalize_emb:
+            X_cat = sk_normalize(X_emb)
+        else:
+            X_cat = X_emb
+
+        if isinstance(X_feat, smat.csr_matrix):
+            X_cat = smat_util.dense_to_csr(X_cat)
+            X_cat = smat_util.hstack_csr([X_feat, X_cat], dtype=np.float32)
+        elif isinstance(X_feat, np.ndarray):
+            X_cat = np.hstack([X_feat, X_cat])
+        elif X_feat is None:
+            pass
+        else:
+            raise TypeError(f"Expected CSR or ndarray, got {type(X_feat)}")
+        return X_cat
 
     def fine_tune_encoder(self, prob, val_prob=None, val_csr_codes=None):
         """Fine tune the transformer text_encoder
@@ -1004,6 +1002,9 @@ class TransformerMatcher(pecos.BaseClass):
         else:
             steps_per_epoch = len(train_dataloader) // train_params.gradient_accumulation_steps
             t_total = steps_per_epoch * train_params.num_train_epochs
+
+        train_params.save_steps = min(train_params.save_steps, t_total)
+        train_params.logging_steps = min(train_params.logging_steps, t_total)
 
         # Prepare optimizer, disable weight decay for bias and layernorm weights
         no_decay = ["bias", "LayerNorm.weight"]
@@ -1228,12 +1229,12 @@ class TransformerMatcher(pecos.BaseClass):
                             LOGGER.info(
                                 "| **** saving model (avg_prec={}) to {} at global_step {} ****".format(
                                     100 * avg_matcher_prec,
-                                    train_params.model_dir,
+                                    train_params.checkpoint_dir,
                                     global_step,
                                 )
                             )
                             best_matcher_prec = avg_matcher_prec
-                            self.save(train_params.model_dir)
+                            self.save(train_params.checkpoint_dir)
                         else:
                             no_improve_cnt += 1
                         LOGGER.info("-" * 89)
@@ -1275,6 +1276,8 @@ class TransformerMatcher(pecos.BaseClass):
             train_params (TransformerMatcher.TrainParams, optional): instance of TransformerMatcher.TrainParams.
             pred_params (TransformerMatcher.PredParams, optional): instance of TransformerMatcher.PredParams.
             kwargs:
+                saved_trn_pt (str): path to the tokenized trn text. If given, will skip tokenization
+                saved_val_pt (str): path to the tokenized val text. If given, will skip tokenization
                 bootstrapping (tuple): (init_encoder, init_embeddings) the
                     text_encoder and corresponding instance embeddings generated by it.
                     Used for bootstrap current text_encoder and text_model. Default None to
@@ -1282,6 +1285,8 @@ class TransformerMatcher(pecos.BaseClass):
                 return_dict (bool): if True, return a dictionary with model
                      and its prediction/embeddings on train/validation dataset.
                      Default False.
+                return_train_pred (bool): if True and return_dict, return prediction matrix on training data
+                return_train_embeddings (bool): if True and return_dict, return training instance embeddings
         Returns:
             results (TransformerMatcher or dict):
             if return_dict=True, return a dictionary:
@@ -1298,14 +1303,17 @@ class TransformerMatcher(pecos.BaseClass):
         pred_params = cls.PredParams.from_dict(pred_params)
         LOGGER.debug(f"TransformerMatcher train_params: {train_params.to_dict()}")
         LOGGER.debug(f"TransformerMatcher pred_params: {pred_params.to_dict()}")
+        if prob.X_feat is None:
+            pred_params.ensemble_method = "transformer-only"
 
         # save to a temp dir if not given
-        if not train_params.model_dir:
+        if not train_params.checkpoint_dir:
             temp_dir = tempfile.TemporaryDirectory()
-            train_params.model_dir = temp_dir.name
+            train_params.checkpoint_dir = temp_dir.name
 
         if train_params.init_model_dir:
             matcher = cls.load(train_params.init_model_dir)
+            LOGGER.info("Loaded model from {}.".format(train_params.init_model_dir))
             if prob.Y.shape[1] != matcher.nr_labels:
                 LOGGER.warning(
                     f"Got mismatch nr_labels (expected {prob.Y.shape[1]} but got {matcher.nr_labels}), text_model reinitialized!"
@@ -1329,7 +1337,7 @@ class TransformerMatcher(pecos.BaseClass):
         matcher.pred_params = pred_params
 
         # tokenize X_text if X_text is given as raw text
-        saved_trn_pt = train_params.saved_trn_pt
+        saved_trn_pt = kwargs.get("saved_trn_pt", "")
         if not prob.is_tokenized:
             if saved_trn_pt and os.path.isfile(saved_trn_pt):
                 trn_tensors = torch.load(saved_trn_pt)
@@ -1346,7 +1354,7 @@ class TransformerMatcher(pecos.BaseClass):
             prob.X_text = trn_tensors
 
         if val_prob is not None and not val_prob.is_tokenized:
-            saved_val_pt = train_params.saved_val_pt
+            saved_val_pt = kwargs.get("saved_val_pt", "")
             if saved_val_pt and os.path.isfile(saved_val_pt):
                 val_tensors = torch.load(saved_val_pt)
                 LOGGER.info("val tensors loaded from {}".format(saved_val_pt))
@@ -1362,61 +1370,73 @@ class TransformerMatcher(pecos.BaseClass):
             val_prob.X_text = val_tensors
 
         bootstrapping = kwargs.get("bootstrapping", None)
-        if train_params.bootstrap_method is not None and bootstrapping is not None:
+        if bootstrapping is not None:
             init_encoder, init_embeddings, prev_head = bootstrapping
             matcher.text_encoder.init_from(init_encoder)
-            LOGGER.info("Initialized transformer text_encoder form given text_encoder!")
-            if train_params.bootstrap_method == "linear" and init_embeddings is not None:
+            LOGGER.info("Continue training form given text_encoder!")
+            if "linear" in train_params.bootstrap_method:
                 bootstrap_prob = MLProblem(
                     init_embeddings,
                     prob.Y,
                     C=prob.C if prob.M is not None else None,
                     M=prob.M,
-                    R=prob.Y if "weighted" in train_params.loss_function else None,
+                    R=prob.Y if "weighted" in train_params.bootstrap_method else None,
                 )
                 matcher.text_model.bootstrap(bootstrap_prob)
                 LOGGER.info("Initialized transformer text_model with xlinear!")
             elif train_params.bootstrap_method == "inherit":
                 matcher.text_model.inherit(prev_head, prob.C)
                 LOGGER.info("Initialized transformer text_model form parent layer!")
+            elif train_params.bootstrap_method == "no-bootstrap":
+                matcher.text_model.random_init()
+                LOGGER.info("Randomly initialized transformer text_model!")
+            else:
+                raise ValueError(f"Unknown bootstrap_method: {train_params.bootstrap_method}")
 
         # move matcher to desired hardware
-        device, n_gpu = torch_util.setup_device(not train_params.disable_gpu)
+        device, n_gpu = torch_util.setup_device(train_params.use_gpu)
         matcher.to_device(device, n_gpu)
         train_params.batch_size *= max(1, n_gpu)
 
         # train the matcher
-        if not train_params.no_fine_tune and (
-            train_params.max_steps > 0 or train_params.num_train_epochs > 0
-        ):
+        if train_params.max_steps > 0 or train_params.num_train_epochs > 0:
             LOGGER.info("Start fine-tuning transformer matcher...")
             matcher.fine_tune_encoder(prob, val_prob=val_prob, val_csr_codes=val_csr_codes)
-            if os.path.exists(train_params.model_dir):
-                LOGGER.info("Reload the best checkpoint from {}".format(train_params.model_dir))
-                matcher = TransformerMatcher.load(train_params.model_dir)
+            if os.path.exists(train_params.checkpoint_dir):
+                LOGGER.info(
+                    "Reload the best checkpoint from {}".format(train_params.checkpoint_dir)
+                )
+                matcher = TransformerMatcher.load(train_params.checkpoint_dir)
                 matcher.to_device(device, n_gpu)
 
         # ignore concat_model even if there exist one
         matcher.concat_model = None
-        # getting the instance embeddings of training data
-        # since X_feat is not passed, transformer-only result is produced
-        P_trn, inst_embeddings = matcher.predict(
-            prob.X_text,
-            csr_codes=csr_codes,
-            pred_params=pred_params,
-            batch_size=train_params.batch_size,
-            batch_gen_workers=train_params.batch_gen_workers,
-        )
 
-        if pred_params.ensemble_method not in ["transformer-only"]:
+        return_dict = kwargs.get("return_dict", False)
+        return_train_pred = kwargs.get("return_train_pred", False) and return_dict
+        return_train_embeddings = kwargs.get("return_train_embeddings", False) and return_dict
+
+        P_trn, inst_embeddings = None, None
+        train_concat = pred_params.ensemble_method not in ["transformer-only"]
+        if train_concat or return_train_pred or return_train_embeddings:
+            # getting the instance embeddings of training data
+            # since X_feat is not passed, transformer-only result is produced
+            P_trn, inst_embeddings = matcher.predict(
+                prob.X_text,
+                csr_codes=csr_codes,
+                pred_params=pred_params,
+                batch_size=train_params.batch_size,
+                batch_gen_workers=train_params.batch_gen_workers,
+            )
+
+        if train_concat:
             # train the same layer concat_model with current embedding
             LOGGER.info("Concatenating instance embeddings with features...")
-            normed_embeddings = sk_normalize(inst_embeddings, axis=1, copy=True)
-            if isinstance(prob.X, smat.csr_matrix):
-                normed_embeddings = smat_util.dense_to_csr(normed_embeddings)
-                cat_embeddings = smat_util.hstack_csr([prob.X, normed_embeddings], dtype=np.float32)
-            else:
-                cat_embeddings = np.hstack([prob.X, normed_embeddings])
+            cat_embeddings = TransformerMatcher.concat_features(
+                prob.X_feat,
+                inst_embeddings,
+                normalize_emb=True,
+            )
 
             LOGGER.info("Start training concat_model of transformer matcher...")
             lprob = MLProblem(
@@ -1424,12 +1444,10 @@ class TransformerMatcher(pecos.BaseClass):
                 prob.Y,
                 C=prob.C if prob.M is not None else None,
                 M=prob.M,
-                R=sk_normalize(prob.Y, norm="l1")
-                if "weighted" in train_params.loss_function
-                else None,
+                R=sk_normalize(prob.Y, norm="l1") if train_params.cost_sensitive_ranker else None,
             )
             matcher.concat_model = MLModel.train(lprob, threshold=train_params.threshold)
-            matcher.save(train_params.model_dir)
+            matcher.save(train_params.checkpoint_dir)
 
             # P_trn with concat_model
             concat_P_trn = matcher.concat_model.predict(
@@ -1449,7 +1467,7 @@ class TransformerMatcher(pecos.BaseClass):
         if val_prob is not None:
             P_val, val_inst_embeddings = matcher.predict(
                 val_prob.X_text,
-                X_feat=val_prob.X,
+                X_feat=val_prob.X_feat,
                 csr_codes=val_csr_codes,
                 batch_size=train_params.batch_size,
                 batch_gen_workers=train_params.batch_gen_workers,
@@ -1476,26 +1494,14 @@ class TransformerMatcher(pecos.BaseClass):
             )
             LOGGER.info("*" * 72)
 
-        if train_params.save_emb_dir:
-            smat_util.save_matrix(
-                os.path.join(train_params.save_emb_dir, "X.trn.npy"),
-                inst_embeddings,
-            )
-            if val_inst_embeddings is not None:
-                smat_util.save_matrix(
-                    os.path.join(train_params.save_emb_dir, "X.val.npy"),
-                    val_inst_embeddings,
-                )
-            LOGGER.info(f"Instance embeddings saved to {train_params.save_emb_dir}")
-
         matcher.clear_cuda()
 
-        if kwargs.get("return_dict", False):
+        if return_dict:
             return {
                 "matcher": matcher,
-                "trn_pred": P_trn,
+                "trn_pred": P_trn if return_train_pred else None,
                 "val_pred": P_val,
-                "trn_embeddings": inst_embeddings,
+                "trn_embeddings": inst_embeddings if return_train_embeddings else None,
                 "val_embeddings": val_inst_embeddings,
             }
         else:
