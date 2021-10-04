@@ -18,27 +18,88 @@ def test_importable():
     from pecos.xmc import Indexer  # noqa: F401
 
 
-def test_cost_sensitive():
+def test_cost_sensitive(tmpdir):
     from pecos.utils import smat_util
     from pecos.xmc import MLProblem, MLModel
 
-    X = smat_util.load_matrix("test/tst-data/xmc/xlinear/X.npz")
-    Y = smat_util.load_matrix("test/tst-data/xmc/xlinear/Y.npz")
+    train_X_file = "test/tst-data/xmc/xlinear/X.npz"
+    train_Y_file = "test/tst-data/xmc/xlinear/Y.npz"
 
-    # Cp=2.0 and R=none should equiv to Cp=1.0 and R=2.0
+    X = smat_util.load_matrix(train_X_file)
+    Y = smat_util.load_matrix(train_Y_file)
+
     Cp = 2.0
+    R = smat_util.binarized(Y)
+    R.data = Cp * R.data
+
+    # test MLModel
+    # Cp=2.0 and R=none should equiv to Cp=1.0 and R=2.0
     model_v0 = MLModel.train(
         MLProblem(X, Y, C=None, M=None, R=None),
         train_params=MLModel.TrainParams(Cp=Cp),
     )
 
-    R = smat_util.binarized(Y)
-    R.data = Cp * R.data
     model_v1 = MLModel.train(
         MLProblem(X, Y, C=None, M=None, R=R),
         train_params=MLModel.TrainParams(Cp=1.0),
     )
     assert model_v0.W.todense() == approx(model_v1.W.todense(), abs=1e-9)
+
+    # test XLinearModel
+    # test data has one positve label per instance
+    # therefore Cp=2.0 and R=none should still equiv to Cp=1.0 and R=2.0
+    from pecos.xmc.xlinear import XLinearModel
+    from pecos.xmc import Indexer, LabelEmbeddingFactory
+
+    label_feat = LabelEmbeddingFactory.create(Y, X, method="pifa")
+    cluster_chain = Indexer.gen(label_feat, max_leaf_size=2)
+    xlm_v0 = XLinearModel.train(
+        X,
+        Y,
+        C=cluster_chain,
+        R=R,
+        train_params={"rel_norm": None},
+    )
+    xlm_v1 = XLinearModel.train(
+        X,
+        Y,
+        C=cluster_chain,
+        train_params={"hlm_args": {"model_chain": {"Cp": Cp}}},
+    )
+
+    for d in range(len(cluster_chain)):
+        assert xlm_v0.model.model_chain[d].W.todense() == approx(
+            xlm_v1.model.model_chain[d].W.todense()
+        )
+
+    # test CLI
+    import subprocess
+    import shlex
+    from pecos.xmc import Indexer, LabelEmbeddingFactory
+    from pecos.utils import smat_util
+
+    model_folder = str(tmpdir.join("save_model"))
+    rel_mat_file = str(tmpdir.join("R.npz"))
+    smat_util.save_matrix(rel_mat_file, R)
+
+    cmd = []
+    cmd += ["python3 -m pecos.xmc.xlinear.train"]
+    cmd += ["-x {}".format(train_X_file)]
+    cmd += ["-y {}".format(train_Y_file)]
+    cmd += ["-m {}".format(model_folder)]
+    cmd += ["-r {}".format(rel_mat_file)]
+    cmd += ["--max-leaf-size {}".format(2)]
+    cmd += ["--rel-norm {}".format("no-norm")]
+    process = subprocess.run(
+        shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert process.returncode == 0, " ".join(cmd)
+    xlm_v2 = XLinearModel.load(model_folder)
+
+    for d in range(len(cluster_chain)):
+        assert xlm_v0.model.model_chain[d].W.todense() == approx(
+            xlm_v2.model.model_chain[d].W.todense()
+        )
 
 
 def test_predict_consistency_between_python_and_cpp(tmpdir):
@@ -767,7 +828,7 @@ def test_matcher_ranker_mode():
     test_X = smat_util.load_matrix("test/tst-data/xmc/xlinear/Xt.npz")
     pred_kwargs = {"post_processor": "noop"}
     label_feat = LabelEmbeddingFactory.create(Y, X, method="pifa")
-    cluster_chain = Indexer.gen(label_feat, max_leaf_size=2)
+    cluster_chain = Indexer.gen(label_feat, max_leaf_size=2, nr_splits=2)
     xlmatcher = XLinearModel.train(
         X,
         Y,
@@ -813,6 +874,7 @@ def test_ova_shallow_mode(tmpdir):
     test_X = smat_util.load_matrix("test/tst-data/xmc/xlinear/Xt.npz")
     label_feat = LabelEmbeddingFactory.create(Y, X, method="pifa")
     cluster_chain = Indexer.gen(label_feat)
+    print(cluster_chain[:])
     xlova = XLinearModel.train(
         X,
         Y,

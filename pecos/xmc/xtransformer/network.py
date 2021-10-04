@@ -19,16 +19,16 @@ from transformers import (
     BertConfig,
     BertModel,
     BertPreTrainedModel,
-    BertTokenizer,
+    BertTokenizerFast,
     RobertaConfig,
     RobertaModel,
-    RobertaTokenizer,
+    RobertaTokenizerFast,
     XLMRobertaConfig,
-    XLMRobertaTokenizer,
+    XLMRobertaTokenizerFast,
     XLNetConfig,
     XLNetModel,
     XLNetPreTrainedModel,
-    XLNetTokenizer,
+    XLNetTokenizerFast,
 )
 from transformers.file_utils import add_start_docstrings
 from transformers.modeling_utils import SequenceSummary
@@ -251,12 +251,16 @@ class BertForXMC(BertPreTrainedModel):
             inputs_embeds=inputs_embeds,
             return_dict=True,
         )
-        pooled_output = self.dropout(outputs.pooler_output)
+        pooled_output = outputs.pooler_output
+        pooled_output = self.dropout(pooled_output)
         instance_hidden_states = outputs.last_hidden_state
-        W_act, b_act = label_embedding
-        W_act = W_act.to(pooled_output.device)
-        b_act = b_act.to(pooled_output.device)
-        logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
+
+        logits = None
+        if label_embedding is not None:
+            W_act, b_act = label_embedding
+            W_act = W_act.to(pooled_output.device)
+            b_act = b_act.to(pooled_output.device)
+            logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
         return {
             "logits": logits,
             "pooled_output": pooled_output,
@@ -319,12 +323,16 @@ class RobertaForXMC(BertPreTrainedModel):
             inputs_embeds=inputs_embeds,
             return_dict=True,
         )
-        pooled_output = self.dropout(outputs.pooler_output)
+        pooled_output = outputs.pooler_output
+        pooled_output = self.dropout(pooled_output)
+
         instance_hidden_states = outputs.last_hidden_state
-        W_act, b_act = label_embedding
-        W_act = W_act.to(pooled_output.device)
-        b_act = b_act.to(pooled_output.device)
-        logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
+        logits = None
+        if label_embedding is not None:
+            W_act, b_act = label_embedding
+            W_act = W_act.to(pooled_output.device)
+            b_act = b_act.to(pooled_output.device)
+            logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
         return {
             "logits": logits,
             "pooled_output": pooled_output,
@@ -406,10 +414,13 @@ class XLNetForXMC(XLNetPreTrainedModel):
         )
         instance_hidden_states = outputs.last_hidden_state
         pooled_output = self.sequence_summary(instance_hidden_states)
-        W_act, b_act = label_embedding
-        W_act = W_act.to(pooled_output.device)
-        b_act = b_act.to(pooled_output.device)
-        logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
+
+        logits = None
+        if label_embedding is not None:
+            W_act, b_act = label_embedding
+            W_act = W_act.to(pooled_output.device)
+            b_act = b_act.to(pooled_output.device)
+            logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
         return {
             "logits": logits,
             "pooled_output": pooled_output,
@@ -418,8 +429,10 @@ class XLNetForXMC(XLNetPreTrainedModel):
 
 
 ENCODER_CLASSES = {
-    "bert": TransformerModelClass(BertConfig, BertForXMC, BertTokenizer),
-    "roberta": TransformerModelClass(RobertaConfig, RobertaForXMC, RobertaTokenizer),
-    "xlm-roberta": TransformerModelClass(XLMRobertaConfig, XLMRobertaForXMC, XLMRobertaTokenizer),
-    "xlnet": TransformerModelClass(XLNetConfig, XLNetForXMC, XLNetTokenizer),
+    "bert": TransformerModelClass(BertConfig, BertForXMC, BertTokenizerFast),
+    "roberta": TransformerModelClass(RobertaConfig, RobertaForXMC, RobertaTokenizerFast),
+    "xlm-roberta": TransformerModelClass(
+        XLMRobertaConfig, XLMRobertaForXMC, XLMRobertaTokenizerFast
+    ),
+    "xlnet": TransformerModelClass(XLNetConfig, XLNetForXMC, XLNetTokenizerFast),
 }

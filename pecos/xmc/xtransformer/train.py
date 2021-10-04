@@ -9,16 +9,16 @@
 #  OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
 #  and limitations under the License.
 import argparse
-import gc
+import json
 import logging
 import os
-import tempfile
+import sys
 
 import numpy as np
 from pecos.utils import logging_util, smat_util, torch_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.utils.featurization.text.preprocess import Preprocessor
-from pecos.xmc import Indexer, LabelEmbeddingFactory, PostProcessor
+from pecos.xmc import PostProcessor
 
 from .matcher import TransformerMatcher
 from .model import XTransformer
@@ -30,37 +30,56 @@ LOGGER = logging.getLogger(__name__)
 def parse_arguments():
     """Parse training arguments"""
     parser = argparse.ArgumentParser()
-    # ========= Required parameters =========
     parser.add_argument(
+        "--generate-train-params-skeleton",
+        action="store_true",
+        help="generate template train-params-json to stdout",
+    )
+    parser.add_argument(
+        "--generate-pred-params-skeleton",
+        action="store_true",
+        help="generate template pred-params-json to stdout",
+    )
+
+    gen_train_params = "--generate-train-params-skeleton" in sys.argv
+    gen_pred_params = "--generate-pred-params-skeleton" in sys.argv
+    skip_training = gen_train_params or gen_pred_params
+    # ========= train data paths ============
+    parser.add_argument(
+        "-t",
         "--trn-text-path",
         type=str,
         metavar="PATH",
-        required=True,
+        required=not skip_training,
         help="path to the training text file",
     )
     parser.add_argument(
+        "-x",
         "--trn-feat-path",
         type=str,
+        default="",
         metavar="PATH",
-        required=True,
         help="path to the instance feature matrix (CSR matrix, nr_insts * nr_features)",
     )
     parser.add_argument(
+        "-y",
         "--trn-label-path",
         type=str,
-        required=True,
         metavar="PATH",
+        required=not skip_training,
         help="path to the training label matrix (CSR matrix, nr_insts * nr_labels)",
     )
     parser.add_argument(
+        "-m",
         "--model-dir",
         type=str,
-        required=True,
-        metavar="PATH",
+        metavar="DIR",
+        required=not skip_training,
         help="the output directory where the models will be saved.",
     )
     # ========= test data paths ============
     parser.add_argument(
+        "-tt",
         "--tst-text-path",
         type=str,
         metavar="PATH",
@@ -68,6 +87,7 @@ def parse_arguments():
         help="path to the test text file",
     )
     parser.add_argument(
+        "-xt",
         "--tst-feat-path",
         type=str,
         metavar="PATH",
@@ -75,31 +95,52 @@ def parse_arguments():
         help="path to the test instance feature matrix",
     )
     parser.add_argument(
+        "-yt",
         "--tst-label-path",
         type=str,
         metavar="PATH",
         default="",
         help="path to the file of the test label matrix",
     )
+    # ========= parameter jsons ============
+    parser.add_argument(
+        "--train-params-path",
+        type=str,
+        default=None,
+        metavar="TRAIN_PARAMS_PATH",
+        help="Json file for train_params (default None)",
+    )
+    parser.add_argument(
+        "--pred-params-path",
+        type=str,
+        default=None,
+        metavar="PRED_PARAMS_PATH",
+        help="Json file for pred_params (default None)",
+    )
     # ========= indexer parameters ============
+    parser.add_argument(
+        "--fix-clustering",
+        action="store_true",
+        help="if True, use the same hierarchial label tree for fine-tuning and final prediction. Default false.",
+    )
     parser.add_argument(
         "--code-path",
         type=str,
         default="",
         metavar="PATH",
-        help="path to the clustering file (CSR matrix, nr_insts * nr_labels)",
+        help="path to the clustering file (CSR matrix, nr_insts * nr_labels). Will be used for both prelimiary and refined HLT if provided",
     )
     parser.add_argument(
         "--label-feat-path",
         type=str,
         default="",
         metavar="PATH",
-        help="path to the CSR npz or Row-majored npy file of the label feature matrix (nr_labels * nr_label_feats)",
+        help="path to the CSR npz or Row-majored npy file of the label feature matrix (nr_labels * nr_label_feats). Will be used to generate prelimiary HLT.",
     )
     parser.add_argument(
         "--nr-splits",
         type=int,
-        default=32,
+        default=16,
         metavar="INT",
         help="number of splits used to construct hierarchy (a power of 2 is recommended)",
     )
@@ -109,13 +150,6 @@ def parse_arguments():
         default=None,
         metavar="INT",
         help="minimal number of codes, default None to use nr-splits",
-    )
-    parser.add_argument(
-        "--indexer",
-        choices=Indexer.indexer_dict.keys(),
-        default="hierarchicalkmeans",
-        metavar="STR",
-        help=f"Indexer algorithm (default hierarchicalkmeans). Available choices are {', '.join(Indexer.indexer_dict.keys())}",
     )
     parser.add_argument(
         "--max-leaf-size",
@@ -138,58 +172,51 @@ def parse_arguments():
         metavar="INT",
         help="After hierarchical 2-means clustering has reached this depth, it will continue clustering as if --imbalanced-ratio is set to 0.0. (default 100)",
     )
-    parser.add_argument(
-        "--no-spherical",
-        action="store_true",
-        default=False,
-        help="Do not l2-normalize cluster centers while clustering",
-    )
-    parser.add_argument(
-        "--max-iter",
-        type=int,
-        default=20,
-        metavar="INT",
-        help="max iterations for indexer (default 20)",
-    )
     # ========= matcher parameters ============
     parser.add_argument(
         "--max-match-clusters",
         type=int,
-        default=-1,
+        default=32768,
         metavar="INT",
-        help="max number of clusters on which to train matcher; if <0, set to number of leaf clusters. Default -1",
+        help="max number of clusters on which to fine-tune transformers. Default 32768",
     )
     parser.add_argument(
         "--no-fine-tune",
         action="store_true",
-        help="whether do fine-tune on loaded/downloaded transformers",
+        help="disable fine-tuning on loaded/downloaded transformers",
     )
     parser.add_argument(
         "--model-shortcut",
         type=str,
         metavar="STR",
-        default="bert-base-uncased",
-        help="pre-trained transformer model name shortcut for download (default bert-base-uncased)",
+        default="bert-base-cased",
+        help="pre-trained transformer model name shortcut for download (default bert-base-cased)",
     )
     parser.add_argument(
         "--init-model-dir",
         type=str,
         metavar="PATH",
         default="",
-        help="path to load existing TransformerMatcher checkpoint from disk, overrides model-shortcut",
+        help="path to load existing TransformerMatcher model from disk, overrides model-shortcut",
     )
     # ========== ranker parameters =============
+    parser.add_argument(
+        "--only-encoder",
+        action="store_true",
+        help="if True, only train text encoder. Default false.",
+    )
     parser.add_argument(
         "-b",
         "--beam-size",
         type=int,
-        default=10,
+        default=None,
         metavar="INT",
         help="the default size of beam search used in the prediction",
     )
     parser.add_argument(
+        "-k",
         "--only-topk",
-        default=20,
+        default=None,
         metavar="INT",
         type=int,
         help="the default number of top labels used in the prediction",
@@ -199,7 +226,7 @@ def parse_arguments():
         "--post-processor",
         type=str,
         choices=PostProcessor.valid_list(),
-        default="noop",
+        default=None,
         metavar="STR",
         help="the default post processor used in the prediction",
     )
@@ -221,7 +248,6 @@ def parse_arguments():
         help="ensemble method for transformer/concat prediction ensemble",
     )
     parser.add_argument(
-        "-t",
         "--threshold",
         type=float,
         default=0.1,
@@ -295,7 +321,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--weight-decay",
-        default=0.0,
+        default=0,
         metavar="VAL",
         type=float,
         help="weight decay rate for regularization",
@@ -312,14 +338,14 @@ def parse_arguments():
     )
     parser.add_argument(
         "--num-train-epochs",
-        default=5.0,
+        default=5,
         metavar="INT",
         type=int,
         help="total number of training epochs to perform for each sub-task.",
     )
     parser.add_argument(
         "--max-steps",
-        default=-1,
+        default=0,
         metavar="INT",
         type=int,
         help="if > 0: set total number of training steps to perform for each sub-task. Overrides num-train-epochs.",
@@ -391,21 +417,23 @@ def parse_arguments():
     )
     parser.add_argument(
         "--save-emb-dir",
-        default="",
+        default=None,
         metavar="PATH",
         type=str,
-        help="dir to save instance embeddings.",
+        help="dir to save the final instance embeddings.",
     )
     parser.add_argument(
         "--disable-gpu",
-        action="store_true",
+        action="store_false",
+        dest="use_gpu",
         help="disable CUDA training even if it's available",
     )
+    parser.set_defaults(use_gpu=True)
     parser.add_argument(
         "--bootstrap-method",
         type=str,
         default="linear",
-        choices=["linear", "inherit", None],
+        choices=["linear", "inherit", "no-bootstrap"],
         help="initialization method for the text_model weights. Ignored if None is given. Default linear",
     )
     parser.add_argument(
@@ -431,17 +459,54 @@ def parse_arguments():
 
 
 def do_train(args):
-    """Train and save X-Transformer model.
+    """Train and save XR-Transformer model.
 
     Args:
         args (argparse.Namespace): Command line arguments parsed by `parser.parse_args()`
     """
+    if args.generate_train_params_skeleton:
+        train_params = XTransformer.TrainParams.from_dict({}, recursive=True)
+        print(f"{json.dumps(train_params.to_dict(), indent=True)}")
+        return
+
+    if args.generate_pred_params_skeleton:
+        pred_params = XTransformer.PredParams.from_dict({}, recursive=True)
+        print(f"{json.dumps(pred_params.to_dict(), indent=True)}")
+        return
+
+    # for HierarchicalMLModel.TrainParams
+    args.neg_mining_chain = args.negative_sampling
+
+    if args.train_params_path:
+        with open(args.train_params_path, "r") as fin:
+            train_params = XTransformer.TrainParams.from_dict(json.load(fin))
+    else:
+        train_params = XTransformer.TrainParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
+
+    if args.pred_params_path:
+        with open(args.pred_params_path, "r") as fin:
+            pred_params = XTransformer.PredParams.from_dict(json.load(fin))
+    else:
+        pred_params = XTransformer.PredParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
+
     torch_util.set_seed(args.seed)
     LOGGER.info("Setting random seed {}".format(args.seed))
 
     # Load training feature
-    X_trn = smat_util.load_matrix(args.trn_feat_path, dtype=np.float32)
-    LOGGER.info("Loaded training feature matrix with shape={}".format(X_trn.shape))
+    if args.trn_feat_path:
+        X_trn = smat_util.load_matrix(args.trn_feat_path, dtype=np.float32)
+        LOGGER.info("Loaded training feature matrix with shape={}".format(X_trn.shape))
+    else:
+        X_trn = None
+        LOGGER.info("Training feature matrix not provided")
+        if not args.label_feat_path and not args.code_path:
+            raise ValueError("trn-feat is required unless code-path or label-feat is provided.")
 
     # Load training labels
     Y_trn = smat_util.load_matrix(args.trn_label_path, dtype=np.float32)
@@ -480,7 +545,8 @@ def do_train(args):
     else:
         tst_corpus = None
 
-    # construct full cluster chain
+    # load cluster chain or label features
+    cluster_chain, label_feat = None, None
     if os.path.exists(args.code_path):
         cluster_chain = ClusterChain.from_partial_chain(
             smat_util.load_matrix(args.code_path),
@@ -496,88 +562,22 @@ def do_train(args):
                     label_feat.shape, args.label_feat_path
                 )
             )
-        else:
-            label_feat = LabelEmbeddingFactory.pifa(Y_trn, X_trn)
-            if args.label_feat_path:
-                smat_util.save_matrix(args.label_feat_path, label_feat)
-                LOGGER.info(
-                    "Created label feature matrix with shape={}, saved to {}".format(
-                        label_feat.shape, args.label_feat_path
-                    )
-                )
 
-        cluster_chain = Indexer.gen(
-            label_feat,
-            args.indexer,
-            nr_splits=args.nr_splits,
-            min_codes=args.min_codes,
-            max_leaf_size=args.max_leaf_size,
-            imbalanced_depth=args.imbalanced_depth,
-            imbalanced_ratio=args.imbalanced_ratio,
-            seed=args.seed,
-            max_iter=args.max_iter,
-            spherical=not args.no_spherical,
-        )
-        del label_feat
-        gc.collect()
-        if args.code_path:
-            cluster_chain.save(args.code_path)
-            LOGGER.info("Created clustering chain, saved to {}".format(args.code_path))
-
-    LOGGER.info(
-        "Constructed clustering chain for ranker: {}".format([cc.shape for cc in cluster_chain])
-    )
-    # if not given, match number of leaf clusters
-    nr_leaf_clusters = cluster_chain[-1].shape[1]
-    if args.max_match_clusters < 0:
-        args.max_match_clusters = nr_leaf_clusters
-
-    # get the matcher-ranker split level
-    if args.max_match_clusters < cluster_chain[-1].shape[0]:  # if not matcher for all
-        args.ranker_level = len(cluster_chain) - next(
-            level
-            for level, C in enumerate(cluster_chain[:])
-            if C.shape[1] >= args.max_match_clusters
-        )
-        LOGGER.info(
-            "Apply matcher at ranker-level {} with nr_labels={}".format(
-                args.ranker_level, cluster_chain[-args.ranker_level].shape[1]
-            )
-        )
-    else:
-        args.ranker_level = 0
-        LOGGER.info(
-            "Apply matcher at ranker-level 0 with nr_labels={}".format(cluster_chain[-1].shape[0])
-        )
-
-    trn_prob = MLProblemWithText(trn_corpus, X_trn, Y_trn)
-    if all(v is not None for v in [tst_corpus, X_tst, Y_tst]):
-        val_prob = MLProblemWithText(tst_corpus, X_tst, Y_tst)
+    trn_prob = MLProblemWithText(trn_corpus, Y_trn, X_feat=X_trn)
+    if all(v is not None for v in [tst_corpus, Y_tst]):
+        val_prob = MLProblemWithText(tst_corpus, Y_tst, X_feat=X_tst)
     else:
         val_prob = None
 
-    # tempdir to save encoded text
-    if not args.saved_trn_pt:
-        temp_trn_pt_dir = tempfile.TemporaryDirectory()
-        args.saved_trn_pt = f"{temp_trn_pt_dir.name}/X_trn.pt"
-    if not args.saved_val_pt:
-        temp_val_pt_dir = tempfile.TemporaryDirectory()
-        args.saved_val_pt = f"{temp_val_pt_dir.name}/X_val.pt"
-
-    # for HierarchicalMLModel.TrainParams
-    args.neg_mining_chain = args.negative_sampling
-
-    train_params = XTransformer.TrainParams.from_dict(vars(args), recursive=True)
-    pred_params = XTransformer.PredParams.from_dict(vars(args), recursive=True)
-
     xtf = XTransformer.train(
         trn_prob,
-        cluster_chain,
+        clustering=cluster_chain,
         val_prob=val_prob,
         train_params=train_params,
         pred_params=pred_params,
         beam_size=args.beam_size,
         steps_scale=args.steps_scale,
+        label_feat=label_feat,
     )
 
     xtf.save(args.model_dir)

@@ -12,19 +12,17 @@ import json
 import logging
 import os
 from copy import deepcopy
-from glob import glob
+import tempfile
 
 import dataclasses as dc
-import numpy as np
 import pecos
-import scipy.sparse as smat
 import torch
 from pecos.core import clib
 from pecos.utils import smat_util, torch_util
 from pecos.utils.cluster_util import ClusterChain
-from pecos.xmc.base import HierarchicalMLModel
+from pecos.xmc import Indexer, LabelEmbeddingFactory
+from pecos.xmc.base import HierarchicalMLModel, HierarchicalKMeans
 from pecos.xmc.xlinear.model import XLinearModel
-from sklearn.preprocessing import normalize as sk_normalize
 
 from .matcher import TransformerMatcher
 from .module import MLProblemWithText
@@ -51,16 +49,34 @@ class XTransformer(pecos.BaseClass):
     class TrainParams(pecos.BaseParams):
         """Training Parameters of XTransformer.
 
-        model_dir (str, optional): the i-th trained matcher will be saved to 'model_dir/{i}.model'
-        ranker_level (int, optional): number of ranker levels. Default 1 to use a single layer ranker
+        preliminary_indexer_params (HierarchicalKMeans.TrainParams): params to generate preliminary hierarchial label tree.
+            ignored if clustering is given
+        refined_indexer_params (HierarchicalKMeans.TrainParams): params to generate refined hierarchial label tree.
+            ignored if fix_clustering is True
         matcher_params_chain (TransformerMatcher.TrainParams or list): chain of params for TransformerMatchers.
         ranker_params (XLinearModel.TrainParams): train params for linear ranker
+
+        no_fine_tune (bool, optional): if True, skip fine-tuning steps and directly use pre-trained transformer models.
+            Default False
+        only_encoder (bool, optional): if True, skip linear ranker training. Default False
+        cost_sensitive_ranker (bool, optional): if True, use clustering count aggregating for ranker's cost-sensitive learnin
+            Default False
+        fix_clustering (bool, optional): if True, use the same hierarchial label tree for fine-tuning and final prediction. Default false.
+        max_match_clusters (int, optional): max number of clusters on which to fine-tune transformer. Default 32768
+        save_emb_dir (str): dir to save instance embeddings. Default None to ignore
         """
 
-        model_dir: str = ""
-        ranker_level: int = 1
+        preliminary_indexer_params: HierarchicalKMeans.TrainParams = None  # type: ignore
+        refined_indexer_params: HierarchicalKMeans.TrainParams = None  # type: ignore
         matcher_params_chain: TransformerMatcher.TrainParams = None  # type: ignore
         ranker_params: XLinearModel.TrainParams = None  # type: ignore
+
+        no_fine_tune: bool = False
+        only_encoder: bool = False
+        cost_sensitive_ranker: bool = False
+        fix_clustering: bool = False
+        max_match_clusters: int = 32768
+        save_emb_dir: str = None  # type: ignore
 
     @dc.dataclass
     class PredParams(pecos.BaseParams):
@@ -73,7 +89,7 @@ class XTransformer(pecos.BaseClass):
         matcher_params_chain: TransformerMatcher.PredParams = None  # type: ignore
         ranker_params: XLinearModel.PredParams = None  # type: ignore
 
-        def override_with_kwargs(self, pred_kwargs, no_ranker=False):
+        def override_with_kwargs(self, pred_kwargs):
             """override pred_params with kwargs.
 
             Args:
@@ -84,8 +100,6 @@ class XTransformer(pecos.BaseClass):
                         Overrides only_topk for bottom model.
                     post_processor (str): post processor scheme for prediction.
                         Overrides post_processor for all models.
-                no_ranker (bool, optional): if there is a linear ranker in the
-                    model list. Used to decide which one is the bottom model.
             """
             if pred_kwargs is not None:
                 if not isinstance(pred_kwargs, dict):
@@ -96,25 +110,28 @@ class XTransformer(pecos.BaseClass):
                 depth = len(self.matcher_params_chain)
                 for d in range(depth):
                     if overridden_beam_size:
-                        if no_ranker and d == depth - 1:
+                        if d == depth - 1:
                             continue
                         self.matcher_params_chain[d].only_topk = overridden_beam_size
                     if overridden_post_processor:
                         self.matcher_params_chain[d].post_processor = overridden_post_processor
-                if no_ranker:
-                    if overridden_only_topk:
-                        self.matcher_params_chain[-1].only_topk = overridden_only_topk
-                else:
+
+                if overridden_only_topk:
+                    self.matcher_params_chain[-1].only_topk = overridden_only_topk
+
+                if self.ranker_params is not None:
                     self.ranker_params.override_with_kwargs(pred_kwargs)
             return self
 
-    def __init__(self, model_list):
+    def __init__(self, text_encoder, concat_model):
         """Initialization
 
         Args:
-            model_list (list of TransformerMatcher or XLinearModel): List of model.
+            text_encoder (TransformerMatcher): Transformer model to encode input text
+            concat_model (XLinearModel): linear models predicting on concatenated features
         """
-        self.model_list = model_list
+        self.text_encoder = text_encoder
+        self.concat_model = concat_model
 
     @property
     def depth(self):
@@ -123,7 +140,10 @@ class XTransformer(pecos.BaseClass):
         Returns:
             depth (int): Depth of model.
         """
-        return len(self.model_list)
+        if self.concat_model:
+            return self.concat_model.model.depth
+        else:
+            return 1
 
     @property
     def nr_labels(self):
@@ -132,7 +152,10 @@ class XTransformer(pecos.BaseClass):
         Returns:
             nr_labels (int): Number of labels.
         """
-        return self.model_list[-1].nr_labels
+        if self.concat_model:
+            return self.concat_model.nr_labels
+        else:
+            return self.text_encoder.nr_labels
 
     def save(self, save_dir):
         """Save the X-Transformer model to file.
@@ -140,7 +163,8 @@ class XTransformer(pecos.BaseClass):
         Args:
             save_dir (str): dir to save the model, will be created if not exist
                 save params to save_dir/param.json
-                save model_list[i] to save_dir/{i}.model
+                save text_encoder to save_dir/text_encoder
+                save concat_model to save_dir/concat_model if concat_model exist
         """
         os.makedirs(save_dir, exist_ok=True)
         params = {
@@ -154,10 +178,10 @@ class XTransformer(pecos.BaseClass):
             fpa.write(json.dumps(params, indent=True))
         LOGGER.info("Parameters saved to {}".format(param_dir))
 
-        for i, model in enumerate(self.model_list):
-            model_dir = os.path.join(save_dir, "{}.model".format(i))
-            model.save(model_dir)
-            LOGGER.info("Model {}({}) saved to {}".format(i, type(model), model_dir))
+        self.text_encoder.save(os.path.join(save_dir, "text_encoder"))
+        if self.concat_model:
+            self.concat_model.save(os.path.join(save_dir, "concat_model"))
+        LOGGER.info("Model saved to {}".format(save_dir))
 
     @classmethod
     def load(cls, load_dir):
@@ -171,60 +195,48 @@ class XTransformer(pecos.BaseClass):
         """
         if not os.path.isdir(load_dir):
             raise ValueError(f"load dir does not exist at: {load_dir}")
-
-        param_dir = os.path.join(load_dir, "param.json")
-        with open(param_dir, "r", encoding="utf-8") as fpa:
-            params = json.loads(fpa.read())
-        LOGGER.info("Params loaded from {}".format(param_dir))
-
-        depth = int(params.get("depth", len(glob("{}/*.model".format(load_dir)))))
-        model_list = []
-        for i in range(depth):
-            model_dir = os.path.join(load_dir, "{}.model".format(i))
-            # load params for single model and get model type
-            with open(os.path.join(model_dir, "param.json"), "r", encoding="utf-8") as fin:
-                model_params = json.loads(fin.read())
-            model_class = eval(model_params["__meta__"]["class_fullname"].split("###")[-1])
-            cur_model = model_class.load(model_dir)
-            LOGGER.info("Model {}({}) loaded from {}".format(i, type(cur_model), model_dir))
-            model_list.append(cur_model)
-
-        return cls(model_list)
+        text_encoder = TransformerMatcher.load(os.path.join(load_dir, "text_encoder"))
+        try:
+            concat_model = XLinearModel.load(os.path.join(load_dir, "concat_model"))
+            LOGGER.info("Full model loaded from {}".format(load_dir))
+        except FileNotFoundError:
+            concat_model = None
+            LOGGER.info("Concat model not exist, text encoder loaded from {}".format(load_dir))
+        return cls(text_encoder, concat_model)
 
     def get_pred_params(self):
         """Get model's pred_params for creating the XTransformer.PredParams instance"""
         ret = self.PredParams()
-
-        ret.matcher_params_chain = []
-        for m in self.model_list:
-            if isinstance(m, TransformerMatcher):
-                ret.matcher_params_chain.append(m.get_pred_params())
-            elif isinstance(m, XLinearModel):
-                ret.ranker_params = m.get_pred_params()
-            else:
-                raise TypeError("Unsupported model type: {type(m)}")
+        ret.matcher_params_chain = [self.text_encoder.get_pred_params()]
+        if self.concat_model is not None:
+            ret.ranker_params = self.concat_model.get_pred_params()
+        else:
+            ret.ranker_params = None
         return ret
 
     @classmethod
     def train(
         cls,
         prob,
-        clustering,
+        clustering=None,
         val_prob=None,
         train_params=None,
         pred_params=None,
         **kwargs,
     ):
-        """Train the X-transformer model with the given input data.
+        """Train the XR-Transformer model with the given input data.
 
         Args:
             prob (MLProblemWithText): ML problem to solve.
-            clustering (ClusterChain): cluster-chain for the ranker, matcher will be applied on its ranker_level clustering.
-                        i.e. matcher.nr_match_labels = clustering[-ranker_level].shape[1]
+            clustering (ClusterChain, optional): preliminary hierarchical label tree,
+                where transformer is fine-tuned on.
             val_prob (MLProblemWithText, optional): ML problem for validation.
             train_params (XTransformer.TrainParams): training parameters for XTransformer
             pred_params (XTransformer.pred_params): pred parameters for XTransformer
             kwargs:
+                label_feat (ndarray or csr_matrix, optional): label features on which to generate preliminary HLT
+                saved_trn_pt (str, optional): path to save the tokenized trn text. Use a tempdir if not given
+                saved_val_pt (str, optional): path to save the tokenized val text. Use a tempdir if not given
                 matmul_threads (int, optional): number of threads to use for
                     constructing label tree. Default to use at most 32 threads
                 beam_size (int, optional): overrides only_topk for models except
@@ -233,200 +245,294 @@ class XTransformer(pecos.BaseClass):
         Returns:
             XTransformer
         """
-        # assert cluster chain in clustering is valid
-        clustering = ClusterChain(clustering)
-        if clustering[-1].shape[0] != prob.nr_labels:
-            raise ValueError("nr_labels mismatch!")
-        nr_levels = len(clustering)
+        # tempdir to save tokenized text
+        temp_dir = tempfile.TemporaryDirectory()
+        saved_trn_pt = kwargs.get("saved_trn_pt", "")
+        if not saved_trn_pt:
+            saved_trn_pt = f"{temp_dir.name}/X_trn.pt"
 
-        if nr_levels <= train_params.ranker_level:
-            raise ValueError(f"Expect ranker_level < depth, got {train_params.ranker_level}")
-
-        nr_transformers = nr_levels - train_params.ranker_level
-        nr_linears = train_params.ranker_level
-        steps_scale = kwargs.get("steps_scale", None)
-        if steps_scale is None:
-            steps_scale = [1.0] * nr_transformers
-        if len(steps_scale) != nr_transformers:
-            raise ValueError(f"steps-scale length error: {len(steps_scale)}!={nr_transformers}")
+        saved_val_pt = kwargs.get("saved_val_pt", "")
+        if not saved_val_pt:
+            saved_val_pt = f"{temp_dir.name}/X_val.pt"
 
         # construct train_params
-        train_params = cls.TrainParams.from_dict(train_params)
-        train_params.ranker_params.mode = "ranker"
+        if train_params is None:
+            # fill all BaseParams class with their default value
+            train_params = cls.TrainParams.from_dict(dict(), recursive=True)
+        else:
+            train_params = cls.TrainParams.from_dict(train_params)
+        # construct pred_params
+        if pred_params is None:
+            # fill all BaseParams with their default value
+            pred_params = cls.PredParams.from_dict(dict(), recursive=True)
+        else:
+            pred_params = cls.PredParams.from_dict(pred_params)
 
-        train_params = HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
-            train_params, cls.TrainParams, nr_transformers
-        )
-        if nr_linears > 0:
+        if train_params.no_fine_tune:
+            if isinstance(train_params.matcher_params_chain, list):
+                matcher_train_params = train_params.matcher_params_chain[-1]
+                matcher_pred_params = pred_params.matcher_params_chain[-1]
+            else:
+                matcher_train_params = train_params.matcher_params_chain
+                matcher_pred_params = pred_params.matcher_params_chain
+
+            device, n_gpu = torch_util.setup_device(matcher_train_params.use_gpu)
+
+            parent_model = TransformerMatcher.download_model(
+                matcher_train_params.model_shortcut,
+            )
+            parent_model.to_device(device, n_gpu=n_gpu)
+            _, inst_embeddings = parent_model.predict(
+                prob.X_text,
+                pred_params=matcher_pred_params,
+                batch_size=matcher_train_params.batch_size * max(1, n_gpu),
+                batch_gen_workers=matcher_train_params.batch_gen_workers,
+                only_embeddings=True,
+            )
+            if val_prob:
+                _, val_inst_embeddings = parent_model.predict(
+                    val_prob.X_text,
+                    pred_params=matcher_pred_params,
+                    batch_size=matcher_train_params.batch_size * max(1, n_gpu),
+                    batch_gen_workers=matcher_train_params.batch_gen_workers,
+                    only_embeddings=True,
+                )
+        else:
+            # 1. Constructing primary Hierarchial Label Tree
+            if clustering is None:
+                label_feat = kwargs.get("label_feat", None)
+                if label_feat is None:
+                    if prob.X_feat is None:
+                        raise ValueError(
+                            "Instance features are required to generate label features!"
+                        )
+                    label_feat = LabelEmbeddingFactory.pifa(prob.Y, prob.X_feat)
+
+                clustering = Indexer.gen(
+                    label_feat,
+                    train_params=train_params.preliminary_indexer_params,
+                )
+            else:
+                # assert cluster chain in clustering is valid
+                clustering = ClusterChain(clustering)
+                if clustering[-1].shape[0] != prob.nr_labels:
+                    raise ValueError("nr_labels mismatch!")
+            prelim_hierarchiy = [cc.shape[0] for cc in clustering]
+            LOGGER.info("Hierarchical label tree: {}".format(prelim_hierarchiy))
+
+            # get the fine-tuning task numbers
+            nr_transformers = sum(i <= train_params.max_match_clusters for i in prelim_hierarchiy)
+
+            LOGGER.info(
+                "Fine-tune Transformers with nr_labels={}".format(
+                    [cc.shape[0] for cc in clustering[:nr_transformers]]
+                )
+            )
+
+            steps_scale = kwargs.get("steps_scale", None)
+            if steps_scale is None:
+                steps_scale = [1.0] * nr_transformers
+            if len(steps_scale) != nr_transformers:
+                raise ValueError(f"steps-scale length error: {len(steps_scale)}!={nr_transformers}")
+
+            # construct fields with chain now we know the depth
+            train_params = HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
+                train_params, cls.TrainParams, nr_transformers
+            )
+
+            LOGGER.debug(
+                f"XTransformer train_params: {json.dumps(train_params.to_dict(), indent=True)}"
+            )
+
+            pred_params = HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
+                pred_params, cls.PredParams, nr_transformers
+            )
+            pred_params = pred_params.override_with_kwargs(kwargs)
+
+            LOGGER.debug(
+                f"XTransformer pred_params: {json.dumps(pred_params.to_dict(), indent=True)}"
+            )
+
+            def get_negative_samples(mat_true, mat_pred, scheme):
+                if scheme == "tfn":
+                    result = smat_util.binarized(mat_true)
+                elif scheme == "man":
+                    result = smat_util.binarized(mat_pred)
+                elif "tfn" in scheme and "man" in scheme:
+                    result = smat_util.binarized(mat_true) + smat_util.binarized(mat_pred)
+                else:
+                    raise ValueError("Unrecognized negative sampling method {}".format(scheme))
+                LOGGER.debug(
+                    f"Construct {scheme} with shape={result.shape} avr_M_nnz={result.nnz/result.shape[0]}"
+                )
+                return result
+
+            # construct label chain for training and validation set
+            # avoid large matmul_threads to prevent overhead in Y.dot(C) and save memory
+            matmul_threads = kwargs.get("threads", os.cpu_count())
+            matmul_threads = min(32, matmul_threads)
+            YC_list = [prob.Y]
+            for cur_C in reversed(clustering[1:]):
+                Y_t = clib.sparse_matmul(YC_list[-1], cur_C, threads=matmul_threads).tocsr()
+                YC_list.append(Y_t)
+            YC_list.reverse()
+
+            if val_prob is not None:
+                val_YC_list = [val_prob.Y]
+                for cur_C in reversed(clustering[1:]):
+                    Y_t = clib.sparse_matmul(val_YC_list[-1], cur_C, threads=matmul_threads).tocsr()
+                    val_YC_list.append(Y_t)
+                val_YC_list.reverse()
+
+            parent_model = None
+            M, val_M = None, None
+            M_pred, val_M_pred = None, None
+            bootstrapping, inst_embeddings = None, None
+            for i in range(nr_transformers):
+                cur_train_params = train_params.matcher_params_chain[i]
+                cur_pred_params = pred_params.matcher_params_chain[i]
+                cur_train_params.max_steps = steps_scale[i] * cur_train_params.max_steps
+                cur_train_params.num_train_epochs = (
+                    steps_scale[i] * cur_train_params.num_train_epochs
+                )
+
+                cur_ns = cur_train_params.negative_sampling
+                if i > 0:
+                    M = get_negative_samples(YC_list[i - 1], M_pred, cur_ns)
+
+                cur_prob = MLProblemWithText(
+                    prob.X_text,
+                    YC_list[i],
+                    X_feat=prob.X_feat,
+                    C=clustering[i],
+                    M=M,
+                )
+                if val_prob is not None:
+                    if i > 0:
+                        val_M = get_negative_samples(val_YC_list[i - 1], val_M_pred, cur_ns)
+                    cur_val_prob = MLProblemWithText(
+                        val_prob.X_text,
+                        val_YC_list[i],
+                        X_feat=val_prob.X_feat,
+                        C=clustering[i],
+                        M=val_M,
+                    )
+                else:
+                    cur_val_prob = None
+
+                avr_trn_labels = (
+                    float(cur_prob.M.nnz) / YC_list[i].shape[0]
+                    if cur_prob.M is not None
+                    else YC_list[i].shape[1]
+                )
+                LOGGER.info(
+                    "Fine-tuning XR-Transformer with {} at level {}, nr_labels={}, avr_M_nnz={}".format(
+                        cur_ns, i, YC_list[i].shape[1], avr_trn_labels
+                    )
+                )
+
+                # bootstrapping with previous text_encoder and instance embeddings
+                if parent_model is not None:
+                    init_encoder = deepcopy(parent_model.text_encoder)
+                    init_text_model = deepcopy(parent_model.text_model)
+                    bootstrapping = (init_encoder, inst_embeddings, init_text_model)
+
+                # determine whether train prediction and instance embeddings are needed
+                return_train_pred = (
+                    i + 1 < nr_transformers
+                ) and "man" in train_params.matcher_params_chain[i + 1].negative_sampling
+                return_train_embeddings = (
+                    i + 1 == nr_transformers
+                ) or "linear" in cur_train_params.bootstrap_method
+
+                res_dict = TransformerMatcher.train(
+                    cur_prob,
+                    csr_codes=M_pred,
+                    val_prob=cur_val_prob,
+                    val_csr_codes=val_M_pred,
+                    train_params=cur_train_params,
+                    pred_params=cur_pred_params,
+                    bootstrapping=bootstrapping,
+                    return_dict=True,
+                    return_train_pred=return_train_pred,
+                    return_train_embeddings=return_train_embeddings,
+                    saved_trn_pt=saved_trn_pt,
+                    saved_val_pt=saved_val_pt,
+                )
+                parent_model = res_dict["matcher"]
+                M_pred = res_dict["trn_pred"]
+                val_M_pred = res_dict["val_pred"]
+                inst_embeddings = res_dict["trn_embeddings"]
+                val_inst_embeddings = res_dict["val_embeddings"]
+
+        if train_params.save_emb_dir:
+            os.makedirs(train_params.save_emb_dir, exist_ok=True)
+            if inst_embeddings is not None:
+                smat_util.save_matrix(
+                    os.path.join(train_params.save_emb_dir, "X.trn.npy"),
+                    inst_embeddings,
+                )
+                LOGGER.info(f"Trn embeddings saved to {train_params.save_emb_dir}/X.trn.npy")
+            if val_inst_embeddings is not None:
+                smat_util.save_matrix(
+                    os.path.join(train_params.save_emb_dir, "X.val.npy"),
+                    val_inst_embeddings,
+                )
+                LOGGER.info(f"Val embeddings saved to {train_params.save_emb_dir}/X.val.npy")
+
+        ranker = None
+        if not train_params.only_encoder:
+            # construct X_concat
+            X_concat = TransformerMatcher.concat_features(
+                prob.X_feat,
+                inst_embeddings,
+                normalize_emb=True,
+            )
+            del inst_embeddings
+            LOGGER.info("Constructed instance feature matrix with shape={}".format(X_concat.shape))
+
+            # 3. construct refined HLT
+            if train_params.fix_clustering:
+                clustering = clustering
+            else:
+                clustering = Indexer.gen(
+                    LabelEmbeddingFactory.pifa(prob.Y, X_concat),
+                    train_params=train_params.refined_indexer_params,
+                )
+            LOGGER.info(
+                "Hierarchical label tree for ranker: {}".format([cc.shape[0] for cc in clustering])
+            )
+
+            # the HLT could have changed depth
             train_params.ranker_params.hlm_args = (
                 HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
                     train_params.ranker_params.hlm_args,
                     HierarchicalMLModel.TrainParams,
-                    nr_linears,
+                    len(clustering),
                 )
             )
-
-        # construct pred_params
-        pred_params = cls.PredParams.from_dict(pred_params)
-        pred_params = HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
-            pred_params, cls.PredParams, nr_transformers
-        )
-        if nr_linears > 0:
             pred_params.ranker_params.hlm_args = (
                 HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
                     pred_params.ranker_params.hlm_args,
                     HierarchicalMLModel.PredParams,
-                    nr_linears,
+                    len(clustering),
                 )
             )
-        pred_params = pred_params.override_with_kwargs(
-            kwargs,
-            no_ranker=(nr_linears == 0),
-        )
-
-        LOGGER.debug(
-            f"XTransformer train_params: {json.dumps(train_params.to_dict(), indent=True)}"
-        )
-        LOGGER.debug(f"XTransformer pred_params: {json.dumps(pred_params.to_dict(), indent=True)}")
-
-        def get_negative_samples(mat_true, mat_pred, scheme):
-            if scheme == "tfn":
-                result = smat_util.binarized(mat_true)
-            elif scheme == "man":
-                result = smat_util.binarized(mat_pred)
-            elif "tfn" in scheme and "man" in scheme:
-                result = smat_util.binarized(mat_true) + smat_util.binarized(mat_pred)
-            else:
-                raise ValueError("Unrecognized negative sampling method {}".format(scheme))
-            LOGGER.debug(
-                f"Construct {scheme} with shape={result.shape} avr_M_nnz={result.nnz/result.shape[0]}"
-            )
-            return result
-
-        # construct label chain for training and validation set
-        # avoid large matmul_threads to prevent overhead in Y.dot(C) and save memory
-        matmul_threads = kwargs.get("threads", os.cpu_count())
-        matmul_threads = min(32, matmul_threads)
-        YC_list = [prob.Y]
-        for cur_C in reversed(clustering[1:]):
-            Y_t = clib.sparse_matmul(YC_list[-1], cur_C, threads=matmul_threads).tocsr()
-            YC_list.append(Y_t)
-        YC_list.reverse()
-
-        if val_prob is not None:
-            val_YC_list = [val_prob.Y]
-            for cur_C in reversed(clustering[1:]):
-                Y_t = clib.sparse_matmul(val_YC_list[-1], cur_C, threads=matmul_threads).tocsr()
-                val_YC_list.append(Y_t)
-            val_YC_list.reverse()
-
-        model_list = []
-        M, val_M = None, None
-        M_pred, val_M_pred = None, None
-        bootstrapping, inst_embeddings = None, None
-        for i in range(nr_transformers):
-            cur_train_params = train_params.matcher_params_chain[i]
-            cur_pred_params = pred_params.matcher_params_chain[i]
-            cur_train_params.model_dir = os.path.join(train_params.model_dir, "{}.model".format(i))
-            cur_train_params.max_steps = steps_scale[i] * cur_train_params.max_steps
-            cur_train_params.num_train_epochs = steps_scale[i] * cur_train_params.num_train_epochs
-
-            cur_ns = cur_train_params.negative_sampling
-            if i > 0:
-                M = get_negative_samples(YC_list[i - 1], M_pred, cur_ns)
-
-            cur_prob = MLProblemWithText(
-                prob.X_text,
-                prob.X,
-                YC_list[i],
-                C=clustering[i],
-                M=M,
-            )
-            if val_prob is not None:
-                if i > 0:
-                    val_M = get_negative_samples(val_YC_list[i - 1], val_M_pred, cur_ns)
-                cur_val_prob = MLProblemWithText(
-                    val_prob.X_text,
-                    val_prob.X,
-                    val_YC_list[i],
-                    C=clustering[i],
-                    M=val_M,
-                )
-            else:
-                cur_val_prob = None
-
-            avr_trn_labels = (
-                float(cur_prob.M.nnz) / YC_list[i].shape[0]
-                if cur_prob.M is not None
-                else YC_list[i].shape[1]
-            )
-            LOGGER.info(
-                "Training Hierarchical-XTransformer with {} at level {}, nr_labels={}, avr_M_nnz={}".format(
-                    cur_ns, i, YC_list[i].shape[1], avr_trn_labels
-                )
-            )
-
-            # bootstrapping with previous text_encoder and instance embeddings
-            if len(model_list) > 0:
-                init_encoder = deepcopy(model_list[-1].text_encoder)
-                init_text_model = deepcopy(model_list[-1].text_model)
-                bootstrapping = (init_encoder, inst_embeddings, init_text_model)
-
-            res_dict = TransformerMatcher.train(
-                cur_prob,
-                csr_codes=M_pred,
-                val_prob=cur_val_prob,
-                val_csr_codes=val_M_pred,
-                train_params=cur_train_params,
-                pred_params=cur_pred_params,
-                bootstrapping=bootstrapping,
-                return_dict=True,
-            )
-            cur_model = res_dict["matcher"]
-            M_pred = res_dict["trn_pred"]
-            val_M_pred = res_dict["val_pred"]
-            inst_embeddings = res_dict["trn_embeddings"]
-
-            model_list.append(cur_model)
-
-        # Train the subsequent layers with XLinearModel
-        if train_params.ranker_level > 0:
-            inst_embeddings = sk_normalize(inst_embeddings, axis=1, copy=False)
-            if isinstance(prob.X, smat.csr_matrix):
-                inst_embeddings = smat_util.dense_to_csr(inst_embeddings)
-                prob.X = smat_util.hstack_csr([prob.X, inst_embeddings], dtype=np.float32)
-            else:
-                prob.X = np.hstack([prob.X, inst_embeddings])
-            del inst_embeddings
-            LOGGER.info("Constructed instance feature matrix with shape={}".format(prob.X.shape))
+            pred_params.ranker_params.override_with_kwargs(kwargs)
 
             # train the ranker
             LOGGER.info("Start training ranker...")
 
-            # getting the top model negative sampling scheme
-            # and add user supplied negatives to all subsequent ranker layers
-            cur_ns = train_params.ranker_params.hlm_args.neg_mining_chain
-            if isinstance(cur_ns, list):
-                cur_ns = cur_ns[0]
-                train_params.ranker_params.hlm_args.neg_mining_chain = [
-                    v + "+usn" for v in train_params.ranker_params.hlm_args.neg_mining_chain
-                ]
-            else:
-                train_params.ranker_params.hlm_args.neg_mining_chain += "+usn"
-
-            M = get_negative_samples(YC_list[-train_params.ranker_level - 1], M_pred, cur_ns)
-
             ranker = XLinearModel.train(
-                prob.X,
+                X_concat,
                 prob.Y,
                 C=clustering,
-                user_supplied_negatives={train_params.ranker_level: M},
+                R=prob.Y if train_params.cost_sensitive_ranker else None,
                 train_params=train_params.ranker_params,
                 pred_params=pred_params.ranker_params,
             )
-            model_list.append(ranker)
 
-        return cls(model_list)
+        return cls(parent_model, ranker)
 
     def predict(
         self,
@@ -435,7 +541,7 @@ class XTransformer(pecos.BaseClass):
         pred_params=None,
         **kwargs,
     ):
-        """Use the X-Transformer model to predict on given data.
+        """Use the XR-Transformer model to predict on given data.
 
         Args:
             X_text (iterable over str): instance text input to predict on
@@ -451,87 +557,141 @@ class XTransformer(pecos.BaseClass):
                 post_processor (str, optional):  override the post_processor specified in the model
                     Default None to disable overriding
                 saved_pt (str, optional): if given, will try to load encoded tensors and skip text encoding
-                embeddings_save_path (str, optional): if given, will save the instance embeddings matrix
                 batch_size (int, optional): per device batch size for transformer evaluation. Default 8
                 batch_gen_workers (int, optional): number of CPUs to use for batch generation. Default 4
-                disable_gpu (bool, optional): not use GPU even if available. Default False
+                use_gpu (bool, optional): use GPU if available. Default True
+                max_pred_chunk (int, optional): max number of instances to predict at once.
+                    Set to None to ignore. Default 10^7
                 threads (int, optional): the number of threads to use for linear model prediction.
 
         Returns:
-            P_matrix (csr_matrix): instance to label prediction (csr_matrix, nr_insts * nr_labels)
+            pred_csr (csr_matrix): instance to label prediction (csr_matrix, nr_insts * nr_labels)
         """
+        if not isinstance(self.concat_model, XLinearModel):
+            raise TypeError("concat_model is not present in current XTransformer model!")
+
         saved_pt = kwargs.get("saved_pt", None)
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
-        disable_gpu = kwargs.get("disable_gpu", False)
-        embeddings_save_path = kwargs.get("embeddings_save_path", None)
-        device, n_gpu = torch_util.setup_device(not disable_gpu)
+        use_gpu = kwargs.get("use_gpu", True)
+        max_pred_chunk = kwargs.get("max_pred_chunk", 10 ** 7)
+        device, n_gpu = torch_util.setup_device(use_gpu)
 
         # get the override pred_params
-        nr_transformers = sum([isinstance(m, TransformerMatcher) for m in self.model_list])
         if pred_params is None:
-            # copy stored params
             pred_params = self.get_pred_params()
         else:
             pred_params = self.PredParams.from_dict(pred_params)
-            pred_params = HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
-                pred_params,
-                self.PredParams,
-                nr_transformers,
-            )
-        pred_params.override_with_kwargs(kwargs, no_ranker=(nr_transformers == self.depth))
-        LOGGER.debug(f"XTransformer prediction with pred_params: {pred_params.to_dict()}")
+        pred_params.override_with_kwargs(kwargs)
+
+        LOGGER.debug(
+            f"Prediction with pred_params: {json.dumps(pred_params.to_dict(), indent=True)}"
+        )
+        if isinstance(pred_params.matcher_params_chain, list):
+            encoder_pred_params = pred_params.matcher_params_chain[-1]
+        else:
+            encoder_pred_params = pred_params.matcher_params_chain
 
         # generate instance-to-cluster prediction
         if saved_pt and os.path.isfile(saved_pt):
             text_tensors = torch.load(saved_pt)
-            LOGGER.info("Predict tensors loaded_from {}".format(saved_pt))
+            LOGGER.info("Text tensors loaded_from {}".format(saved_pt))
         else:
-            text_tensors = self.model_list[0].text_to_tensor(
+            text_tensors = self.text_encoder.text_to_tensor(
                 X_text,
                 num_workers=batch_gen_workers,
-                max_length=self.model_list[0].pred_params.truncate_length,
+                max_length=encoder_pred_params.truncate_length,
             )
 
         pred_csr = None
-        for d, cur_model in enumerate(self.model_list):
-            if isinstance(cur_model, TransformerMatcher):
-                cur_model.to_device(device, n_gpu=n_gpu)
-                pred_csr, embeddings = cur_model.predict(
-                    text_tensors,
-                    X_feat=X_feat,
-                    csr_codes=pred_csr,
-                    pred_params=pred_params.matcher_params_chain[d],
-                    batch_size=batch_size * max(1, n_gpu),
-                    batch_gen_workers=batch_gen_workers,
-                )
-                cur_model.to_device(torch.device("cpu"))
-                torch.cuda.empty_cache()
+        self.text_encoder.to_device(device, n_gpu=n_gpu)
+        _, embeddings = self.text_encoder.predict(
+            text_tensors,
+            pred_params=encoder_pred_params,
+            batch_size=batch_size * max(1, n_gpu),
+            batch_gen_workers=batch_gen_workers,
+            max_pred_chunk=max_pred_chunk,
+            only_embeddings=True,
+        )
 
-            elif isinstance(cur_model, XLinearModel):
-                # concatenate instance feature matrix with embeddings
-                cat_embeddings = sk_normalize(embeddings, axis=1, copy=True)
-                if isinstance(X_feat, smat.csr_matrix):
-                    cat_embeddings = smat_util.dense_to_csr(cat_embeddings)
-                    cat_embeddings = smat_util.hstack_csr(
-                        [X_feat, cat_embeddings], dtype=np.float32
-                    )
-                else:
-                    cat_embeddings = np.hstack([X_feat, cat_embeddings])
-                LOGGER.info(
-                    "Constructed instance feature matrix with shape={}".format(X_feat.shape)
-                )
-                pred_csr = cur_model.predict(
-                    cat_embeddings,
-                    csr_codes=pred_csr,
-                    pred_params=None if pred_params is None else pred_params.ranker_params,
-                    threads=kwargs.get("threads", -1),
-                )
-            else:
-                raise ValueError("Unknown model type {}".format(type(cur_model)))
-
-        if embeddings_save_path:
-            smat_util.save_matrix(embeddings_save_path, embeddings)
-            LOGGER.info("Saved embeddings({}) to {}".format(embeddings.shape, embeddings_save_path))
-
+        cat_embeddings = TransformerMatcher.concat_features(
+            X_feat,
+            embeddings,
+            normalize_emb=True,
+        )
+        LOGGER.debug(
+            "Constructed instance feature matrix with shape={}".format(cat_embeddings.shape)
+        )
+        pred_csr = self.concat_model.predict(
+            cat_embeddings,
+            pred_params=None if pred_params is None else pred_params.ranker_params,
+            max_pred_chunk=max_pred_chunk,
+            threads=kwargs.get("threads", -1),
+        )
         return pred_csr
+
+    def encode(
+        self,
+        X_text,
+        pred_params=None,
+        **kwargs,
+    ):
+        """Use the Transformer text encoder to generate embeddings for input data.
+
+        Args:
+            X_text (iterable over str): instance text input to predict on
+            pred_kwargs (XTransformer.PredParams, optional): instance of
+                XTransformer.PredParams. Default None to use pred_params stored
+                during model training.
+            kwargs:
+                saved_pt (str, optional): if given, will try to load encoded tensors and skip text encoding
+                batch_size (int, optional): per device batch size for transformer evaluation. Default 8
+                batch_gen_workers (int, optional): number of CPUs to use for batch generation. Default 4
+                use_gpu (bool, optional): use GPU if available. Default True
+                max_pred_chunk (int, optional): max number of instances to predict at once.
+                    Set to None to ignore. Default 10^7
+
+        Returns:
+            embeddings (ndarray): instance embedding on training data, shape = (nr_inst, hidden_dim).
+        """
+        saved_pt = kwargs.get("saved_pt", None)
+        batch_size = kwargs.get("batch_size", 8)
+        batch_gen_workers = kwargs.get("batch_gen_workers", 4)
+        use_gpu = kwargs.get("use_gpu", True)
+        max_pred_chunk = kwargs.get("max_pred_chunk", 10 ** 7)
+        device, n_gpu = torch_util.setup_device(use_gpu)
+
+        # get the override pred_params
+        if pred_params is None:
+            pred_params = self.get_pred_params()
+        else:
+            pred_params = self.PredParams.from_dict(pred_params)
+        pred_params.override_with_kwargs(kwargs)
+
+        LOGGER.debug(f"Encode with pred_params: {json.dumps(pred_params.to_dict(), indent=True)}")
+        if isinstance(pred_params.matcher_params_chain, list):
+            encoder_pred_params = pred_params.matcher_params_chain[-1]
+        else:
+            encoder_pred_params = pred_params.matcher_params_chain
+
+        # generate instance-to-cluster prediction
+        if saved_pt and os.path.isfile(saved_pt):
+            text_tensors = torch.load(saved_pt)
+            LOGGER.info("Text tensors loaded_from {}".format(saved_pt))
+        else:
+            text_tensors = self.text_encoder.text_to_tensor(
+                X_text,
+                num_workers=batch_gen_workers,
+                max_length=encoder_pred_params.truncate_length,
+            )
+
+        self.text_encoder.to_device(device, n_gpu=n_gpu)
+        _, embeddings = self.text_encoder.predict(
+            text_tensors,
+            pred_params=encoder_pred_params,
+            batch_size=batch_size * max(1, n_gpu),
+            batch_gen_workers=batch_gen_workers,
+            max_pred_chunk=max_pred_chunk,
+            only_embeddings=True,
+        )
+        return embeddings
