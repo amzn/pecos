@@ -19,6 +19,7 @@
 #include "utils/matrix.hpp"
 #include "utils/parallel.hpp"
 #include "utils/random.hpp"
+#include "utils/newton.hpp"
 
 namespace pecos {
 
@@ -38,6 +39,7 @@ enum SolverType {
     L2R_L2LOSS_SVC_DUAL=1,
     L2R_L1LOSS_SVC_DUAL=3,
     L2R_LR_DUAL=7,
+    L2R_L2LOSS_SVC_PRIMAL = 2,
 }; /* solver_type */
 
 
@@ -55,6 +57,287 @@ struct SVMParameter {
     int solver_type;
     size_t max_iter;
     double Cp, Cn, eps, bias;
+};
+
+template <typename MAT, typename value_type, typename WORKER>
+struct l2r_erm_fun : public objective_function<MAT, value_type, WORKER> {
+   public:
+    typedef dense_vec_t<value_type> dvec_wrapper_t;
+    typedef std::vector<value_type> dvec_t;
+    std::vector<int> I;
+    int sizeI;
+    const SVMParameter *param;
+    WORKER *worker;
+    const MAT &X;
+
+   protected:
+    double wTw;
+    dvec_t tmp_wx, tmp_tmp;
+    dvec_wrapper_t wx;
+    dvec_wrapper_t tmp;
+
+   public:
+    l2r_erm_fun(const SVMParameter *param, const MAT &X, WORKER *worker) : param(param), X(X), worker(worker) {
+        I.resize(worker->y_size, 0);
+        tmp_wx.resize(worker->y_size, 0);
+        tmp_tmp.resize(worker->y_size, 0);
+        wx = dvec_wrapper_t(tmp_wx);
+        tmp = dvec_wrapper_t(tmp_tmp);
+    }
+    ~l2r_erm_fun() {}
+
+    uint64_t get_w_size() {
+        return worker->w_size;
+    }
+    uint64_t get_y_size() {
+        return worker->y_size;
+    }
+    double get_bias() {
+        return param->bias;
+    }
+
+    double get_eps() {
+        return param->eps;
+    }
+
+    double fun(dvec_wrapper_t w, value_type &b) {
+        double f = 0;
+        uint64_t y_size = worker->y_size;
+        uint64_t w_size = worker->w_size;
+        wTw = 0;
+        Xv(w, wx, b);
+        
+        wTw = do_dot_product(w, w);
+        if (param->bias > 0) {
+            wTw += (double) b * b;
+        }
+        
+        for (auto &i : worker->index) {
+            f += this->C_times_loss(i, wx[i]);
+        }
+        
+        f = f + 0.5 * wTw;
+        return f;
+    }
+
+    double linesearch_and_update(double *f, double alpha, dvec_wrapper_t w, dvec_wrapper_t s, dvec_wrapper_t g, value_type &b, value_type &bs, value_type &bg) {
+        uint64_t y_size = worker->y_size;
+        double sTs = 0;
+        double wTs = 0;
+        double gTs = 0;
+        double eta = 0.01;
+        uint64_t n = get_w_size();
+        int max_num_linesearch = 20;
+        double fold = *f;
+
+        dvec_t tmp_new_w;
+        tmp_new_w.resize(n, 0);
+        dvec_wrapper_t new_w(tmp_new_w);
+        value_type new_b;
+
+        gTs = do_dot_product(s, g);
+        if (param->bias > 0) {
+            gTs += (double) bs * bg;
+        }
+        
+        int num_linesearch = 0;
+        for (num_linesearch = 0; num_linesearch < max_num_linesearch; num_linesearch++) {
+            double loss = 0;
+            for (int i = 0; i < n; i++) {
+                new_w[i] = w[i] + alpha * s[i];
+            }
+            new_b = b + alpha * bs;
+            *f = fun(new_w, new_b);
+            if (*f - fold <= eta * alpha * gTs) {
+                break;
+            } else {
+                alpha *= 0.5;
+            }
+        }
+        if (num_linesearch >= max_num_linesearch) {
+            *f = fold;
+            return 0;
+        } else {
+            for (int i = 0; i < n; i++) {
+                w[i] = new_w[i];
+            }
+            if (param->bias > 0) {
+                b = new_b;
+            }
+        }
+        return alpha;
+    }
+
+    void Xv(dvec_wrapper_t w, dvec_wrapper_t Xv, value_type &b) {
+        uint64_t y_size = this->worker->y_size;
+        uint64_t w_size = this->worker->w_size;
+        const MAT &X = this->X;
+        for (auto &i : this->worker->index) {
+            const auto &xi = X.get_row(i);
+            Xv[i] = do_dot_product(w, xi);
+            if (param->bias > 0) {
+                Xv[i] += param->bias * b;
+            }
+        }
+    }
+};
+
+template <typename MAT, typename value_type, typename WORKER>
+struct l2r_l2_svc_fun : public l2r_erm_fun<MAT, value_type, WORKER> {
+   public:
+    typedef dense_vec_t<value_type> dvec_wrapper_t;
+    typedef std::vector<value_type> dvec_t;
+    l2r_l2_svc_fun(const SVMParameter *param, const MAT &X, WORKER *worker) : l2r_erm_fun<MAT, value_type, WORKER>(param, X, worker) {}
+    ~l2r_l2_svc_fun() {}
+
+    value_type get_c(uint64_t i) {
+        if (this->worker->inst_info[i].y > 0) {
+            return this->worker->inst_info[i].cost * this->param->Cp;
+        } else {
+            return this->worker->inst_info[i].cost * this->param->Cn;
+        }
+    }
+
+    void grad(dvec_wrapper_t w, dvec_wrapper_t G, value_type &b, value_type &bg) {
+        uint64_t y_size = this->worker->y_size;
+        uint64_t w_size = this->worker->w_size;
+        this->sizeI = 0;
+        for (auto &i : this->worker->index) {
+            this->tmp[i] = this->wx[i] * this->worker->inst_info[i].y;
+            if (this->tmp[i] < 1) {
+                this->tmp[this->sizeI] = get_c(i) * this->worker->inst_info[i].y * (this->tmp[i] - 1);
+                this->I[this->sizeI] = i;
+                this->sizeI++;
+            }
+        }
+        subXTv(this->tmp, G, bg);
+        do_xp2y(w, G);
+        if (this->param->bias > 0) {
+            bg = b + 2 * bg;
+        }
+    }
+
+    void get_diag_preconditioner(dvec_wrapper_t M, value_type &bM) {
+        uint64_t w_size = this->worker->w_size;
+        const MAT &X = this->X;
+        for (int i = 0; i < w_size; i++) {
+            M[i] = 1;
+        }
+        bM = 1;
+
+        for (int i = 0; i < this->sizeI; i++) {
+            const auto &xi = X.get_row(this->I[i]);
+            do_ax2py(2*get_c(this->I[i]), xi, M);
+            if (this->param->bias > 0) {
+                bM += this->param->bias * this->param->bias * 2 * get_c(this->I[i]);
+            }
+        }
+    }
+
+    void Hv(dvec_wrapper_t s, dvec_wrapper_t Hs, value_type &bs, value_type &bHs) {
+        uint64_t w_size = this->worker->w_size;
+        const MAT &X = this->X;
+        for (int i = 0; i < w_size; i++) {
+            Hs[i] = 0;
+        }
+        bHs = 0;
+        double xTs = 0;
+        for (int i = 0; i < this->sizeI; i++) {
+            const auto &xi = X.get_row(this->I[i]);
+            xTs = do_dot_product(s, xi);
+            if (this->param->bias > 0) {
+                xTs += this->param->bias * bs;
+            }
+            xTs = get_c(this->I[i]) * xTs;
+            do_axpy(xTs, xi, Hs);
+            if (this->param->bias > 0) {
+                bHs += xTs * this->param->bias;
+            }
+        }
+        do_xp2y(s, Hs);
+        bHs = bs + 2 * bHs;
+    }
+
+    double linesearch_and_update(double *f, double alpha, dvec_wrapper_t w, dvec_wrapper_t s, dvec_wrapper_t g, value_type &b, value_type &bs, value_type &bg) {
+        uint64_t y_size = this->worker->y_size;
+        double sTs = 0;
+        double wTs = 0;
+        double gTs = 0;
+        double eta = 0.01;
+        uint64_t n = this->get_w_size();
+        int max_num_linesearch = 20;
+        double fold = *f;
+        const MAT &X = this->X;
+        const auto &xi = X.get_row(0);
+        this->Xv(s, this->tmp, bs);
+
+        sTs = do_dot_product(s, s);
+        if (this->param->bias > 0) {
+            sTs += (double) bs * bs;
+        }
+        wTs = do_dot_product(s, w);
+        if (this->param->bias > 0) {
+            wTs += (double) bs * b;
+        }
+        gTs = do_dot_product(s, g);
+        if (this->param->bias > 0) {
+            gTs += (double) bs * bg;
+        }
+
+        int num_linesearch = 0;
+        for (num_linesearch = 0; num_linesearch < max_num_linesearch; num_linesearch++) {
+            double loss = 0;
+            for (auto &i : this->worker->index) {
+                double inner_product = this->tmp[i] * alpha + this->wx[i];
+                loss += this->C_times_loss(i, inner_product);
+            }
+            *f = loss + (alpha * alpha * sTs + this->wTw) / 2.0 + alpha * wTs;
+            if (*f - fold <= eta * alpha * gTs) {
+                for (auto &i : this->worker->index) {
+                    this->wx[i] += alpha * this->tmp[i];
+                }
+                break;
+            } else {
+                alpha *= 0.5;
+            }
+        }
+        if (num_linesearch >= max_num_linesearch) {
+            *f = fold;
+            return 0;
+        } else {
+            do_axpy(alpha, s, w);
+            b += alpha * bs;
+        }
+        this->wTw += alpha * alpha * sTs + 2 * alpha * wTs;
+        return alpha;
+    }
+
+   protected:
+    void subXTv(dvec_wrapper_t v, dvec_wrapper_t G, value_type &bg) {
+        uint64_t w_size = this->worker->w_size;
+        const MAT &X = this->X;
+        for (int i = 0; i < w_size; i++) {
+            G[i] = 0;
+        }
+        bg = 0;
+        for (int i = 0; i < this->sizeI; i++) {
+            const auto &xi = X.get_row(this->I[i]);
+            do_axpy(v[i], xi, G);
+            if (this->param->bias > 0) {
+                bg += this->param->bias * v[i];
+            }
+        }
+    }
+
+   private:
+    double C_times_loss(int i, double wx_i) {
+        double d = 1 - this->worker->inst_info[i].y * wx_i;
+        if (d > 0) {
+            return get_c(i) * d * d;
+        } else {
+            return 0;
+        }
+    }
 };
 
 #define INF HUGE_VAL
@@ -133,9 +416,24 @@ struct SVMWorker {
             solve_l2r_l1l2_svc(X, seed);
         } else if(param.solver_type == L2R_LR_DUAL) {
             solve_l2r_lr(X, seed);
+        } else if (param.solver_type == L2R_L2LOSS_SVC_PRIMAL) {
+            solve_l2r_l2_svc_primal(X, seed);
         }
     }
 
+    template <typename MAT>
+    void solve_l2r_l2_svc_primal(const MAT &X, int seed) {
+        l2r_l2_svc_fun<MAT, value_type, SVMWorker> fun_obj(&param, X, this);
+        NEWTON<MAT, value_type, SVMWorker> newton_obj(&fun_obj);
+        dvec_wrapper_t curr_w(w);
+        // re-initialize w and b
+        for(size_t j = 0; j < w_size; j++) {
+            curr_w[j] = 0;
+        }
+        b = 0;
+        newton_obj.newton(curr_w, b);
+    }
+    
     template<typename MAT>
     void solve_l2r_l1l2_svc(const MAT& X, int seed) {
         dvec_wrapper_t curr_w(w);
