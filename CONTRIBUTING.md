@@ -55,13 +55,13 @@ To send us a pull request, please:
 	Then you can use the `Makefile` commands to check:
     ```
     make clean
-    make format
+    make format --keep-going
     make test
     ```
     Pass `VFLAG=-v` environment variable can trigger verbose mode for further debugging:
     ```
     make clean VFLAG=-v
-    make format VFLAG=-v
+    make format VFLAG=-v --keep-going
     make test VFLAG=-v
     ```
     Remember using `make clean` to clean up local build after code change and before unit test.
