@@ -1,0 +1,11 @@
+{
+    "hnsw_t": "pecos::ann::HNSW<float, pecos::ann::FeatVecDenseIPSimd<float>>",
+    "train_params": {
+        "efC": 100,
+        "init_node": 50,
+        "maxM": 24,
+        "maxM0": 48,
+        "max_level": 1,
+        "num_node": 90
+    }
+}
