@@ -3,7 +3,7 @@ scipy==1.4.1
 numpy==1.20.3
 pandas==1.0.1
 tqdm==4.42.1
-nltk==3.4.5
+nltk>=3.6.4
 pygtrie==2.4.2
 pure-predict==0.0.4
 libpecos==0.1.0
