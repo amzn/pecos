@@ -9,6 +9,11 @@ in ["Session-Aware Query-Autocompletion using eXtreme Multi-Label Ranking, KDD 2
 by running the following command:
 ```bash 
 pip install -r requirements.txt  
+
+# NOTE: The original nltk version used in the experiment
+# CAUTION: nltk<=3.6.3 is known to contain an Inefficient Regular Expression and is vulnerable to regular expression denial of service attacks
+# Details: https://github.com/advisories/GHSA-2ww3-fxvq-293j
+pip install nltk==3.4.5
 ```
 If you're unfamiliar with Python virtual environments, check out the 
 [user guide](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/).
