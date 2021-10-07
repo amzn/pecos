@@ -23,7 +23,17 @@ Note that the data type needed to be `np.float32`.
 Train the HNSW model (i.e., building the graph-based indexing data structure) with maximum number of threads available on your machine (`threads=0`):
 ```python
 from pecos.ann.hnsw import HNSW
-model = HNSW.train(X_trn, M=32, efC=300, max_level=5, metric_type="ip", threads=0)
+train_params = HNSW.TrainParams(M=32, efC=300, metric_type="ip", threads=-1)
+model = HNSW.train(X_trn, train_params=train_params)
+```
+
+#### HNSW Save and Load
+After training, we can save the model to file and re-load
+```python
+model_folder = "./tmp-hsnw-model"
+model.save(model_folder)
+del model
+model = HNSW.load(model_folder)
 ```
 
 #### HNSW Searcher
@@ -36,11 +46,12 @@ searchers = model.searchers_create(num_searcher=4)
 #### HNSW Inference
 Finally, we conduct ANN inference by inputing searchers to the HNSW model.
 ```python
-efS, top_k = 100, 10
-indices, distances = model.predict(X_tst, efS, top_k, searchers=searchers, ret_csr=False)
+pred_params = HNSW.PredParams(efS=100, topk=10)
+indices, distances = model.predict(X_tst, pred_params=pred_params, searchers=searchers, ret_csr=False)
 ```
 Alternatively, it is also feasible to do inference without pre-allocating searchers, which may have larger overhead since it will **re-allocate** intermediate graph-searhing variables for each query matrix `X_tst`.
 ```python
-indices, distances = model.predict(X_tst, efS, top_k, threads=4, ret_csr=False)
+pred_params.threads = 2
+indices, distances = model.predict(X_tst, pred_params=pred_params, ret_csr=False)
 ```
 When `ret_csr=True`, the prediction function will return a single csr matrix that combines the indices and distances numpy array.

@@ -369,6 +369,27 @@ extern "C" {
     C_ANN_HNSW_TRAIN(_drm_ip_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_ip_t)
     C_ANN_HNSW_TRAIN(_drm_l2_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_l2_t)
 
+    #define C_ANN_HNSW_LOAD(SUFFIX, HNSW_T) \
+    void* c_ann_hnsw_load ## SUFFIX(const char* model_dir) { \
+        HNSW_T *model_ptr = new HNSW_T(); \
+        model_ptr->load(model_dir); \
+        return static_cast<void*>(model_ptr); \
+    }
+    C_ANN_HNSW_LOAD(_drm_ip_f32, hnsw_drm_ip_t)
+    C_ANN_HNSW_LOAD(_drm_l2_f32, hnsw_drm_l2_t)
+    C_ANN_HNSW_LOAD(_csr_ip_f32, hnsw_csr_ip_t)
+    C_ANN_HNSW_LOAD(_csr_l2_f32, hnsw_csr_l2_t)
+
+    #define C_ANN_HNSW_SAVE(SUFFIX, HNSW_T) \
+    void c_ann_hnsw_save ## SUFFIX(void* model_ptr, const char* model_dir) { \
+        const auto &model = *static_cast<HNSW_T*>(model_ptr); \
+        model.save(model_dir); \
+    }
+    C_ANN_HNSW_SAVE(_drm_ip_f32, hnsw_drm_ip_t)
+    C_ANN_HNSW_SAVE(_drm_l2_f32, hnsw_drm_l2_t)
+    C_ANN_HNSW_SAVE(_csr_ip_f32, hnsw_csr_ip_t)
+    C_ANN_HNSW_SAVE(_csr_l2_f32, hnsw_csr_l2_t)
+
     #define C_ANN_HNSW_DESTRUCT(SUFFIX, HNSW_T) \
     void c_ann_hnsw_destruct ## SUFFIX(void* model_ptr) { \
         delete static_cast<HNSW_T*>(model_ptr); \

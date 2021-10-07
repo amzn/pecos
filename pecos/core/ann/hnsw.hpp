@@ -17,12 +17,18 @@
 #include <random>
 #include <vector>
 #include <mutex>
-
+#include <string>
+#include <fstream>
 #include <type_traits>
+#include <sys/stat.h>
 
 #include "utils/matrix.hpp"
 #include "utils/random.hpp"
+#include "utils/file_util.hpp"
+#include "utils/type_util.hpp"
 #include "ann/feat_vectors.hpp"
+#include "third_party/nlohmann_json/json.hpp"
+
 
 namespace pecos {
 
@@ -87,6 +93,41 @@ namespace ann {
         std::vector<char> buffer;
 
         size_t neighborhood_memory_size() const { return (1 + max_degree) * sizeof(index_type); }
+
+        void save(FILE *fp) const {
+            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&feat_dim, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&max_degree, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&node_mem_size, 1, fp);
+            size_t sz = mem_start_of_node.size();
+            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
+            if(sz) {
+                pecos::file_util::fput_multiple<uint64_t>(&mem_start_of_node[0], sz, fp);
+            }
+            sz = buffer.size();
+            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
+            if(sz) {
+                pecos::file_util::fput_multiple<char>(&buffer[0], sz, fp);
+            }
+        }
+
+        void load(FILE *fp) {
+            pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&feat_dim, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&max_degree, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&node_mem_size, 1, fp);
+            size_t sz = 0;
+            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
+            mem_start_of_node.resize(sz);
+            if(sz) {
+                pecos::file_util::fget_multiple<uint64_t>(&mem_start_of_node[0], sz, fp);
+            }
+            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
+            buffer.resize(sz);
+            if(sz) {
+                pecos::file_util::fget_multiple<char>(&buffer[0], sz, fp);
+            }
+        }
 
         template<class MAT_T>
         void init(const MAT_T& feat_mat, index_type max_degree) {
@@ -153,6 +194,33 @@ namespace ann {
         index_type node_mem_size;
         index_type level_mem_size;
         std::vector<index_type> buffer;
+
+        void save(FILE *fp) const {
+            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&max_level, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&max_degree, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&node_mem_size, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&level_mem_size, 1, fp);
+            size_t sz = buffer.size();
+            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
+            if(sz) {
+                pecos::file_util::fput_multiple<index_type>(&buffer[0], sz, fp);
+            }
+        }
+
+        void load(FILE *fp) {
+            pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&max_level, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&max_degree, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&node_mem_size, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&level_mem_size, 1, fp);
+            size_t sz = 0;
+            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
+            buffer.resize(sz);
+            if(sz) {
+                pecos::file_util::fget_multiple<index_type>(&buffer[0], sz, fp);
+            }
+        }
 
         template<class MAT_T>
         void init(const MAT_T& feat_mat, index_type max_degree, index_type max_level) {
@@ -296,6 +364,82 @@ namespace ann {
         // destructor
         ~HNSW() {}
 
+        void load_config(const std::string& filepath) const {
+            std::ifstream loadfile(filepath);
+            std::string json_str;
+            if(loadfile.is_open()) {
+                json_str.assign(
+                    std::istreambuf_iterator<char>(loadfile),
+                    std::istreambuf_iterator<char>()
+                );
+            } else {
+                throw std::runtime_error("Unable to open config file at " + filepath);
+            }
+            auto j_param = nlohmann::json::parse(json_str);
+            std::string hnsw_t_cur = pecos::type_util::full_name<HNSW>();
+            std::string hnsw_t_inp = j_param["hnsw_t"];
+            if(hnsw_t_cur != hnsw_t_inp) {
+                throw std::invalid_argument("Inconsistent HNSW_T: hnsw_t_cur = " + hnsw_t_cur  + " hnsw_t_cur = " + hnsw_t_inp);
+            }
+        }
+
+        void save_config(const std::string& filepath) const {
+            nlohmann::json j_params = {
+                {"hnsw_t", pecos::type_util::full_name<HNSW>()},
+                {"train_params", {
+                    {"num_node", this->num_node},
+                    {"maxM", this->maxM},
+                    {"maxM0", this->maxM0},
+                    {"efC", this->efC},
+                    {"max_level", this->max_level},
+                    {"init_node", this->init_node}
+                    }
+                }
+            };
+            std::ofstream savefile(filepath, std::ofstream::trunc);
+            if(savefile.is_open()) {
+                savefile << j_params.dump(4);
+                savefile.close();
+            } else {
+                throw std::runtime_error("Unable to save config file to " + filepath);
+            }
+        }
+
+        void save(const std::string& model_dir) const {
+            if(mkdir(model_dir.c_str(), 0777) == -1) {
+                if(errno != EEXIST) {
+                    throw std::runtime_error("Unable to create save folder at " + model_dir);
+                }
+            }
+            save_config(model_dir + "/config.json");
+            std::string index_path = model_dir + "/index.bin";
+            FILE *fp = fopen(index_path.c_str(), "wb");
+            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&maxM, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&maxM0, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&efC, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&max_level, 1, fp);
+            pecos::file_util::fput_multiple<index_type>(&init_node, 1, fp);
+            graph_l0.save(fp);
+            graph_l1.save(fp);
+            fclose(fp);
+        }
+
+        void load(const std::string& model_dir) {
+            load_config(model_dir + "/config.json");
+            std::string index_path = model_dir + "/index.bin";
+            FILE *fp = fopen(index_path.c_str(), "rb");
+            pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&maxM, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&maxM0, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&efC, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&max_level, 1, fp);
+            pecos::file_util::fget_multiple<index_type>(&init_node, 1, fp);
+            graph_l0.load(fp);
+            graph_l1.load(fp);
+            fclose(fp);
+        }
+
         // Algorithm 4 of HNSW paper
         void get_neighbors_heuristic(max_heap_t &top_candidates, const index_type M) {
             if (top_candidates.size() < M) { return; }
@@ -384,7 +528,7 @@ namespace ann {
                     // Heuristic:
                     max_heap_t candidates;
                     candidates.emplace(d_max, dst);
-                   for(auto& dst : neighbors) {
+                    for(auto& dst : neighbors) {
                         dist_t dist_j = feat_vec_t::distance(
                             graph_l0.get_node_feat(src),
                             graph_l0.get_node_feat(dst)
@@ -553,6 +697,7 @@ namespace ann {
                 int thread_id = omp_get_thread_num();
                 add_point(query_id, ws, thread_id, lock_free);
             }
+
         }
 
         // Algorithm 2 of HNSW paper
@@ -678,6 +823,4 @@ namespace ann {
 
 
 } // end of namespace ann
-
 } // end of namespace pecos
-
