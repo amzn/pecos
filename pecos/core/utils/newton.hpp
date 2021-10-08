@@ -97,11 +97,10 @@ namespace pecos {
 
         void newton(dvec_wrapper_t w, value_type &b) {
             uint64_t w_size = fun_obj->get_w_size();
-            int cg_iter;
             double step_size;
             double f, fold, actred;
             double init_step_size = 1;
-            int search = 1, iter = 1, inc = 1;
+            int search = 1, iter = 1;
             const double alpha_pcg = 0.01;
             dvec_wrapper_t w0(this->tmp_w0);
             dvec_wrapper_t g(this->tmp_g);
@@ -129,13 +128,13 @@ namespace pecos {
             while (iter <= max_iter && search) {
                 fun_obj->get_diag_preconditioner(M, bM);
 
-                for (int i = 0; i < w_size; i++) {
+                for (uint64_t i = 0; i < w_size; i++) {
                     M[i] = (1 - alpha_pcg) + alpha_pcg * M[i];
                 }
                 bM = (1 - alpha_pcg) + alpha_pcg * bM;
 
-                cg_iter = pcg(g, M, s, r, bg, bM, bs, br);
-                fold = f;              
+                pcg(g, M, s, r, bg, bM, bs, br);
+                fold = f;
                 step_size = fun_obj->linesearch_and_update(&f, init_step_size, w, s, g, b, bs, bg);
                 if (step_size == 0) {
                     printf("WARNING: line search fails\n");
@@ -165,7 +164,7 @@ namespace pecos {
 
         double norm(dvec_wrapper_t g, uint64_t size, value_type &bg) {
             double ans = 0;
-            for (int i = 0; i < size; i++) {
+            for (size_t i = 0; i < size; i++) {
                 ans += (double) g[i] * g[i];
             }
             ans += (double) bg * bg;
@@ -173,7 +172,6 @@ namespace pecos {
         }
 
         int pcg(dvec_wrapper_t g, dvec_wrapper_t M, dvec_wrapper_t s, dvec_wrapper_t r, value_type &bg, value_type &bM, value_type &bs, value_type &br) {
-            int inc = 1;
             uint64_t n = fun_obj->get_w_size();
             double one = 1;
             double zTr, znewTrnew, alpha, beta, cgtol, dHd;
@@ -186,9 +184,9 @@ namespace pecos {
             dvec_wrapper_t d(tmp_d);
             dvec_wrapper_t Hd(tmp_Hd);
             dvec_wrapper_t z(tmp_z);
-            value_type bd, bHd, bz;
+            value_type bd=0, bHd=0, bz=0;
             bool bias_flag = fun_obj->get_bias() > 0;
-            for (int i = 0; i < n; i++) {
+            for (size_t i = 0; i < n; i++) {
                 s[i] = 0;
                 r[i] = -g[i];
                 z[i] = r[i] / M[i];
@@ -249,7 +247,7 @@ namespace pecos {
                 }
                 Q = newQ;
 
-                for (int i = 0; i < n; i++)
+                for (size_t i = 0; i < n; i++)
                     z[i] = r[i] / M[i];
                 if (bias_flag) {
                     bz = br / bM;
@@ -270,7 +268,7 @@ namespace pecos {
 
             if (cg_iter == max_cg_iter){
                 printf("WARNING: reaching maximal number of CG steps\n");
-            }               
+            }
             return cg_iter;
         };
     };

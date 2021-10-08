@@ -844,7 +844,7 @@ namespace pecos {
                         entries[touched_indices[t]].touched = 0;
                     }
                 } else {
-                    memset(entries.data(), 0, sizeof(entry_t) * len);
+                    memset(static_cast<void*>(entries.data()), 0, sizeof(entry_t) * len);
                 }
                 nr_touch = 0;
             }
@@ -1007,7 +1007,6 @@ namespace pecos {
     template <class MAT_T>
     void hstack_csr(const std::vector<csr_t>& matrices, MAT_T& stacked_matrix, int threads=-1) {
         typedef typename MAT_T::index_type ret_idx_t;
-        typedef typename MAT_T::value_type ret_val_t;
         typedef typename MAT_T::mem_index_type ret_indptr_t;
 
         // compute (nr_rows, total_cols, total_nnz) for memory allocation of the stacked_matrix matrix
@@ -1024,7 +1023,7 @@ namespace pecos {
         set_threads(threads);
         // compute indptr row-wise independently for easy parallelism
 #pragma omp parallel for
-        for(int i = 0; i <= nr_rows; i++) {
+        for(ret_idx_t i = 0; i <= nr_rows; i++) {
             stacked_matrix.indptr[i] = 0;
             for(auto& mat : matrices) {
                 stacked_matrix.indptr[i] += mat.indptr[i];
@@ -1033,7 +1032,7 @@ namespace pecos {
 
         // compute indices/data row-wise independently for easy parallelism
 #pragma omp parallel for schedule(dynamic,64)
-        for(int i = 0; i < nr_rows; i++) {
+        for(ret_idx_t i = 0; i < nr_rows; i++) {
             // for row_i, column-wise stack mat
             ret_idx_t col_idx_offset = 0;
             ret_indptr_t cumulated_nnz = stacked_matrix.indptr[i];

@@ -384,7 +384,6 @@ namespace pecos {
 
         typedef typename matrix_type_t::index_type index_type;
         typedef typename matrix_type_t::mem_index_type mem_index_type;
-        typedef typename matrix_type_t::value_type value_type;
         typedef typename std::make_signed<index_type>::type signed_index_type;
         typedef typename matrix_type_t::chunk_index_type chunk_index_type;
 
@@ -463,7 +462,7 @@ namespace pecos {
                 auto& entry = nonzeros[i];
 
                 // The row has changed, save the row's metadata into the chunk
-                if (entry.row != last_row) {
+                if ((signed_index_type) entry.row != last_row) {
                     chunk.set_row(entry.row, i_nz_row, entry_location);
                     ++i_nz_row;
                     last_row = entry.row;
@@ -1025,7 +1024,6 @@ namespace pecos {
             mem_index_type csr_pred_row_end = csr_pred.row_ptr[row + 1];
 
             mem_index_type output_row_start = row_ptr[row];
-            mem_index_type output_row_end = row_ptr[row + 1];
             mem_index_type i = output_row_start;
 
             for (mem_index_type j = csr_pred_row_start; j < csr_pred_row_end; ++j) {
@@ -1163,7 +1161,6 @@ namespace pecos {
             mem_index_type csr_pred_row_end = prev_layer_pred.row_ptr[row + 1];
 
             mem_index_type output_row_start = row_ptr[row];
-            mem_index_type output_row_end = row_ptr[row + 1];
             mem_index_type k = output_row_start;
 
             for (mem_index_type i = csr_pred_row_start; i < csr_pred_row_end; ++i) {
@@ -1198,7 +1195,7 @@ namespace pecos {
 
 #pragma omp parallel for schedule(dynamic,64)
         for (mem_index_type i = 0; i < nnz; ++i) {
-            mat.val[i] = post_processor.transform(mat.val[i]);
+            mat.val[i] = (value_type) post_processor.transform(mat.val[i]);
         }
     }
 
@@ -1211,7 +1208,7 @@ namespace pecos {
 
 #pragma omp parallel for schedule(dynamic,64)
         for (mem_index_type i = 0; i < nnz; ++i) {
-            mat1.val[i] = post_processor.combiner(mat1.val[i], mat2.val[i]);
+            mat1.val[i] = (value_type) post_processor.combiner(mat1.val[i], mat2.val[i]);
         }
     }
 
@@ -1750,7 +1747,6 @@ namespace pecos {
 
             // Prolongate predictions of previous layer to this layer
             csr_t labels = prolongate_predictions(prev_layer_pred, layer_data.C);
-            auto& W = layer_data.W;
 
             // Compute predictions for this layer
             w_ops<w_matrix_t>::compute_sparse_predictions(X, layer_data.W,
@@ -2024,8 +2020,7 @@ namespace pecos {
             } else if (std::strcmp(attr, "nr_codes") == 0) {
                 return this->code_count();
             } else {
-                std::string attr_str(attr);
-                std::runtime_error((attr_str, " is not implemented in get_int_attr."));
+                throw std::runtime_error(std::string(attr) + " is not implemented in get_int_attr.");
             }
         }
 
@@ -2182,7 +2177,7 @@ namespace pecos {
             // Find the sparsity pattern of each layer
             std::vector<csr_t> selected_outputs_csrs(prediction_depth);
             selected_outputs_csrs[0] = selected_outputs_csr;
-            
+
             for (uint32_t i_layer = 1; i_layer < prediction_depth; ++i_layer) {
                 ISpecializedModelLayer* layer = model_layers[prediction_depth - i_layer];
                 csc_t C = layer->get_C();
@@ -2219,7 +2214,7 @@ namespace pecos {
             }
             prediction = prev_layer_pred;
 
-            for (int i = 1; i < prediction_depth; ++i) {
+            for (uint32_t i = 1; i < prediction_depth; ++i) {
                 selected_outputs_csrs[i].free_underlying_memory();
             }
         }
@@ -2234,7 +2229,7 @@ namespace pecos {
             std::vector<ISpecializedModelLayer*> layers(depth);
 
             // Abstractly instantiate every layer
-            for (uint32_t d = 0; d < depth; d++) {
+            for (auto d = 0; d < depth; d++) {
                 std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
                 layers[d] = ISpecializedModelLayer::instantiate(layer_path, layer_type, d);
             }

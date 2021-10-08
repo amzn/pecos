@@ -470,7 +470,7 @@ public:
                 // find all features between min_ngram and max_ngram
                 for(int cur_ngram = min_ngram; cur_ngram <= max_ngram; cur_ngram++) {
                     idx_type SPS = vocab.at(" ");
-                    if(cur_ngram >= tokens.size() + 2) { // count a short word only once
+                    if(cur_ngram >= (int) tokens.size() + 2) { // count a short word only once
                         idx_vec_t feat_key(tokens.size() + 2, SPS);
                         std::copy(tokens.begin(), tokens.end(), feat_key.begin() + 1);
                         ngram_cnt[feat_key] += 1;
@@ -481,7 +481,7 @@ public:
                         std::copy(tokens.begin(), tokens.begin() + cur_ngram - 1, feat_key.begin() + 1);
                         ngram_cnt[feat_key] += 1;
                         // real ngrams
-                        for(int i = 0; i + cur_ngram <= tokens.size(); i++) {
+                        for(int i = 0; i + cur_ngram <= (int) tokens.size(); i++) {
                             std::copy(tokens.begin() + i, tokens.begin() + i + cur_ngram, feat_key.begin());
                             ngram_cnt[feat_key] += 1;
                         }
@@ -497,7 +497,7 @@ public:
             tokenize(line_sv, tokens, max_length);
             // find all features between min_ngram and max_ngram
             for(int cur_ngram = min_ngram; cur_ngram <= std::min(max_ngram, (int)tokens.size()); cur_ngram++) {
-                for(int i = 0; i <= tokens.size() - cur_ngram; i++) {
+                for(int i = 0; i <= (int)tokens.size() - cur_ngram; i++) {
                     idx_vec_t feat_key(tokens.begin() + i, tokens.begin() + i + cur_ngram);
                     ngram_cnt[feat_key] += 1;
                 }
@@ -530,7 +530,7 @@ private:
         size_t n_chunks = chunk_offset.size() - 1;
 
 #pragma omp parallel for schedule(dynamic,1)
-        for(int chunk = 0; chunk < n_chunks; chunk++) {
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
             int proc_id = omp_get_thread_num();
             // load file chunk and parse lines to string_views
             sv_vec_t cur_corpus_sv;
@@ -563,7 +563,6 @@ private:
     }
 
     void merge_vocabs(vector<str_set_t>& vocab_chunks, int threads) {
-        int n_chunks = vocab_chunks.size();
         // upper bound for vocab size
         size_t max_vocab_size = 0;
         for(auto& cur_chunk : vocab_chunks) {
@@ -595,10 +594,9 @@ private:
             threads
         );
         // merge token2count mappings
-        idx_type cur_idx = 0;
-        for(idx_type cur_idx = 0; cur_idx < tok_idcs.size(); cur_idx++) {
+        for(size_t cur_idx = 0; cur_idx < tok_idcs.size(); cur_idx++) {
             string& cur_str = all_token_vec[tok_idcs[cur_idx]];
-            vocab[cur_str] = cur_idx;
+            vocab[cur_str] = static_cast<idx_type>(cur_idx);
         }
     }
 
@@ -621,7 +619,6 @@ public:
     void train_from_file(const str_vec_t& corpus_files, size_t buffer_size=0, int threads=-1) {
         buffer_size = std::max(DEFAULT_BUFFER_SIZE, buffer_size);
 
-        size_t nr_files = corpus_files.size();
         threads = set_threads(threads);
         vector<str_set_t> vocab_chunks(threads);
 
@@ -670,7 +667,7 @@ public:
     BaseVectorizer() {};
 
     BaseVectorizer(const TfidfBaseVectorizerParam* param_ptr):
-        tokenizer(param_ptr->tok_type), param(*param_ptr) { }
+        param(*param_ptr), tokenizer(param_ptr->tok_type) { }
 
     BaseVectorizer(const string& filepath) { load(filepath); }
 
@@ -701,7 +698,7 @@ public:
                 int32_t feat_id = iter->second;
                 // feat_id<TAB>feat_idf<TAB>ngram_length<TAB>idx1 idx2...
                 fprintf(fp, "%d\t%f\t%ld", feat_id, idx_idf.at(feat_id), feat_ngram.size());
-                for(auto tid = 0; tid < feat_ngram.size(); tid++) {
+                for(size_t tid = 0; tid < feat_ngram.size(); tid++) {
                     if(tid == 0) {
                         fprintf(fp, "\t%d", feat_ngram[tid]);
                     } else {
@@ -755,7 +752,12 @@ public:
 
 private:
     // train from a data chunk and count document frequency into feat_df
-    void train_feat_df_chunk_(const sv_vec_t& corpus, vec2idx_map_t& feat_df, int start_line=0, int end_line=-1) {
+    void train_feat_df_chunk_(
+        const sv_vec_t& corpus,
+        vec2idx_map_t& feat_df,
+        size_t start_line = 0,
+        size_t end_line = 0) {
+
         if(end_line <= start_line || end_line > corpus.size()) {
             end_line = corpus.size();
         }
@@ -781,7 +783,7 @@ private:
         feat_key.reserve(param.max_ngram);
         for(int cur_ngram = param.min_ngram; cur_ngram <= std::min(param.max_ngram, (int)tokens.size()); cur_ngram++) {
             feat_key.resize(cur_ngram);
-            for(int i = 0; i <= tokens.size() - cur_ngram; i++) {
+            for(int i = 0; i <= (int) tokens.size() - cur_ngram; i++) {
                 feat_key.assign(tokens.begin() + i, tokens.begin() + i + cur_ngram);
                 auto feat_pair = feature_vocab.find(feat_key);
                 if(feat_pair != feature_vocab.end()) {
@@ -832,7 +834,7 @@ private:
         size_t n_chunks = chunk_offset.size() - 1;
 
 #pragma omp parallel for schedule(dynamic,1)
-        for(int chunk = 0; chunk < n_chunks; chunk++) {
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
             int proc_id = omp_get_thread_num();
 
             if(buffer[proc_id].size() <= chunk_offset[chunk + 1] - chunk_offset[chunk]) {
@@ -857,10 +859,10 @@ private:
         size_t chunk_size = (nr_doc + n_chunks - 1) / n_chunks;
 
 #pragma omp parallel for schedule(dynamic,1)
-        for(int chunk=0; chunk < n_chunks; chunk++) {
-            int start_line = chunk * chunk_size;
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
+            size_t start_line = chunk * chunk_size;
             if(start_line < nr_doc) {
-                int end_line = std::min(start_line + chunk_size, nr_doc);
+                size_t end_line = std::min(start_line + chunk_size, nr_doc);
                 train_feat_df_chunk_(corpus, feat_df_chunks[chunk], start_line, end_line);
             }
         }
@@ -868,7 +870,7 @@ private:
 
     // merge and sort features
     void merge_df_chunks(vector<vec2idx_map_t>& feat_df_chunks, size_t nr_doc, int threads) {
-        int n_chunks = feat_df_chunks.size();
+        size_t n_chunks = feat_df_chunks.size();
 
         // only keep (real_min_df_cnt, real_max_df_cnt)
         size_t real_min_df_cnt = (size_t)std::round(param.min_df_ratio * nr_doc);
@@ -890,7 +892,8 @@ private:
         }
         // filtering features with min_df, max_df
         for(auto it = final_chunk.begin(); it != final_chunk.end();) {
-            if(it->second < real_min_df_cnt || it->second > real_max_df_cnt) {
+            auto fidx = static_cast<size_t>(it->second);
+            if(fidx < real_min_df_cnt || fidx > real_max_df_cnt) {
                 // remove this feature
                 it = final_chunk.erase(it);
             } else {
@@ -923,7 +926,7 @@ private:
                 } else if(lx->first.size() != rx->first.size()) {
                     return lx->first.size() < rx->first.size(); // compare ngram length
                 } else {// compare ngram token idx
-                    for(int i = 0; i < lx->first.size() - 1; i++) {
+                    for(auto i = 0U; i < lx->first.size() - 1; i++) {
                         if(lx->first[i] != rx->first[i]) {
                             return lx->first[i] < rx->first[i];
                         }
@@ -946,7 +949,7 @@ private:
             start_idx = ptr_vec.size() - nr_feat;
         }
 
-        for(idx_type cur_idx = 0; cur_idx < nr_feat; cur_idx++) {
+        for(size_t cur_idx = 0; cur_idx < nr_feat; cur_idx++) {
             auto& cur_ptr = ptr_vec[cur_idx + start_idx];
             auto cur_df = final_chunk[cur_ptr->first];
             feature_vocab[cur_ptr->first] = cur_idx;
@@ -997,7 +1000,6 @@ public:
         // train tokenizer and build vocabulary
         tokenizer.train_from_file(corpus_files, buffer_size, threads);
 
-        size_t nr_files = corpus_files.size();
         threads = set_threads(threads);
         vector<vec2idx_map_t> feat_df_chunks(threads);
         size_t nr_doc = 0;
@@ -1063,7 +1065,7 @@ public:
         vector<size_t> chunk_nr_doc(n_chunks);
 
 #pragma omp parallel for schedule(dynamic)
-        for(int chunk = 0; chunk < n_chunks; chunk++) {
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
             int proc_id = omp_get_thread_num();
             size_t start_pos = chunk_offset[chunk];
             size_t end_pos = chunk_offset[chunk + 1];
@@ -1113,7 +1115,7 @@ public:
         std::memcpy(res.indptr, feat_sizes.data(), sizeof(ret_indptr_t) * (nr_doc + 1));
 
 #pragma omp parallel for schedule(dynamic)
-        for(int chunk = 0; chunk < n_chunks; chunk++) {
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
             size_t start = chunk_nnz[chunk];
             size_t end = chunk_nnz[chunk + 1];
             std::memcpy(&res.data[start], feat_data_vec[chunk].data(), sizeof(ret_val_t) * (end - start));
@@ -1152,7 +1154,7 @@ public:
         vector<vector<ret_val_t>> feat_data_vec(n_chunks);
 
 #pragma omp parallel for schedule(static)
-        for(int chunk = 0; chunk < n_chunks; chunk++) {
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
             size_t start_line = chunk * chunk_size;
             size_t end_line = std::min(start_line + chunk_size, nr_doc);
 
@@ -1178,7 +1180,7 @@ public:
         std::memcpy(res.indptr, feat_sizes.data(), sizeof(ret_indptr_t) * (nr_doc + 1));
 
 #pragma omp parallel for schedule(static)
-        for(int chunk = 0; chunk < n_chunks; chunk++) {
+        for(size_t chunk = 0; chunk < n_chunks; chunk++) {
             size_t start = chunk_nnz[chunk];
             size_t end = chunk_nnz[chunk + 1];
             std::memcpy(&res.data[start], feat_data_vec[chunk].data(), sizeof(ret_val_t) * (end - start));
@@ -1319,7 +1321,7 @@ public:
         set_threads(threads);
         if(norm_p == 1) {
 #pragma omp parallel for schedule(dynamic)
-            for(int i = 0; i < res.rows; i++) {
+            for(unsigned i = 0; i < res.rows; i++) {
                 ret_val_t normalizing_denominator = 0.0;
                 for(auto j = res.indptr[i]; j < res.indptr[i + 1]; j++) {
                     normalizing_denominator += std::fabs(res.data[j]);
@@ -1333,7 +1335,7 @@ public:
             }
         } else if(norm_p == 2) {
 #pragma omp parallel for schedule(dynamic)
-            for(int i = 0; i < res.rows; i++) {
+            for(unsigned i = 0; i < res.rows; i++) {
                 ret_val_t normalizing_denominator = 0.0;
                 for(auto j = res.indptr[i]; j < res.indptr[i + 1]; j++) {
                     normalizing_denominator += res.data[j] * res.data[j];
