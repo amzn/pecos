@@ -952,7 +952,7 @@ private:
         for(size_t cur_idx = 0; cur_idx < nr_feat; cur_idx++) {
             auto& cur_ptr = ptr_vec[cur_idx + start_idx];
             auto cur_df = final_chunk[cur_ptr->first];
-            feature_vocab[cur_ptr->first] = cur_idx;
+            feature_vocab[cur_ptr->first] = static_cast<idx_type>(cur_idx);
             idx_idf[cur_idx] = std::max(log(float(nr_doc) / (cur_df + param.smooth_idf)), 0.0);
         }
     }
