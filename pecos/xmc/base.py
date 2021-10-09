@@ -226,7 +226,7 @@ class Transform(object):
     def log_lp_hinge(p, v, inplace=False):
         """Log Lp Hinge transformation
 
-        .. math:: - \max (1 - v, 0)^p
+        .. math:: - \\max (1 - v, 0)^p
 
         Args:
             p (int): The p for Lp formula
@@ -247,7 +247,7 @@ class Transform(object):
     def lp_hinge(p, v, inplace=False):
         """Lp Hinge transformation
 
-        .. math:: \exp { - \max (1 - v, 0)^p }
+        .. math:: \\exp { - \\max (1 - v, 0)^p }
 
         Args:
             p (int): The p for Lp formula
@@ -297,7 +297,7 @@ class Transform(object):
     def sigmoid(v, inplace=False):
         """Sigmoid transformation
 
-        .. math:: \frac{ 1 }{ 1 + \exp {-v} }
+        .. math:: \\frac{ 1 }{ 1 + \\exp {-v} }
 
         Args:
             v (ndarray): The input array
@@ -317,7 +317,7 @@ class Transform(object):
     def log_sigmoid(v, inplace=False):
         """Log Sigmoid transformation
 
-        .. math:: \log { \frac{ 1 }{ 1 + \exp {-v} } }
+        .. math:: \\log { \\frac{ 1 }{ 1 + \\exp {-v} } }
 
         Args:
             v (ndarray): The input array

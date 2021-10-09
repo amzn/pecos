@@ -404,7 +404,7 @@ extern "C" {
 	    typedef typename HNSW_T::Searcher searcher_t; \
         const auto &model = *static_cast<HNSW_T*>(model_ptr); \
         auto searchers_ptr = new std::vector<searcher_t>(); \
-        for (int t=0; t < num_searcher; t++) { \
+        for (uint32_t t = 0; t < num_searcher; t++) { \
             searchers_ptr->emplace_back(model.create_searcher()); \
         } \
         return static_cast<void*>(searchers_ptr); \

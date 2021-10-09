@@ -126,7 +126,6 @@ size_t get_linecount(const string& filename, size_t start_pos=0, size_t end_pos=
     }
     const int chunksize = 10240;
     char buf[chunksize];
-    size_t filelen;
     if(end_pos == 0) {
         fseek(fp, 0, SEEK_END);
         end_pos = ftell(fp);
