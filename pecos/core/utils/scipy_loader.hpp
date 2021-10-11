@@ -18,69 +18,9 @@
 #include <cstring>
 #include <unordered_map>
 #include <vector>
+#include "utils/file_util.hpp"
 
 namespace pecos {
-
-namespace endian {
-    // return '<' for little endian and '>' for big endian
-    static char runtime () {
-        uint32_t x = 1U;
-        return (reinterpret_cast<uint8_t*>(&x)[0]) ? '<' : '>';
-    }
-
-    // return true if the given byte_order code (>, <, |, =) is different from the byte order of runtime
-    static bool different_from_runtime(char byte_order) {
-        if(byte_order == '|' || byte_order == '=' || byte_order == endian::runtime()) {
-            return false;
-        } else {
-            return true;
-        }
-    }
-
-    template<class T>
-    static T byte_swap(T& src) {
-        if(sizeof(T) == 1) {
-            return src;
-        }
-        T dst;
-        auto src_ptr = reinterpret_cast<const std::uint8_t*>(&src);
-        auto dst_ptr = reinterpret_cast<std::uint8_t*>(&dst);
-        std::reverse_copy(src_ptr, src_ptr + sizeof(T), dst_ptr);
-        return dst;
-    }
-
-    template<class T>
-    inline T* fget_multiple(T* dst, size_t num, FILE *stream, bool byte_swap=false) {
-        if(num != fread(dst, sizeof(T), num, stream)) {
-            throw std::runtime_error("Cannot read enough data from the stream");
-        }
-        // swap the endianness
-        if(byte_swap) {
-            for(size_t i = 0; i < num; i++) {
-                dst[i] = endian::byte_swap(dst[i]);
-            }
-        }
-        return dst;
-    }
-
-
-    template<class T>
-    inline T fget_one(FILE *stream, bool byte_swap=false) {
-        T x;
-        endian::fget_multiple<T>(&x, 1U, stream, byte_swap);
-        return x;
-    }
-
-
-    template<class T>
-    inline T fpeek(FILE *stream, bool byte_swap=false) {
-        T x = endian::fget_one<T>(stream, byte_swap);
-        fseek(stream, -sizeof(T), SEEK_CUR);
-        return x;
-    }
-
-} // end of namespace endian
-
 
 //https://numpy.org/devdocs/reference/generated/numpy.lib.format.html
 template<typename T>
@@ -111,21 +51,21 @@ public:
         // check magic string
         std::vector<uint8_t> magic = {0x93u, 'N', 'U', 'M', 'P', 'Y'};
         for(size_t i = 0; i < magic.size(); i++) {
-            if (endian::fget_one<uint8_t>(fp) != magic[i]) {
+            if (pecos::file_util::fget_one<uint8_t>(fp) != magic[i]) {
                 throw std::runtime_error("file is not a valid NpyFile");
             }
         }
 
         // load version
-        uint8_t major_version = endian::fget_one<uint8_t>(fp);
-        uint8_t minor_version = endian::fget_one<uint8_t>(fp);
+        uint8_t major_version = pecos::file_util::fget_one<uint8_t>(fp);
+        uint8_t minor_version = pecos::file_util::fget_one<uint8_t>(fp);
 
         // load header len
         uint64_t header_len;
         if(major_version == 1) {
-            header_len = endian::fget_one<uint16_t>(fp);
+            header_len = pecos::file_util::fget_one<uint16_t>(fp);
         } else if (major_version == 2) {
-            header_len = endian::fget_one<uint32_t>(fp);
+            header_len = pecos::file_util::fget_one<uint32_t>(fp);
         } else {
             throw std::runtime_error("unsupported NPY major version");
         }
@@ -136,7 +76,7 @@ public:
 
         // load header
         std::vector<char> header(header_len + 1, (char) 0);
-        endian::fget_multiple<char>(&header[0], header_len, fp);
+        pecos::file_util::fget_multiple<char>(&header[0], header_len, fp);
         char endian_code, type_code;
         uint32_t word_size;
         std::string dtype;
@@ -215,12 +155,12 @@ private:
         auto type_code = dtype.substr(1);
 #define IF_CLAUSE_FOR(np_type_code, c_type) \
         if(type_code == np_type_code) { \
-            bool byte_swap = endian::different_from_runtime(dtype[0]); \
+            bool byte_swap = pecos::file_util::different_from_runtime(dtype[0]); \
             size_t batch_size = 32768; \
             std::vector<c_type> batch(batch_size); \
             for(size_t i = 0; i < num_elements; i += batch_size) { \
                 size_t num = std::min(batch_size, num_elements - i); \
-                endian::fget_multiple<c_type>(batch.data(), num, fp, byte_swap); \
+                pecos::file_util::fget_multiple<c_type>(batch.data(), num, fp, byte_swap); \
                 for(size_t b = 0; b < num; b++) { \
                     array[i + b] = static_cast<value_type>(batch[b]); \
                 } \
@@ -249,9 +189,9 @@ private:
 #define IF_CLAUSE_FOR(np_type_code, c_type, char_size) \
         if(type_code == np_type_code) { \
             std::vector<c_type> char_buffer(word_size); \
-            bool byte_swap = endian::different_from_runtime(dtype[0]); \
+            bool byte_swap = pecos::file_util::different_from_runtime(dtype[0]); \
             for(size_t i = 0; i < num_elements; i++) { \
-                endian::fget_multiple<c_type>(&char_buffer[0], word_size, fp, byte_swap); \
+                pecos::file_util::fget_multiple<c_type>(&char_buffer[0], word_size, fp, byte_swap); \
                 array[i] = value_type(reinterpret_cast<typename T::value_type*>(&char_buffer[0]), word_size * char_size); \
             } \
         }
@@ -285,38 +225,38 @@ private:
         FileInfo() {}
 
         static bool valid_start(FILE *fp) {
-            return endian::fpeek<uint32_t>(fp) == 0x04034b50; // local header
+            return pecos::file_util::fpeek<uint32_t>(fp) == 0x04034b50; // local header
         }
 
         // https://en.wikipedia.org/wiki/Zip_(file_format)#ZIP64
         // https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
         static FileInfo get_one_from(FILE *fp) {
             // ReadOnlyZipArchive always uses little endian
-            bool byte_swap = endian::different_from_runtime('<');
+            bool byte_swap = pecos::file_util::different_from_runtime('<');
 
             FileInfo info;
             info.offset_of_header = ftell(fp);
-            info.signature = endian::fget_one<uint32_t>(fp, byte_swap);
-            info.version = endian::fget_one<uint16_t>(fp, byte_swap);
-            info.bit_flag = endian::fget_one<uint16_t>(fp, byte_swap);
-            info.compression_method = endian::fget_one<uint16_t>(fp, byte_swap);
-            info.last_modified_time = endian::fget_one<uint16_t>(fp, byte_swap);
-            info.last_modified_date = endian::fget_one<uint16_t>(fp, byte_swap);
-            info.crc_32 = endian::fget_one<uint32_t>(fp, byte_swap);
+            info.signature = pecos::file_util::fget_one<uint32_t>(fp, byte_swap);
+            info.version = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
+            info.bit_flag = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
+            info.compression_method = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
+            info.last_modified_time = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
+            info.last_modified_date = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
+            info.crc_32 = pecos::file_util::fget_one<uint32_t>(fp, byte_swap);
 
             if(info.compression_method != 0) {
                 throw std::runtime_error("only uncompressed zip archive is supported.");
             }
 
-            info.compressed_size = endian::fget_one<uint32_t>(fp, byte_swap);
-            info.uncompressed_size = endian::fget_one<uint32_t>(fp, byte_swap);
-            auto filename_length = endian::fget_one<uint16_t>(fp, byte_swap);
-            auto extra_field_length = endian::fget_one<uint16_t>(fp, byte_swap);
+            info.compressed_size = pecos::file_util::fget_one<uint32_t>(fp, byte_swap);
+            info.uncompressed_size = pecos::file_util::fget_one<uint32_t>(fp, byte_swap);
+            auto filename_length = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
+            auto extra_field_length = pecos::file_util::fget_one<uint16_t>(fp, byte_swap);
 
             std::vector<char> filename(filename_length, (char)0);
             std::vector<char> extra_field(extra_field_length, (char)0);
-            endian::fget_multiple<char>(&filename[0], filename_length, fp, byte_swap);
-            endian::fget_multiple<char>(&extra_field[0], extra_field_length, fp, byte_swap);
+            pecos::file_util::fget_multiple<char>(&filename[0], filename_length, fp, byte_swap);
+            pecos::file_util::fget_multiple<char>(&extra_field[0], extra_field_length, fp, byte_swap);
 
             info.name = std::string(&filename[0], filename_length);
             info.offset_of_content = ftell(fp);

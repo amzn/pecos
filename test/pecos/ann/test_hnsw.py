@@ -17,6 +17,36 @@ def test_importable():
     from pecos.ann.hnsw import HNSW  # noqa: F401
 
 
+def test_save_and_load(tmpdir):
+    import random
+    import numpy as np
+    from pecos.ann.hnsw import HNSW
+    from pecos.utils import smat_util
+
+    random.seed(1234)
+    np.random.seed(1234)
+    X_trn = smat_util.load_matrix("test/tst-data/ann/X.trn.l2-normalized.npy").astype(np.float32)
+    X_tst = smat_util.load_matrix("test/tst-data/ann/X.tst.l2-normalized.npy").astype(np.float32)
+    model_folder = tmpdir.join("hnsw_model_dir")
+
+    train_params = HNSW.TrainParams(M=36, efC=90, metric_type="ip", threads=1)
+    pred_params = HNSW.PredParams(efS=80, topk=10, threads=1)
+    model = HNSW.train(
+        X_trn,
+        train_params=train_params,
+        pred_params=pred_params,
+    )
+    Yp_from_mem, _ = model.predict(X_tst)
+    model.save(model_folder)
+    del model
+
+    model = HNSW.load(model_folder)
+    Yp_from_file, _ = model.predict(X_tst, pred_params=pred_params)
+    assert Yp_from_mem == approx(
+        Yp_from_file, abs=0.0
+    ), f"save and load failed: Yp_from_mem != Yp_from_file"
+
+
 def test_predict_and_recall():
     import random
     import numpy as np
@@ -26,8 +56,7 @@ def test_predict_and_recall():
 
     random.seed(1234)
     np.random.seed(1234)
-    M, efC, top_k = 32, 100, 10
-    max_level_upper_bound, threads = 5, 8
+    top_k = 10
     efS_list = [50, 75, 100]
     num_searcher_online = 2
 
@@ -44,48 +73,42 @@ def test_predict_and_recall():
     # load data matrices
     X_trn = smat_util.load_matrix("test/tst-data/ann/X.trn.l2-normalized.npy").astype(np.float32)
     X_tst = smat_util.load_matrix("test/tst-data/ann/X.tst.l2-normalized.npy").astype(np.float32)
+    dense_model_folder = "test/tst-data/ann/hnsw-model-dense"
+    sparse_model_folder = "test/tst-data/ann/hnsw-model-sparse"
 
     # compute exact NN ground truth
     # for both ip and cosine similarity, since data is l2-normalized
-    metric_type = "ip"
     Y_true = 1.0 - X_tst.dot(X_trn.T)
     Y_true = np.argsort(Y_true)[:, :top_k]
 
     # test dense features
-    model = HNSW.train(
-        X_trn,
-        M=M,
-        efC=efC,
-        max_level_upper_bound=max_level_upper_bound,
-        metric_type=metric_type,
-        threads=threads,
-    )
+    model = HNSW.load(dense_model_folder)
     searchers = model.searchers_create(num_searcher_online)
+    pred_params = model.get_pred_params()
     for efS in efS_list:
-        Y_pred, _ = model.predict(X_tst, efS, top_k, searchers=searchers, ret_csr=False)
+        pred_params.efS = efS
+        Y_pred, _ = model.predict(
+            X_tst, pred_params=pred_params, searchers=searchers, ret_csr=False
+        )
         recall = calc_recall(Y_true, Y_pred)
         assert recall == approx(
             1.0, abs=1e-2
-        ), f"hnsw with data_type=drm failed: efS={efS}, recall={recall}"
+        ), f"hnsw inference failed: data_type=drm, efS={efS}, recall={recall}"
     del searchers, model
 
     # test csr features, we just reuse the Y_true since data are the same
     X_trn = smat.csr_matrix(X_trn).astype(np.float32)
     X_tst = smat.csr_matrix(X_tst).astype(np.float32)
-
-    model = HNSW.train(
-        X_trn,
-        M=M,
-        efC=efC,
-        max_level_upper_bound=max_level_upper_bound,
-        metric_type=metric_type,
-        threads=threads,
-    )
+    model = HNSW.load(sparse_model_folder)
     searchers = model.searchers_create(num_searcher_online)
+    pred_params = model.get_pred_params()
     for efS in efS_list:
-        Y_pred, _ = model.predict(X_tst, efS, top_k, searchers=searchers, ret_csr=False)
+        pred_params.efS = efS
+        Y_pred, _ = model.predict(
+            X_tst, pred_params=pred_params, searchers=searchers, ret_csr=False
+        )
         recall = calc_recall(Y_true, Y_pred)
         assert recall == approx(
             1.0, abs=1e-2
-        ), f"hnsw with data_type=csr failed: efS={efS}, recall={recall}"
+        ), f"hnsw inference failed: data_type=csr, efS={efS}, recall={recall}"
     del searchers, model

@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <type_traits>
 
 namespace pecos {
 
@@ -26,6 +27,82 @@ namespace file_util {
 
 using std::string;
 using std::vector;
+
+// return '<' for little endian and '>' for big endian
+static char runtime () {
+    uint32_t x = 1U;
+    return (reinterpret_cast<uint8_t*>(&x)[0]) ? '<' : '>';
+}
+
+// return true if the given byte_order code (>, <, |, =) is different from the byte order of runtime
+static bool different_from_runtime(char byte_order) {
+    if(byte_order == '|' || byte_order == '=' || byte_order == file_util::runtime()) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+template<class T>
+static T byte_swap(T& src) {
+    if(sizeof(T) == 1) {
+        return src;
+    }
+    typename std::remove_const<T>::type dst;
+    auto src_ptr = reinterpret_cast<const std::uint8_t*>(&src);
+    auto dst_ptr = reinterpret_cast<std::uint8_t*>(&dst);
+    std::reverse_copy(src_ptr, src_ptr + sizeof(T), dst_ptr);
+    return dst;
+}
+
+template<class T>
+inline T* fget_multiple(T* dst, size_t num, FILE *stream, bool byte_swap=false) {
+    if(num != fread(dst, sizeof(T), num, stream)) {
+        throw std::runtime_error("Cannot read enough data from the stream");
+    }
+    // swap the endianness
+    if(byte_swap) {
+        for(size_t i = 0; i < num; i++) {
+            dst[i] = file_util::byte_swap(dst[i]);
+        }
+    }
+    return dst;
+}
+
+template<class T>
+inline T fget_one(FILE *stream, bool byte_swap=false) {
+    T x;
+    file_util::fget_multiple<T>(&x, 1U, stream, byte_swap);
+    return x;
+}
+
+template<class T>
+inline void fput_multiple(const T* src, size_t num, FILE *stream, bool byte_swap=false) {
+    if(byte_swap) {
+        for (size_t i = 0; i < num; i++) {
+            T src_copy = file_util::byte_swap(src[i]);
+            if(1U != fwrite(&src_copy, sizeof(T), 1U, stream)) {
+                throw std::runtime_error("Cannot write enough data from the stream");
+            }
+        }
+    } else {
+        if(num != fwrite(src, sizeof(T), num, stream)) {
+            throw std::runtime_error("Cannot write enough data from the stream");
+        }
+    }
+}
+
+template<class T>
+inline void fput_one(const T& src, FILE *stream, bool byte_swap=false) {
+    file_util::fput_multiple<T>(&src, 1U, stream, byte_swap);
+}
+
+template<class T>
+inline T fpeek(FILE *stream, bool byte_swap=false) {
+    T x = file_util::fget_one<T>(stream, byte_swap);
+    fseek(stream, -sizeof(T), SEEK_CUR);
+    return x;
+}
 
 // get file size in bytes
 size_t get_filesize(const string& filename) {
@@ -49,7 +126,6 @@ size_t get_linecount(const string& filename, size_t start_pos=0, size_t end_pos=
     }
     const int chunksize = 10240;
     char buf[chunksize];
-    size_t filelen;
     if(end_pos == 0) {
         fseek(fp, 0, SEEK_END);
         end_pos = ftell(fp);

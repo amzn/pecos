@@ -150,7 +150,7 @@ struct Tree {
             // global parallel reduction
             #pragma omp parallel for schedule(static)
             for(size_t i=0; i<cur_center.len; ++i) {
-                for(size_t thread_id = 0; thread_id < threads; thread_id++) {
+                for(int thread_id = 0; thread_id < threads; thread_id++) {
                         cur_center[i] += center_tmp_thread[thread_id][i];
                 }
             }
@@ -311,7 +311,7 @@ struct Tree {
         for(size_t d = 0; d < depth; d++) {
             size_t layer_start = 1U << d;
             size_t layer_end = 1U << (d + 1);
-            if((layer_end - layer_start) >= threads) {
+            if((layer_end - layer_start) >= (size_t) threads) {
 #pragma omp parallel for schedule(dynamic)
                 for(size_t nid = layer_start; nid < layer_end; nid++) {
                     rng_t rng(seed_for_nodes[nid]);
