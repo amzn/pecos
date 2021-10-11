@@ -23,7 +23,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install pip
-        make libpecos VFLAG=-v
+        make libpecos VFLAG=-v WARN_AS_ERROR=True
     - name: Test with pytest
       run: |
-        make test VFLAG=-v
+        make test VFLAG=-v WARN_AS_ERROR=True
