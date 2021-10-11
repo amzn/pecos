@@ -151,7 +151,7 @@ class Text2Text(object):
         imbalanced_ratio=0.0,
         imbalanced_depth=100,
         spherical=True,
-        nr_splits=2,
+        nr_splits=16,
         max_leaf_size=[100],
         seed=[0],
         max_iter=[20],
@@ -162,6 +162,8 @@ class Text2Text(object):
         threshold=[0.1],
         negative_sampling_scheme="tfn",
         pred_kwargs=None,
+        rel_norm="l1",
+        rel_induce=True,
         threads=-1,
         workspace_folder=None,
     ):
@@ -190,7 +192,7 @@ class Text2Text(object):
             imbalanced_depth (int): After hierarchical 2_means clustering has reached this depth,
                 it will continue clustering as if imbalanced_ratio is set to 0.0. (default 100)
             spherical (bool): Do l2_normalize cluster centers while clustering (default True).
-            nr_splits (int): number of splits used to construct hierarchy (a power of 2 is recommended, default 2)
+            nr_splits (int): number of splits used to construct hierarchy (a power of 2 is recommended, default 16)
             max_leaf_size (list of int): The max size of the leaf nodes of hierarchical 2_means clustering.
                 Multiple values (separated by comma) are supported and will lead to different
                 individual models for ensembling. (default [100])
@@ -207,6 +209,8 @@ class Text2Text(object):
                 only_topk (int): the default number of top labels used in the prediction
                 beam_size (int): the default size of beam search used in the prediction
                 post_processor (str): the default post processor used in the prediction
+            rel_norm (str): norm type to row-wise normalzie relevance matrix for cost-sensitive learning
+            rel_induce (bool): if True, induce relevance matrix into relvance chain by label aggregation.
             workspace_folder: (str, default=None): A folder name for storing intermediate
                 variables during training
 
@@ -231,7 +235,11 @@ class Text2Text(object):
             preprocessor = Preprocessor.load(preprocessor_path)
         else:
             LOGGER.info("Parsing text files...")
-            Y, corpus = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+            parsed_result = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+            Y = parsed_result["label_matrix"]
+            R = parsed_result["label_relevance"]
+            corpus = parsed_result["corpus"]
+
             LOGGER.info(
                 f"Training {vectorizer_config['type']} vectorizer on {len(corpus)} input texts..."
             )
@@ -245,7 +253,10 @@ class Text2Text(object):
             X = XLinearModel.load_feature_matrix(X_path)
         else:
             if "corpus" not in locals():
-                Y, corpus = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+                parse_result = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+                Y = parse_result["label_matrix"]
+                R = parse_result["label_relevance"]
+                corpus = parse_result["corpus"]
             LOGGER.info(f"Vectorizing {len(corpus)} texts...")
             X = preprocessor.predict(corpus)
             XLinearModel.save_feature_matrix(X_path, X)
@@ -259,9 +270,24 @@ class Text2Text(object):
             Y = smat_util.load_matrix(Y_path)
         else:
             if "Y" not in locals():
-                Y, corpus = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+                parsed_result = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+                Y = parsed_result["label_matrix"]
+                R = parsed_result["label_relevance"]
             smat_util.save_matrix(Y_path, Y)
         LOGGER.info(f"Output label Y loaded: {Y.shape[0]} samples with {Y.shape[1]} labels.")
+
+        # Prepare R, R should have same sparsity pattern as Y
+        R_path = ws.get_path_for_name_and_kwargs("R", XY_kwargs) + ".npz"
+        if path.exists(R_path):
+            R = smat_util.load_matrix(R_path)
+        else:
+            if "R" not in locals():
+                parsed_result = Preprocessor.load_data_from_file(input_text_path, output_text_path)
+                R = parsed_result["label_relevance"]
+            if R is not None:
+                smat_util.save_matrix(R_path, R)
+        if R is not None:
+            LOGGER.info(f"Relevance matrix R loaded, cost sensitive learning enabled.")
 
         # Grid Parameters for XLinearModel
         ranker_param_names = [
@@ -272,6 +298,8 @@ class Text2Text(object):
             "threshold",
             "negative_sampling_scheme",
             "pred_kwargs",
+            "rel_norm",
+            "rel_induce",
         ]
 
         ranker_grid_params = {}
@@ -383,7 +411,8 @@ class Text2Text(object):
                     m = XLinearModel.train(
                         X,
                         Y,
-                        C,
+                        C=C,
+                        R=R,
                         threads=threads,
                         **ranker_kwargs,
                     )
@@ -394,7 +423,7 @@ class Text2Text(object):
             del C
             gc.collect()
 
-        del X, Y, label_feat_set
+        del X, Y, R, label_feat_set
         gc.collect()
 
         xlinear_models = []

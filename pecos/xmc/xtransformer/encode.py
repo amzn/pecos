@@ -57,12 +57,12 @@ def parse_arguments():
         help="Batch size per GPU.",
     )
     parser.add_argument(
-        "--disable-gpu",
-        action="store_false",
-        dest="use_gpu",
-        help="disable CUDA training even if it's available",
+        "--use-gpu",
+        type=lambda x: x.lower() == "true",
+        metavar="[true/false]",
+        default=True,
+        help="if true, use CUDA if available. Default true",
     )
-    parser.set_defaults(use_gpu=True)
     parser.add_argument(
         "--batch-gen-workers",
         type=int,
@@ -100,7 +100,9 @@ def do_encode(args):
     xtf = XTransformer.load(args.model_folder)
 
     # load instance feature and text
-    _, X_text = Preprocessor.load_data_from_file(args.text_path, label_text_path=None, text_pos=0)
+    X_text = Preprocessor.load_data_from_file(args.text_path, label_text_path=None, text_pos=0)[
+        "corpus"
+    ]
 
     X_emb = xtf.encode(
         X_text,

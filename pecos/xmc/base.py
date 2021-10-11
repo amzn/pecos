@@ -86,7 +86,7 @@ class HierarchicalKMeans(Indexer):
     class TrainParams(pecos.BaseParams):  # type: ignore
         """Training Parameters of Hierarchical K-means.
 
-        nr_splits (int, optional): The out-degree of each internal node of the tree. Ignored if `imbalanced_ratio != 0` because imbalanced clustering supports only 2-means. Default is `2`.
+        nr_splits (int, optional): The out-degree of each internal node of the tree. Ignored if `imbalanced_ratio != 0` because imbalanced clustering supports only 2-means. Default is `16`.
         min_codes (int): The number of direct child nodes that the top level of the hierarchy should have.
         max_leaf_size (int, optional): The maximum size of each leaf node of the tree. Default is `100`.
         imbalanced_ratio (float, optional): Value between `0.0` and `0.5` (inclusive). Indicates how relaxed the balancedness constraint of 2-means can be. Specifically, if an iteration of 2-means is clustering `L` labels, the size of the output 2 clusters will be within approx `imbalanced_ratio * 2 * L` of each other. Default is `0.0`.
@@ -137,6 +137,12 @@ class HierarchicalKMeans(Indexer):
         # use optimized c++ clustering code if doing balanced clustering
         if train_params.imbalanced_ratio == 0:
             nr_instances = feat_mat.shape[0]
+            if train_params.max_leaf_size >= nr_instances:
+                # no-need to do clustering
+                return ClusterChain.from_partial_chain(
+                    smat.csc_matrix(np.ones((nr_instances, 1), dtype=np.float32))
+                )
+
             depth = max(1, int(math.ceil(math.log2(nr_instances / train_params.max_leaf_size))))
             if (2 ** depth) > nr_instances:
                 raise ValueError(
@@ -502,11 +508,15 @@ class MLProblem(object):
             self.pR = ScipyCscF32.init_from(R.tocsc().astype(dtype))
         else:
             raise NotImplementedError("type(R) = {} is not supported.".format(type(R)))
-        if R is not None:  # verify R and Y has the same non-zero pattern
+        if R is not None:
+            # verify R and Y has the same non-zero pattern
             if not np.array_equal(self.pY.buf.indptr, self.pR.buf.indptr):
                 raise ValueError("Invalid relevance matrix: Y.indptr != R.indptr")
             if not np.array_equal(self.pY.buf.indices, self.pR.buf.indices):
                 raise ValueError("Invalid relevance matrix: Y.indices != R.indices")
+            # verify relevance scores are non negative
+            if not all(R.data >= 0):
+                raise ValueError("Invalid relevance matrix: got value < 0")
 
         new_C = (
             smat.csc_matrix(np.ones((Y.shape[1], 1), dtype=dtype))

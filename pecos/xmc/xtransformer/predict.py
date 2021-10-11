@@ -97,12 +97,12 @@ def parse_arguments():
         help="override the post processor specified in the ranker (default None to disable overriding)",
     )
     parser.add_argument(
-        "--disable-gpu",
-        action="store_false",
-        dest="use_gpu",
-        help="disable CUDA training even if it's available",
+        "--use-gpu",
+        type=lambda x: x.lower() == "true",
+        metavar="[true/false]",
+        default=True,
+        help="if true, use CUDA if available. Default true",
     )
-    parser.set_defaults(use_gpu=True)
     parser.add_argument(
         "--batch-gen-workers",
         type=int,
@@ -149,7 +149,9 @@ def do_predict(args):
         X_feat = smat_util.load_matrix(args.feat_path)
     else:
         X_feat = None
-    _, X_text = Preprocessor.load_data_from_file(args.text_path, label_text_path=None, text_pos=0)
+    X_text = Preprocessor.load_data_from_file(args.text_path, label_text_path=None, text_pos=0)[
+        "corpus"
+    ]
 
     P_matrix = xtf.predict(
         X_text,

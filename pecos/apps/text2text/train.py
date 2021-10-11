@@ -99,9 +99,9 @@ def parse_arguments(args):
     parser.add_argument(
         "--nr-splits",
         type=int,
-        default=2,
+        default=16,
         metavar="INT",
-        help="number of splits used to construct hierarchy (a power of 2 is recommended, default 2)",
+        help="number of splits used to construct hierarchy (a power of 2 is recommended, default 16)",
     )
 
     parser.add_argument(
@@ -140,10 +140,11 @@ def parse_arguments(args):
     )
 
     parser.add_argument(
-        "--no-spherical",
-        action="store_true",
-        default=False,
-        help="Do not l2-normalize cluster centers while clustering",
+        "--spherical",
+        type=lambda x: x.lower() == "true",
+        metavar="[true/false]",
+        default=True,
+        help="If true, do l2-normalize cluster centers while clustering. Default true.",
     )
 
     parser.add_argument(
@@ -250,6 +251,23 @@ def parse_arguments(args):
     )
 
     parser.add_argument(
+        "--rel-norm",
+        type=str,
+        choices=["l1", "l2", "max", "no-norm"],
+        default="l1",
+        metavar="STR",
+        help="norm type to row-wise normalzie relevance matrix for cost-sensitive learning",
+    )
+
+    parser.add_argument(
+        "--rel-induce",
+        type=lambda x: x.lower() == "true",
+        metavar="[true/false]",
+        default=True,
+        help="If true, induce relevance matrix into relevance chain by label aggregation. Default true",
+    )
+
+    parser.add_argument(
         "--verbose-level",
         type=int,
         choices=logging_util.log_levels.keys(),
@@ -288,7 +306,7 @@ def train(args):
         indexer_algo=[args.indexer],
         imbalanced_ratio=args.imbalanced_ratio,
         imbalanced_depth=args.imbalanced_depth,
-        spherical=not args.no_spherical,
+        spherical=args.spherical,
         seed=args.seed,
         max_iter=args.max_iter,
         threads=args.threads,
@@ -299,6 +317,8 @@ def train(args):
         threshold=args.threshold,
         negative_sampling_scheme=args.negative_sampling,
         pred_kwargs=pred_kwargs,
+        rel_norm=args.rel_norm,
+        rel_induce=args.rel_induce,
         workspace_folder=args.workspace_folder,
     )
 

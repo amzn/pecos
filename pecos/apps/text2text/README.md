@@ -69,6 +69,40 @@ For Online Predicting (interactive mode)
 python3 -m pecos.apps.text2text.predict --model-folder ./pecos-text2text-model
 ```
 
+### Usage example: Cost Sensitive Learning
+We also support cost sensitive learning through user provided relevance scores for each positive instance-label pair.
+
+To use the cost sensitive learning, prepare the input text file `training-data-with-rel.txt`:
+```
+0::0.1,1::0.2,2::0.8<TAB>Alan Turing is widely considered to be the father of theoretical computer science and artificial intelligence.
+0::0.2,2::0.6,3::0.5<TAB>Hinton was co-author of a highly cited paper published in 1986 that popularized the backpropagation algorithm for training multi-layer neural networks.
+3::0.1,4::0.5,5::0.1<TAB>Hinton received the 2018 Turing Award, together with Yoshua Bengio and Yann LeCun, for their work on artificial intelligence and deep learning.
+3::0.1,4::0.4,5::0.25<TAB>In 1989, Yann LeCun et al. applied the standard backpropagation algorithm on neural networks for hand digit recognition.
+```
+Each line contain two fields, separated by `<TAB>`, the latter is the input text whereas the former is double colon separated label ids and relevance scores (scalar between 0 and 1).
+```
+OUTPUT_ID1::REL_SCORE1,OUTPUT_ID2::REL_SCORE2,OUTPUT_ID3::REL_SCORE3,...<TAB>INPUT_TEXT
+```
+
+Now, we training the text2text model in the same way as described above.
+```
+python3 -m pecos.apps.text2text.train \
+  --input-text-path ./training-data-with-rel.txt \
+  --vectorizer-config-path ./config.json \
+  --output-item-path ./output-labels.txt \
+  --model-folder ./cost-sensitive-text2text-model
+```
+The models are saved into the `./cost-sensitive-text2text-model`.
+Note that by default PECOS will induce the cost at each level of the hierarchical tree by cost aggregation. Therefore even all relevance scores are given as `1.0`, PECOS still does cost-sensitive learning at non-leaf level. You can disable this feature by providing the `--no-rel-induce` flag and only use cost-sensitive learning at leaf level.
+
+For batch Predicting, user should give the input text file `test-data.txt`, which has the same format as `training-data.txt` or `training-data-with-rel.txt`. Note that relevance scores will not be used during prediction, therefore both format gives the same result.
+```
+python3 -m pecos.apps.text2text.predict \
+  --input-text-path ./test-data.txt \
+  --model-folder ./cost-sensitive-text2text-model \
+  --predicted-output-item-path ./test-prediction.txt
+```
+The predictions are saved in the `./test-prediction.txt`.
 ***
 
 Copyright (2021) Amazon.com, Inc.

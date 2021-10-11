@@ -85,7 +85,7 @@ def parse_arguments():
         type=int,
         default=100,
         metavar="INT",
-        help="The max size of the leaf nodes of hierarchical 2-means clustering. Default 100.",
+        help="The max size of the leaf nodes of hierarchical 2-means clustering. If larger than total number of labels, One-Versus-All model will be trained. Default 100.",
     )
 
     parser.add_argument(
@@ -105,12 +105,12 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--no-spherical",
-        action="store_false",
-        dest="spherical",
-        help="Do not l2-normalize cluster centers while clustering",
+        "--spherical",
+        type=lambda x: x.lower() == "true",
+        metavar="[true/false]",
+        default=True,
+        help="If true, do l2-normalize cluster centers while clustering. Default true.",
     )
-    parser.set_defaults(spherical=True)
 
     parser.add_argument(
         "--seed", type=int, default=0, metavar="INT", help="random seed (default 0)"
@@ -157,16 +157,16 @@ def parse_arguments():
         choices=["l1", "l2", "max", "no-norm"],
         default="l1",
         metavar="STR",
-        help="",
+        help="norm type to row-wise normalzie relevance matrix for cost-sensitive learning",
     )
 
     parser.add_argument(
-        "--no-rel-induce",
-        dest="rel_induce",
-        action="store_false",
-        help="Disable inducing relevance matrix into relevance chain by label aggregation.",
+        "--rel-induce",
+        type=lambda x: x.lower() == "true",
+        metavar="[true/false]",
+        default=True,
+        help="If true, induce relevance matrix into relevance chain by label aggregation. Default true",
     )
-    parser.set_defaults(rel_induce=True)
 
     parser.add_argument(
         "-um",

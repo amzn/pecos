@@ -70,7 +70,7 @@ X = smat_util.load_matrix("test/tst-data/xmc/xtransformer/train_feat.npz")
 Y = smat_util.load_matrix("test/tst-data/xmc/xtransformer/train_label.npz")
 # load training text features
 from pecos.utils.featurization.text.preprocess import Preprocessor
-_, text = Preprocessor.load_data_from_file("test/tst-data/xmc/xtransformer/train.txt", text_pos=0)
+text = Preprocessor.load_data_from_file("test/tst-data/xmc/xtransformer/train.txt", text_pos=0)["corpus"]
 ```
 Train the XR-Transformer model
 ```python

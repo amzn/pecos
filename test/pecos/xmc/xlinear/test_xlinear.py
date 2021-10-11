@@ -272,6 +272,7 @@ def test_consistency_of_primal(tmpdir):
             cmd += ["-y {}".format(train_Y_file)]
             cmd += ["-m {}".format(model_folder)]
             cmd += ["-s {}".format(solver_type)]
+            cmd += ["--max-leaf-size {}".format(10)]
             process = subprocess.run(
                 shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
@@ -346,6 +347,7 @@ def test_cli(tmpdir):
         cmd += ["-x {}".format(train_X)]
         cmd += ["-y {}".format(train_Y_file)]
         cmd += ["-m {}".format(model_folder)]
+        cmd += ["--max-leaf-size {}".format(10)]
         process = subprocess.run(
             shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
@@ -400,7 +402,7 @@ def test_cli(tmpdir):
         label_feat = LabelEmbeddingFactory.create(Y, X, method="pifa")
 
         # Training with cluster chain stored in a cluster folder
-        cluster_chain = Indexer.gen(label_feat)
+        cluster_chain = Indexer.gen(label_feat, max_leaf_size=10)
         cluster_chain.save(cluster_chain_folder)
         cmd = []
         cmd += ["python3 -m pecos.xmc.xlinear.train"]
@@ -523,6 +525,7 @@ def test_cli(tmpdir):
         cmd += ["-x {}".format(train_X)]
         cmd += ["-y {}".format(train_Y_file)]
         cmd += ["-m {}".format(model_folder)]
+        cmd += ["--max-leaf-size {}".format(10)]
         cmd += ["-pp noop"]
         cmd += ["-b 2"]
         cmd += ["-ns tfn+man"]
@@ -572,6 +575,7 @@ def test_cli(tmpdir):
         cmd += ["-x {}".format(train_X)]
         cmd += ["-y {}".format(train_Y_file)]
         cmd += ["-m {}".format(model_folder)]
+        cmd += ["--max-leaf-size {}".format(10)]
         cmd += ["-pp noop"]
         cmd += ["-b 2"]
         cmd += ["-ns tfn+man"]
@@ -862,7 +866,7 @@ def test_ova_shallow_mode(tmpdir):
     Y = smat_util.load_matrix("test/tst-data/xmc/xlinear/Y.npz")
     test_X = smat_util.load_matrix("test/tst-data/xmc/xlinear/Xt.npz")
     label_feat = LabelEmbeddingFactory.create(Y, X, method="pifa")
-    cluster_chain = Indexer.gen(label_feat)
+    cluster_chain = Indexer.gen(label_feat, max_leaf_size=10)
     print(cluster_chain[:])
     xlova = XLinearModel.train(
         X,

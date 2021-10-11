@@ -165,7 +165,7 @@ def test_encode(tmpdir):
     cmd += ["--only-topk {}".format(2)]
     cmd += ["--batch-gen-workers {}".format(2)]
     cmd += ["--save-emb-dir {}".format(str(model_folder))]
-    cmd += ["--only-encoder"]
+    cmd += ["--only-encoder true"]
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
@@ -217,11 +217,11 @@ def test_xtransformer_python_api():
     X_trn_file = "test/tst-data/xmc/xtransformer/train.txt"
     Y_trn_file = "test/tst-data/xmc/xtransformer/train_label.npz"
 
-    _, trn_corpus = Preprocessor.load_data_from_file(
+    trn_corpus = Preprocessor.load_data_from_file(
         X_trn_file,
         label_text_path=None,
         text_pos=0,
-    )
+    )["corpus"]
     X_trn = smat_util.load_matrix(train_feat_file, dtype=np.float32)
     Y_trn = smat_util.load_matrix(Y_trn_file, dtype=np.float32)
     trn_prob = MLProblemWithText(trn_corpus, Y_trn, X_feat=X_trn)

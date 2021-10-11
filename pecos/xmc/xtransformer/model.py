@@ -56,8 +56,8 @@ class XTransformer(pecos.BaseClass):
         matcher_params_chain (TransformerMatcher.TrainParams or list): chain of params for TransformerMatchers.
         ranker_params (XLinearModel.TrainParams): train params for linear ranker
 
-        no_fine_tune (bool, optional): if True, skip fine-tuning steps and directly use pre-trained transformer models.
-            Default False
+        do_fine_tune (bool, optional): if False, skip fine-tuning steps and directly use pre-trained transformer models.
+            Default True
         only_encoder (bool, optional): if True, skip linear ranker training. Default False
         cost_sensitive_ranker (bool, optional): if True, use clustering count aggregating for ranker's cost-sensitive learnin
             Default False
@@ -71,7 +71,7 @@ class XTransformer(pecos.BaseClass):
         matcher_params_chain: TransformerMatcher.TrainParams = None  # type: ignore
         ranker_params: XLinearModel.TrainParams = None  # type: ignore
 
-        no_fine_tune: bool = False
+        do_fine_tune: bool = True
         only_encoder: bool = False
         cost_sensitive_ranker: bool = False
         fix_clustering: bool = False
@@ -268,19 +268,30 @@ class XTransformer(pecos.BaseClass):
         else:
             pred_params = cls.PredParams.from_dict(pred_params)
 
-        if train_params.no_fine_tune:
+        if not train_params.do_fine_tune:
             if isinstance(train_params.matcher_params_chain, list):
                 matcher_train_params = train_params.matcher_params_chain[-1]
-                matcher_pred_params = pred_params.matcher_params_chain[-1]
             else:
                 matcher_train_params = train_params.matcher_params_chain
+
+            if isinstance(train_params.matcher_params_chain, list):
+                matcher_pred_params = pred_params.matcher_params_chain[-1]
+            else:
                 matcher_pred_params = pred_params.matcher_params_chain
 
             device, n_gpu = torch_util.setup_device(matcher_train_params.use_gpu)
 
-            parent_model = TransformerMatcher.download_model(
-                matcher_train_params.model_shortcut,
-            )
+            if matcher_train_params.init_model_dir:
+                parent_model = cls.load(train_params.init_model_dir)
+                LOGGER.info("Loaded encoder from {}.".format(matcher_train_params.init_model_dir))
+            else:
+                parent_model = TransformerMatcher.download_model(
+                    matcher_train_params.model_shortcut,
+                )
+                LOGGER.info(
+                    "Downloaded encoder from {}.".format(matcher_train_params.model_shortcut)
+                )
+
             parent_model.to_device(device, n_gpu=n_gpu)
             _, inst_embeddings = parent_model.predict(
                 prob.X_text,
@@ -397,13 +408,16 @@ class XTransformer(pecos.BaseClass):
                 )
 
                 cur_ns = cur_train_params.negative_sampling
+
+                # construct train and val problem for level i
+                # note that final layer do not need X_feat
                 if i > 0:
                     M = get_negative_samples(YC_list[i - 1], M_pred, cur_ns)
 
                 cur_prob = MLProblemWithText(
                     prob.X_text,
                     YC_list[i],
-                    X_feat=prob.X_feat,
+                    X_feat=None if i == nr_transformers - 1 else prob.X_feat,
                     C=clustering[i],
                     M=M,
                 )
@@ -413,7 +427,7 @@ class XTransformer(pecos.BaseClass):
                     cur_val_prob = MLProblemWithText(
                         val_prob.X_text,
                         val_YC_list[i],
-                        X_feat=val_prob.X_feat,
+                        X_feat=None if i == nr_transformers - 1 else val_prob.X_feat,
                         C=clustering[i],
                         M=val_M,
                     )
