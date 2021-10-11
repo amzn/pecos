@@ -154,7 +154,7 @@ ext_module = setuptools.Extension(
     include_dirs=["pecos/core", "/usr/include/", "/usr/local/include"],
     libraries=["gomp"] + blas_lib,
     library_dirs=blas_dir,
-    extra_compile_args=["-fopenmp", "-O3", "-std=c++14", "-mavx"],
+    extra_compile_args=["-fopenmp", "-O3", "-std=c++14", "-mavx", "-Werror"],
     extra_link_args=['-Wl,--no-as-needed', f"-Wl,-rpath,{':'.join(blas_dir)}"]
     )
 
