@@ -49,8 +49,12 @@ class XLinearModel(pecos.BaseClass):
                 Ignored if shallow is True. Defaults to 2.
             min_codes (int, optional): the minimal number of clusters in the cluster chain. Defaults to nr_splits
             shallow (bool, optional): whether to continue constructing a full cluster chain based on the C given, default False
+            rel_mode (bool, optional): mode to use relevance score for cost sensitive learning
+                    'disable': do not use cost-sensitive learning (default)
+                    'induce': induce relevance matrix into relvance chain by label aggregation.
+                            Use all 1.0 if relevance score is not provided.
+                    'ranker-only': only use cost-sensitive learning for ranker.
             rel_norm (str, optional): norm type to row-wise normalzie relevance matrix for cost-sensitive learning
-            rel_induce (bool, optional): if True, induce relevance matrix into relvance chain by label aggregation.
             hlm_args (HierarchicalMLModel.TrainParams, optional): HierarchicalMLModel.TrainParams. Default None.
         """
 
@@ -59,8 +63,8 @@ class XLinearModel(pecos.BaseClass):
         nr_splits: int = 16
         min_codes: int = None  # type: ignore
         shallow: bool = False
-        rel_norm: str = "l1"
-        rel_induce: bool = True
+        rel_mode: str = "disable"
+        rel_norm: str = "no-norm"
         hlm_args: HierarchicalMLModel.TrainParams = None  # type: ignore
 
     @dc.dataclass
@@ -206,11 +210,23 @@ class XLinearModel(pecos.BaseClass):
                     C, min_codes=train_params.min_codes, nr_splits=train_params.nr_splits
                 )
             matching_chain = clustering.generate_matching_chain(user_supplied_negatives)
-            relevance_chain = clustering.generate_relevance_chain(
-                {0: R},
-                norm_type=train_params.rel_norm,
-                induce=train_params.rel_induce,
-            )
+
+            if train_params.rel_mode == "disable":
+                relevance_chain = [None] * len(clustering)
+            elif train_params.rel_mode == "induce":
+                relevance_chain = clustering.generate_relevance_chain(
+                    {0: R if R is not None else smat_util.binarized(Y)},
+                    norm_type=train_params.rel_norm,
+                    induce=True,
+                )
+            elif train_params.rel_mode == "ranker-only":
+                relevance_chain = clustering.generate_relevance_chain(
+                    {0: R},
+                    norm_type=train_params.rel_norm,
+                    induce=False,
+                )
+            else:
+                raise ValueError(f"Wrong value for rel_mode: {train_params.rel_mode}")
 
         if train_params.mode == "full-model":
             pass

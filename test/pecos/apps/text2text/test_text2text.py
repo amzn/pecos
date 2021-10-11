@@ -245,6 +245,7 @@ def test_cli(tmpdir):
     cmd += ["-q {}".format(item_file)]
     cmd += ["-m {}".format(rel_model_folder)]
     cmd += ["--rel-norm no-norm"]
+    cmd += ["--rel-mode induce"]
     print(" ".join(cmd))
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE

@@ -141,7 +141,7 @@ def parse_arguments(args):
 
     parser.add_argument(
         "--spherical",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=True,
         help="If true, do l2-normalize cluster centers while clustering. Default true.",
@@ -254,17 +254,17 @@ def parse_arguments(args):
         "--rel-norm",
         type=str,
         choices=["l1", "l2", "max", "no-norm"],
-        default="l1",
+        default="no-norm",
         metavar="STR",
         help="norm type to row-wise normalzie relevance matrix for cost-sensitive learning",
     )
 
     parser.add_argument(
-        "--rel-induce",
-        type=lambda x: x.lower() == "true",
-        metavar="[true/false]",
-        default=True,
-        help="If true, induce relevance matrix into relevance chain by label aggregation. Default true",
+        "--rel-mode",
+        type=str,
+        metavar="STR",
+        default="disable",
+        help="mode to use relevance score for cost sensitive learning ['disable'(default), 'induce', 'ranker-only']",
     )
 
     parser.add_argument(
@@ -317,8 +317,8 @@ def train(args):
         threshold=args.threshold,
         negative_sampling_scheme=args.negative_sampling,
         pred_kwargs=pred_kwargs,
+        rel_mode=args.rel_mode,
         rel_norm=args.rel_norm,
-        rel_induce=args.rel_induce,
         workspace_folder=args.workspace_folder,
     )
 

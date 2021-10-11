@@ -84,16 +84,18 @@ Each line contain two fields, separated by `<TAB>`, the latter is the input text
 OUTPUT_ID1::REL_SCORE1,OUTPUT_ID2::REL_SCORE2,OUTPUT_ID3::REL_SCORE3,...<TAB>INPUT_TEXT
 ```
 
-Now, we training the text2text model in the same way as described above.
+Now train the text2text model:
 ```
 python3 -m pecos.apps.text2text.train \
   --input-text-path ./training-data-with-rel.txt \
   --vectorizer-config-path ./config.json \
   --output-item-path ./output-labels.txt \
-  --model-folder ./cost-sensitive-text2text-model
+  --model-folder ./cost-sensitive-text2text-model \
+  --rel-mode induce
 ```
 The models are saved into the `./cost-sensitive-text2text-model`.
-Note that by default PECOS will induce the cost at each level of the hierarchical tree by cost aggregation. Therefore even all relevance scores are given as `1.0`, PECOS still does cost-sensitive learning at non-leaf level. You can disable this feature by providing the `--no-rel-induce` flag and only use cost-sensitive learning at leaf level.
+When setting `--rel-mode induce`, PECOS will induce the cost at each level of the hierarchical tree by cost aggregation.
+You can disable this feature by setting argument `--rel-mode ranker-only` and only use cost-sensitive learning at leaf level.
 
 For batch Predicting, user should give the input text file `test-data.txt`, which has the same format as `training-data.txt` or `training-data-with-rel.txt`. Note that relevance scores will not be used during prediction, therefore both format gives the same result.
 ```

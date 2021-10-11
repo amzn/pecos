@@ -59,8 +59,6 @@ class XTransformer(pecos.BaseClass):
         do_fine_tune (bool, optional): if False, skip fine-tuning steps and directly use pre-trained transformer models.
             Default True
         only_encoder (bool, optional): if True, skip linear ranker training. Default False
-        cost_sensitive_ranker (bool, optional): if True, use clustering count aggregating for ranker's cost-sensitive learnin
-            Default False
         fix_clustering (bool, optional): if True, use the same hierarchial label tree for fine-tuning and final prediction. Default false.
         max_match_clusters (int, optional): max number of clusters on which to fine-tune transformer. Default 32768
         save_emb_dir (str): dir to save instance embeddings. Default None to ignore
@@ -73,7 +71,6 @@ class XTransformer(pecos.BaseClass):
 
         do_fine_tune: bool = True
         only_encoder: bool = False
-        cost_sensitive_ranker: bool = False
         fix_clustering: bool = False
         max_match_clusters: int = 32768
         save_emb_dir: str = None  # type: ignore
@@ -541,7 +538,6 @@ class XTransformer(pecos.BaseClass):
                 X_concat,
                 prob.Y,
                 C=clustering,
-                R=prob.Y if train_params.cost_sensitive_ranker else None,
                 train_params=train_params.ranker_params,
                 pred_params=pred_params.ranker_params,
             )

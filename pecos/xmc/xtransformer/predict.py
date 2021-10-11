@@ -12,7 +12,7 @@ import argparse
 import logging
 import os
 
-from pecos.utils import logging_util, smat_util, torch_util
+from pecos.utils import cli, logging_util, smat_util, torch_util
 from pecos.utils.featurization.text.preprocess import Preprocessor
 from pecos.xmc import PostProcessor
 
@@ -98,7 +98,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--use-gpu",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=True,
         help="if true, use CUDA if available. Default true",

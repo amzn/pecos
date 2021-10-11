@@ -15,7 +15,7 @@ import os
 import sys
 
 import numpy as np
-from pecos.utils import logging_util, smat_util, torch_util
+from pecos.utils import cli, logging_util, smat_util, torch_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.utils.featurization.text.preprocess import Preprocessor
 from pecos.xmc import PostProcessor
@@ -120,7 +120,7 @@ def parse_arguments():
     # ========= indexer parameters ============
     parser.add_argument(
         "--fix-clustering",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=False,
         help="if true, use the same hierarchial label tree for fine-tuning and final prediction. Default false.",
@@ -184,7 +184,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--do-fine-tune",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=True,
         help="If true, do fine-tune on loaded/downloaded transformers. Default true",
@@ -206,7 +206,7 @@ def parse_arguments():
     # ========== ranker parameters =============
     parser.add_argument(
         "--only-encoder",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=False,
         help="if true, only train text encoder. Default false.",
@@ -430,7 +430,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--use-gpu",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=True,
         help="if true, use CUDA training if available. Default true",

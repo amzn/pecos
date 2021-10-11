@@ -16,7 +16,7 @@ import os
 import numpy as np
 import scipy.sparse as smat
 from pecos.utils import smat_util
-from pecos.utils.cli import SubCommand
+from pecos.utils.cli import SubCommand, str2bool
 from pecos.utils.featurization.text.vectorizers import Vectorizer, vectorizer_dict
 
 
@@ -284,7 +284,7 @@ class BuildPreprocessorCommand(SubCommand):
 
         parser.add_argument(
             "--from-file",
-            type=lambda x: x.lower() == "true",
+            type=str2bool,
             metavar="[true/false]",
             default=False,
             help="[Only support tfidf vectorizer] training without preloading corpus to memory. If true, --input-text-path is expected to be a file or a folder containing files that each line contains only input text. Default false",
@@ -402,7 +402,7 @@ class RunPreprocessorCommand(SubCommand):
         )
         parser.add_argument(
             "--use-gpu",
-            type=lambda x: x.lower() == "true",
+            type=str2bool,
             metavar="[true/false]",
             default=True,
             help="if true, use CUDA training if available. Default true",
@@ -415,7 +415,7 @@ class RunPreprocessorCommand(SubCommand):
         )
         parser.add_argument(
             "--from-file",
-            type=lambda x: x.lower() == "true",
+            type=str2bool,
             metavar="[true/false]",
             default=False,
             help="[Only support tfidf vectorizer] predict without preloading corpus to memory. If true, --input-text-path is expected to be a file that each line contains only input text. Default false",

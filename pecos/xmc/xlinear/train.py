@@ -12,6 +12,7 @@ import argparse
 import os
 
 from pecos.core import XLINEAR_SOLVERS
+from pecos.utils import cli
 from pecos.utils import smat_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.xmc import Indexer, LabelEmbeddingFactory, PostProcessor
@@ -106,7 +107,7 @@ def parse_arguments():
 
     parser.add_argument(
         "--spherical",
-        type=lambda x: x.lower() == "true",
+        type=cli.str2bool,
         metavar="[true/false]",
         default=True,
         help="If true, do l2-normalize cluster centers while clustering. Default true.",
@@ -155,17 +156,17 @@ def parse_arguments():
         "--rel-norm",
         type=str,
         choices=["l1", "l2", "max", "no-norm"],
-        default="l1",
+        default="no-norm",
         metavar="STR",
         help="norm type to row-wise normalzie relevance matrix for cost-sensitive learning",
     )
 
     parser.add_argument(
-        "--rel-induce",
-        type=lambda x: x.lower() == "true",
-        metavar="[true/false]",
-        default=True,
-        help="If true, induce relevance matrix into relevance chain by label aggregation. Default true",
+        "--rel-mode",
+        type=str,
+        metavar="STR",
+        default="disable",
+        help="mode to use relevance score for cost sensitive learning ['disable'(default), 'induce', 'ranker-only']",
     )
 
     parser.add_argument(
@@ -351,8 +352,8 @@ def do_train(args):
         bias=args.bias,
         threshold=args.threshold,
         max_nonzeros_per_label=args.max_nonzeros_per_label,
+        rel_mode=args.rel_mode,
         rel_norm=args.rel_norm,
-        rel_induce=args.rel_induce,
     )
 
     xlm.save(args.model_folder)

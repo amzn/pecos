@@ -162,8 +162,8 @@ class Text2Text(object):
         threshold=[0.1],
         negative_sampling_scheme="tfn",
         pred_kwargs=None,
-        rel_norm="l1",
-        rel_induce=True,
+        rel_mode="disable",
+        rel_norm="no-norm",
         threads=-1,
         workspace_folder=None,
     ):
@@ -209,8 +209,12 @@ class Text2Text(object):
                 only_topk (int): the default number of top labels used in the prediction
                 beam_size (int): the default size of beam search used in the prediction
                 post_processor (str): the default post processor used in the prediction
+            rel_mode (bool, optional): mode to use relevance score for cost sensitive learning
+                    'disable': do not use cost-sensitive learning (default)
+                    'induce': induce relevance matrix into relvance chain by label aggregation.
+                            Use all 1.0 if relevance score is not provided.
+                    'ranker-only': only use cost-sensitive learning for ranker.
             rel_norm (str): norm type to row-wise normalzie relevance matrix for cost-sensitive learning
-            rel_induce (bool): if True, induce relevance matrix into relvance chain by label aggregation.
             workspace_folder: (str, default=None): A folder name for storing intermediate
                 variables during training
 
@@ -298,8 +302,8 @@ class Text2Text(object):
             "threshold",
             "negative_sampling_scheme",
             "pred_kwargs",
+            "rel_mode",
             "rel_norm",
-            "rel_induce",
         ]
 
         ranker_grid_params = {}

@@ -58,7 +58,7 @@ def test_cost_sensitive(tmpdir):
         Y,
         C=cluster_chain,
         R=R,
-        train_params={"rel_norm": None},
+        train_params={"rel_norm": "no-norm", "rel_mode": "induce"},
     )
     xlm_v1 = XLinearModel.train(
         X,
@@ -90,6 +90,7 @@ def test_cost_sensitive(tmpdir):
     cmd += ["-r {}".format(rel_mat_file)]
     cmd += ["--max-leaf-size {}".format(2)]
     cmd += ["--rel-norm {}".format("no-norm")]
+    cmd += ["--rel-mode {}".format("induce")]
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
