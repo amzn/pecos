@@ -38,7 +38,12 @@ from pecos.utils import smat_util
 
 LOGGER = logging.getLogger("__name__")
 
-XLINEAR_SOLVERS = {"L2R_L2LOSS_SVC_DUAL": 1, "L2R_L1LOSS_SVC_DUAL": 3, "L2R_LR_DUAL": 7}
+XLINEAR_SOLVERS = {
+    "L2R_L2LOSS_SVC_DUAL": 1,
+    "L2R_L1LOSS_SVC_DUAL": 3,
+    "L2R_LR_DUAL": 7,
+    "L2R_L2LOSS_SVC_PRIMAL": 2,
+}
 # Ordering must be consistent with with layer_type_t definition within inference.hpp
 XLINEAR_INFERENCE_MODEL_TYPES = {"CSC": 0, "HASH_CHUNKED": 1, "BINARY_SEARCH_CHUNKED": 2}
 TFIDF_TOKENIZER_CODES = {"word": 10, "char": 20, "char_wb": 30}
@@ -1537,8 +1542,25 @@ class corelib(object):
                 ]
                 corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
 
+                fn_name = "load"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = c_void_p  # pointer to C/C++ pecos::ann::HNSW
+                arg_list = [c_char_p]  # pointer to char* model_dir
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
+                fn_name = "save"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
+                local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
+                res_list = None
+                arg_list = [
+                    c_void_p,  # pointer to C/C++ pecos::ann::HNSW
+                    c_char_p,  # pointer to char* model_dir
+                ]
+                corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
+
                 fn_name = "destruct"
-                c_fn_name = f"c_ann_hnsw_destruct_{data_type}_{metric_type}_f32"
+                c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
                 local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
                 res_list = None
                 arg_list = [c_void_p]  # pointer to C/C++ pecos::ann::HNSW

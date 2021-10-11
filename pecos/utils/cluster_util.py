@@ -213,7 +213,7 @@ class ClusterChain(object):
                 M_dict[i].shape[0] == nr_inst, for all i.
                 M_dict[0].shape[1] == self.chain[-1].shape[0],
                 M_dict[i].shape[1] == self.chain[-i].shape[1], for i >= 1
-                M_dict.keys() \subset range(len(self.chain)+1)
+                M_dict.keys() \\subset range(len(self.chain)+1)
 
         Returns:
             matching_chain: list of csc matrices for user supplied negatives
@@ -247,7 +247,7 @@ class ClusterChain(object):
                 R_dict[i].shape[0] == nr_inst, for all i.
                 R_dict[0].shape[1] == self.chain[-1].shape[0],
                 R_dict[i].shape[1] == self.chain[-i].shape[1], for i >= 1
-                R_dict.keys() \subset range(len(self.chain)+1)
+                R_dict.keys() \\subset range(len(self.chain)+1)
             norm_type (str, optional): row wise normalziation of resulting relevance matrices. Defatult None to ignore.
                 Options: ‘l1’, ‘l2’, ‘max’, 'no-norm', None
             induce (bool, optional): whether to induce missing relevance matrix by label aggregation. Default True

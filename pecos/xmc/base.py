@@ -226,7 +226,7 @@ class Transform(object):
     def log_lp_hinge(p, v, inplace=False):
         """Log Lp Hinge transformation
 
-        .. math:: - \max (1 - v, 0)^p
+        .. math:: - \\max (1 - v, 0)^p
 
         Args:
             p (int): The p for Lp formula
@@ -247,7 +247,7 @@ class Transform(object):
     def lp_hinge(p, v, inplace=False):
         """Lp Hinge transformation
 
-        .. math:: \exp { - \max (1 - v, 0)^p }
+        .. math:: \\exp { - \\max (1 - v, 0)^p }
 
         Args:
             p (int): The p for Lp formula
@@ -297,7 +297,7 @@ class Transform(object):
     def sigmoid(v, inplace=False):
         """Sigmoid transformation
 
-        .. math:: \frac{ 1 }{ 1 + \exp {-v} }
+        .. math:: \\frac{ 1 }{ 1 + \\exp {-v} }
 
         Args:
             v (ndarray): The input array
@@ -317,7 +317,7 @@ class Transform(object):
     def log_sigmoid(v, inplace=False):
         """Log Sigmoid transformation
 
-        .. math:: \log { \frac{ 1 }{ 1 + \exp {-v} } }
+        .. math:: \\log { \\frac{ 1 }{ 1 + \\exp {-v} } }
 
         Args:
             v (ndarray): The input array
@@ -607,6 +607,7 @@ class MLModel(pecos.BaseClass):
         bias: float = 1.0
         threads: int = -1
         verbose: int = 0
+        newton_eps: float = 0.01
 
     @dc.dataclass
     class PredParams(pecos.BaseParams):  # type: ignore
@@ -776,6 +777,10 @@ class MLModel(pecos.BaseClass):
         pred_params.override_with_kwargs(kwargs.get("pred_kwargs", None))
         if not pred_params.is_valid():
             raise ValueError("pred_params is not valid!")
+
+        # Assuming using newton_eps in train_params
+        if train_params.solver_type == "L2R_L2LOSS_SVC_PRIMAL":
+            train_params.eps = train_params.newton_eps
 
         model = clib.xlinear_single_layer_train(
             prob.pX,
