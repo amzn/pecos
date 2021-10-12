@@ -148,13 +148,23 @@ install_requires = numpy_requires + [
 setuptools.dist.Distribution().fetch_build_eggs(numpy_requires)
 blas_lib, blas_dir = BlasHelper.get_blas_lib_dir()
 
+# Get extra manual compile args if any
+# Example usage:
+# > PECOS_MANUAL_COMPILE_ARGS="-Werror" python3 -m pip install  --editable .
+manual_compile_args = os.environ.get('PECOS_MANUAL_COMPILE_ARGS', default=None)
+if manual_compile_args:
+    manual_compile_args = manual_compile_args.split(',')
+else:
+    manual_compile_args = []
+
+# Compile C/C++ extension
 ext_module = setuptools.Extension(
     "pecos.core.libpecos_float32",
     sources=["pecos/core/libpecos.cpp"],
     include_dirs=["pecos/core", "/usr/include/", "/usr/local/include"],
     libraries=["gomp"] + blas_lib,
     library_dirs=blas_dir,
-    extra_compile_args=["-fopenmp", "-O3", "-std=c++14", "-mavx"],
+    extra_compile_args=["-fopenmp", "-O3", "-std=c++14", "-mavx"] + manual_compile_args,
     extra_link_args=['-Wl,--no-as-needed', f"-Wl,-rpath,{':'.join(blas_dir)}"]
     )
 

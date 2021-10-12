@@ -15,6 +15,16 @@
 # > make pecos VFLAG=-v
 VFLAG ?=
 
+# C/C++ Compiler warning as error flag, for code cleaning purposes
+# Usage: pass WARN_AS_ERROR=True to command line if need to turn C/C++ warning into error
+# > make libpecos WARN_AS_ERROR=True
+# > make test WARN_AS_ERROR=True
+WARN_AS_ERROR ?=
+ifdef WARN_AS_ERROR
+WARN_AS_ERROR_CMD = PECOS_MANUAL_COMPILE_ARGS="-Werror"
+else
+WARN_AS_ERROR_CMD =
+endif
 
 # Style and type checks
 format: flake8 black mypy
@@ -41,7 +51,7 @@ mypy:
 # Install and unit test
 libpecos:
 	python3 -m pip install --upgrade pip
-	python3 -m pip install ${VFLAG} --editable .
+	${WARN_AS_ERROR_CMD} python3 -m pip install ${VFLAG} --editable .
 
 .PHONY: test
 test: libpecos
