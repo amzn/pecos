@@ -323,7 +323,7 @@ public:
 
     Tokenizer(const string& load_dir) { load(load_dir); }
 
-    void load_config(const string& filepath) {
+    static nlohmann::json load_config(const string& filepath) {
         std::ifstream loadfile(filepath);
         string json_str;
         if(loadfile.is_open()) {
@@ -333,7 +333,7 @@ public:
             throw std::runtime_error("Unable to open config file at " + filepath);
         }
         auto j_param = nlohmann::json::parse(json_str);
-        tok_type = j_param["token_type"];
+        return j_param;
     }
 
     void save_config(const string& filepath) const {
@@ -370,7 +370,9 @@ public:
     }
 
     void load(const string& load_dir) {
-        load_config(load_dir + "/config.json");
+        auto config = load_config(load_dir + "/config.json");
+        this->tok_type = config["token_type"];
+
         std::ifstream loadfile(load_dir + "/vocab.txt");
         if(loadfile.is_open()) {
             string line;
