@@ -114,7 +114,7 @@ def preprocessor_from_file_cli(tmpdir, config_path, tgt_input_file):
     cmd += ["build"]
     cmd += ["-i {}".format(src_text_input_file)]
     cmd += ["--text-pos 0"]
-    cmd += ["--from-file"]
+    cmd += ["--from-file true"]
     cmd += ["--vectorizer-config-path {}".format(config_path)]
     cmd += ["-m {}".format(model_folder)]
     print(" ".join(cmd))
@@ -131,7 +131,7 @@ def preprocessor_from_file_cli(tmpdir, config_path, tgt_input_file):
     cmd += ["-p {}".format(model_folder)]
     cmd += ["-x {}".format(x_file)]
     cmd += ["--text-pos 0"]
-    cmd += ["--from-file"]
+    cmd += ["--from-file true"]
     print(" ".join(cmd))
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE

@@ -16,7 +16,7 @@ import os
 import numpy as np
 import scipy.sparse as smat
 from pecos.utils import smat_util
-from pecos.utils.cli import SubCommand
+from pecos.utils.cli import SubCommand, str2bool
 from pecos.utils.featurization.text.vectorizers import Vectorizer, vectorizer_dict
 
 
@@ -94,13 +94,16 @@ class Preprocessor(object):
         maxsplit=-1,
         text_pos=1,
         label_pos=0,
+        return_dict=True,
     ):
         """Parse a tab-separated text file to a CSR label matrix and a list of text strings.
 
         Text format for each line:
         <comma-separated label indices><TAB><space-separated text string>
         Example: l_1,..,l_k<TAB>w_1 w_2 ... w_t
-            l_k is the zero-based index for the t-th relevant label
+            l_k can be one of two format:
+                (1) the zero-based index for the t-th relevant label
+                (2) double colon separated label index and label relevance
             w_t is the t-th token in the string
 
         Args:
@@ -111,6 +114,18 @@ class Preprocessor(object):
             maxsplit (int, optional): The max number of splits for each line. Default: -1 to denote full split
             text_pos (int, optional): The position of the text part in each line. Default: 1.
             label_pos (int, optional): The position of the text part in each line. Default: 0.
+            return_dict (bool, optional): if True, return the parsed results in a dictionary. Default True
+
+        Returns:
+            if return_dict:
+                {
+                    "label_matrix": (csr_matrix) label matrix with shape (N, L),
+                    "label_relevance": (csr_matrix) label relevance matrix with shape (N, L)
+                                        have same sparsity pattern as label_matrix.
+                    "corpus": (list of str) the parsed instance text with length N.
+                }
+            else:
+                (label_matrix, label_relevance, corpus)
         """
         if not os.path.isfile(data_path):
             raise FileNotFoundError(f"cannot find input text file at {data_path}")
@@ -125,27 +140,59 @@ class Preprocessor(object):
                 text_string = parts[text_pos]
                 corpus.append(text_string)
 
-        def convert_label_to_Y(label_strings, L):
-            rows, cols, vals = [], [], []
+        def parse_label_strings(label_strings, L):
+            rows, cols, vals, rels = [], [], [], []
+
+            # determine if relevance is provided
+            has_rel = ":" in label_strings[0]
+
             for i, label in enumerate(label_strings):
-                label_list = list(map(int, label.split(",")))
+                if has_rel:
+                    label_tuples = [tp.split(":") for tp in label.split(",")]
+                    label_list = list(map(int, [tp[0] for tp in label_tuples]))
+                    # label values are currently not being used.
+                    val_list = list(map(float, [tp[1] if tp[1] else 1.0 for tp in label_tuples]))
+                    rel_list = list(map(float, [tp[2] for tp in label_tuples]))
+                else:
+                    label_list = list(map(int, label.split(",")))
+                    val_list = [1.0] * len(label_list)
+                    rel_list = []
+
                 rows += [i] * len(label_list)
                 cols += label_list
-                vals += [1] * len(label_list)
+                vals += val_list
+                rels += rel_list
+
             Y = smat.csr_matrix(
                 (vals, (rows, cols)), shape=(len(label_strings), L), dtype=np.float32
             )
-            return Y
+            if has_rel:
+                R = smat.csr_matrix(
+                    (rels, (rows, cols)), shape=(len(label_strings), L), dtype=np.float32
+                )
+            else:
+                R = None
+
+            return Y, R
 
         if label_text_path is not None:
             if not os.path.isfile(label_text_path):
                 raise FileNotFoundError(f"cannot find label text file at: {label_text_path}")
             # this is used to obtain the total number of labels L to construct Y with a correct shape
             L = sum(1 for line in open(label_text_path, "r", encoding="utf-8") if line)
-            label_matrix = convert_label_to_Y(label_strings, L)
+            label_matrix, label_relevance = parse_label_strings(label_strings, L)
         else:
             label_matrix = None
-        return label_matrix, corpus
+            label_relevance = None
+
+        if return_dict:
+            return {
+                "label_matrix": label_matrix,
+                "label_relevance": label_relevance,
+                "corpus": corpus,
+            }
+        else:
+            return label_matrix, label_relevance, corpus
 
 
 class BuildPreprocessorCommand(SubCommand):
@@ -159,11 +206,11 @@ class BuildPreprocessorCommand(SubCommand):
             args (argparse.Namespace): Command line argument parsed by `parser.parse_args()`
         """
         if not args.from_file:
-            _, corpus = Preprocessor.load_data_from_file(
+            corpus = Preprocessor.load_data_from_file(
                 args.input_text_path,
                 maxsplit=args.maxsplit,
                 text_pos=args.text_pos,
-            )
+            )["corpus"]
         else:
             corpus = args.input_text_path
         vectorizer_config = Vectorizer.load_config_from_args(args)
@@ -237,8 +284,10 @@ class BuildPreprocessorCommand(SubCommand):
 
         parser.add_argument(
             "--from-file",
-            action="store_true",
-            help="[Only support tfidf vectorizer] training without preloading corpus to memory. If true, --input-text-path is expected to be a file or a folder containing files that each line contains only input text.",
+            type=str2bool,
+            metavar="[true/false]",
+            default=False,
+            help="[Only support tfidf vectorizer] training without preloading corpus to memory. If true, --input-text-path is expected to be a file or a folder containing files that each line contains only input text. Default false",
         )
 
 
@@ -253,20 +302,25 @@ class RunPreprocessorCommand(SubCommand):
             args (argparse.Namespace): Command line argument parsed by `parser.parse_args()`
         """
         preprocessor = Preprocessor.load(args.input_preprocessor_folder)
-        if args.from_file and not args.output_label_path:
+        if args.from_file and not args.output_label_path and not args.output_rel_path:
+            Y, R = None, None
             corpus = args.input_text_path
         else:
-            Y, corpus = Preprocessor.load_data_from_file(
+            result = Preprocessor.load_data_from_file(
                 args.input_text_path,
                 label_text_path=args.label_text_path,
                 maxsplit=args.maxsplit,
                 text_pos=args.text_pos,
                 label_pos=args.label_pos,
             )
+            Y = result["label_matrix"]
+            R = result["label_relevance"]
+            corpus = result["corpus"]
+
         X = preprocessor.predict(
             corpus,
             batch_size=args.batch_size,
-            use_gpu_if_available=not args.disable_gpu,
+            use_gpu_if_available=args.use_gpu,
             buffer_size=args.buffer_size,
             threads=args.threads,
         )
@@ -275,6 +329,8 @@ class RunPreprocessorCommand(SubCommand):
 
         if args.output_label_path and Y is not None:
             smat_util.save_matrix(args.output_label_path, Y)
+        if args.output_rel_path and R is not None:
+            smat_util.save_matrix(args.output_rel_path, R)
 
     @classmethod
     def add_parser(cls, super_parser):
@@ -330,6 +386,9 @@ class RunPreprocessorCommand(SubCommand):
             "-y", "--output-label-path", type=str, default=None, help="output label file name"
         )
         parser.add_argument(
+            "-r", "--output-rel-path", type=str, default=None, help="output relevance file name"
+        )
+        parser.add_argument(
             "--label-pos",
             type=int,
             default=0,
@@ -342,9 +401,11 @@ class RunPreprocessorCommand(SubCommand):
             help="batch size for Transformer vectorizer embedding evaluation (default 8)",
         )
         parser.add_argument(
-            "--disable-gpu",
-            action="store_true",
-            help="disable CUDA even if it's available",
+            "--use-gpu",
+            type=str2bool,
+            metavar="[true/false]",
+            default=True,
+            help="if true, use CUDA training if available. Default true",
         )
         parser.add_argument(
             "--threads",
@@ -354,8 +415,10 @@ class RunPreprocessorCommand(SubCommand):
         )
         parser.add_argument(
             "--from-file",
-            action="store_true",
-            help="[Only support tfidf vectorizer] predict without preloading corpus to memory. If true, --input-text-path is expected to be a file that each line contains only input text.",
+            type=str2bool,
+            metavar="[true/false]",
+            default=False,
+            help="[Only support tfidf vectorizer] predict without preloading corpus to memory. If true, --input-text-path is expected to be a file that each line contains only input text. Default false",
         )
         parser.add_argument(
             "--buffer-size",

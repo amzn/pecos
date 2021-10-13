@@ -12,6 +12,7 @@ import argparse
 import os
 
 from pecos.core import XLINEAR_SOLVERS
+from pecos.utils import cli
 from pecos.utils import smat_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.xmc import Indexer, LabelEmbeddingFactory, PostProcessor
@@ -85,7 +86,7 @@ def parse_arguments():
         type=int,
         default=100,
         metavar="INT",
-        help="The max size of the leaf nodes of hierarchical 2-means clustering. Default 100.",
+        help="The max size of the leaf nodes of hierarchical 2-means clustering. If larger than total number of labels, One-Versus-All model will be trained. Default 100.",
     )
 
     parser.add_argument(
@@ -105,12 +106,12 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--no-spherical",
-        action="store_false",
-        dest="spherical",
-        help="Do not l2-normalize cluster centers while clustering",
+        "--spherical",
+        type=cli.str2bool,
+        metavar="[true/false]",
+        default=True,
+        help="If true, do l2-normalize cluster centers while clustering. Default true.",
     )
-    parser.set_defaults(spherical=True)
 
     parser.add_argument(
         "--seed", type=int, default=0, metavar="INT", help="random seed (default 0)"
@@ -155,18 +156,18 @@ def parse_arguments():
         "--rel-norm",
         type=str,
         choices=["l1", "l2", "max", "no-norm"],
-        default="l1",
+        default="no-norm",
         metavar="STR",
-        help="",
+        help="norm type to row-wise normalzie relevance matrix for cost-sensitive learning",
     )
 
     parser.add_argument(
-        "--no-rel-induce",
-        dest="rel_induce",
-        action="store_false",
-        help="Disable inducing relevance matrix into relevance chain by label aggregation.",
+        "--rel-mode",
+        type=str,
+        metavar="STR",
+        default="disable",
+        help="mode to use relevance score for cost sensitive learning ['disable'(default), 'induce', 'ranker-only']",
     )
-    parser.set_defaults(rel_induce=True)
 
     parser.add_argument(
         "-um",
@@ -351,8 +352,8 @@ def do_train(args):
         bias=args.bias,
         threshold=args.threshold,
         max_nonzeros_per_label=args.max_nonzeros_per_label,
+        rel_mode=args.rel_mode,
         rel_norm=args.rel_norm,
-        rel_induce=args.rel_induce,
     )
 
     xlm.save(args.model_folder)

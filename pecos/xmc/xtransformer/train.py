@@ -15,7 +15,7 @@ import os
 import sys
 
 import numpy as np
-from pecos.utils import logging_util, smat_util, torch_util
+from pecos.utils import cli, logging_util, smat_util, torch_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.utils.featurization.text.preprocess import Preprocessor
 from pecos.xmc import PostProcessor
@@ -120,8 +120,10 @@ def parse_arguments():
     # ========= indexer parameters ============
     parser.add_argument(
         "--fix-clustering",
-        action="store_true",
-        help="if True, use the same hierarchial label tree for fine-tuning and final prediction. Default false.",
+        type=cli.str2bool,
+        metavar="[true/false]",
+        default=False,
+        help="if true, use the same hierarchial label tree for fine-tuning and final prediction. Default false.",
     )
     parser.add_argument(
         "--code-path",
@@ -156,7 +158,7 @@ def parse_arguments():
         type=int,
         default=100,
         metavar="INT",
-        help="The max size of the leaf nodes of hierarchical 2-means clustering. Default 100.",
+        help="The max size of the leaf nodes of hierarchical clustering. If larger than the number of labels, OVA model will be trained. Default 100.",
     )
     parser.add_argument(
         "--imbalanced-ratio",
@@ -181,9 +183,11 @@ def parse_arguments():
         help="max number of clusters on which to fine-tune transformers. Default 32768",
     )
     parser.add_argument(
-        "--no-fine-tune",
-        action="store_true",
-        help="disable fine-tuning on loaded/downloaded transformers",
+        "--do-fine-tune",
+        type=cli.str2bool,
+        metavar="[true/false]",
+        default=True,
+        help="If true, do fine-tune on loaded/downloaded transformers. Default true",
     )
     parser.add_argument(
         "--model-shortcut",
@@ -202,8 +206,10 @@ def parse_arguments():
     # ========== ranker parameters =============
     parser.add_argument(
         "--only-encoder",
-        action="store_true",
-        help="if True, only train text encoder. Default false.",
+        type=cli.str2bool,
+        metavar="[true/false]",
+        default=False,
+        help="if true, only train text encoder. Default false.",
     )
     parser.add_argument(
         "-b",
@@ -423,12 +429,12 @@ def parse_arguments():
         help="dir to save the final instance embeddings.",
     )
     parser.add_argument(
-        "--disable-gpu",
-        action="store_false",
-        dest="use_gpu",
-        help="disable CUDA training even if it's available",
+        "--use-gpu",
+        type=cli.str2bool,
+        metavar="[true/false]",
+        default=True,
+        help="if true, use CUDA training if available. Default true",
     )
-    parser.set_defaults(use_gpu=True)
     parser.add_argument(
         "--bootstrap-method",
         type=str,
@@ -527,20 +533,20 @@ def do_train(args):
         Y_tst = None
 
     # Load training texts
-    _, trn_corpus = Preprocessor.load_data_from_file(
+    trn_corpus = Preprocessor.load_data_from_file(
         args.trn_text_path,
         label_text_path=None,
         text_pos=0,
-    )
+    )["corpus"]
     LOGGER.info("Loaded {} training sequences".format(len(trn_corpus)))
 
     # Load test text if given
     if args.tst_text_path:
-        _, tst_corpus = Preprocessor.load_data_from_file(
+        tst_corpus = Preprocessor.load_data_from_file(
             args.tst_text_path,
             label_text_path=None,
             text_pos=0,
-        )
+        )["corpus"]
         LOGGER.info("Loaded {} test sequences".format(len(tst_corpus)))
     else:
         tst_corpus = None
