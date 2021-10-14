@@ -54,7 +54,7 @@ def test_cli(tmpdir):
     cmd += ["-q {}".format(item_file)]
     cmd += ["-m {}".format(model_folder)]
     cmd += ["--max-leaf-size {}".format(10)]
-    cmd += ['--vectorizer-config-json \{\\"type\\":\\"sklearntfidf\\",\\"kwargs\\":\{\}\}']
+    cmd += ["""--vectorizer-config-json '{"type":"sklearntfidf","kwargs":{}}'"""]
     print(" ".join(cmd))
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE

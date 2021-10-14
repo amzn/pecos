@@ -61,4 +61,6 @@ test: libpecos
 # Clean
 clean:
 	rm ${VFLAG} -rf ./build ./dist ./*.egg-info
-	rm -f ./pecos/core/*.so
+	rm -f ./pecos/core/*.so .coverage*
+	python3 -Bc "import pathlib; [p.unlink() for p in pathlib.Path('.').rglob('*.py[co]')]"
+	python3 -Bc "import pathlib; [p.rmdir() for p in pathlib.Path('.').rglob('__pycache__')]"
