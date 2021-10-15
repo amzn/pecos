@@ -8,9 +8,9 @@
 #  or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
 #  OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
 #  and limitations under the License.
+import dataclasses as dc
 import gc
 import hashlib
-import itertools
 import json
 import logging
 import pathlib
@@ -18,11 +18,13 @@ import tempfile
 from os import makedirs, path
 
 import numpy as np
+import pecos
 from pecos.utils import smat_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.utils.featurization.text.preprocess import Preprocessor
 from pecos.xmc import Indexer, LabelEmbeddingFactory
 from pecos.xmc.xlinear import XLinearModel
+from pecos.xmc.base import HierarchicalKMeans
 
 LOGGER = logging.getLogger(__name__)
 
@@ -89,6 +91,48 @@ class Text2Text(object):
         self.xlinear_models = xlinear_models
         self.output_items = output_items
 
+    @dc.dataclass
+    class TrainParams(pecos.BaseParams):
+        """Training Parameters of Text2Text.
+
+        indexer_params (HierarchicalKMeans.TrainParams): params to generate hierarchial label tree.
+        xlinear_params (XLinearModel.TrainParams): train params for XLinearModel
+        """
+
+        indexer_params: HierarchicalKMeans.TrainParams = None  # type: ignore
+        xlinear_params: XLinearModel.TrainParams = None  # type: ignore
+
+    @dc.dataclass
+    class PredParams(pecos.BaseParams):
+        """Pred Parameters of XTransformer.
+
+        xlinear_params (XLinearModel.PredParams): pred params for linear ranker
+        """
+
+        xlinear_params: XLinearModel.PredParams = None  # type: ignore
+
+        def override_with_kwargs(self, pred_kwargs):
+            """override pred_params with kwargs.
+
+            Args:
+                pred_kwargs:
+                    beam_size (int): the beam search size.
+                        Overrides only_topk for all models except for the bottom one.
+                    only_topk (int): the final topk predictions to generate.
+                        Overrides only_topk for bottom model.
+                    post_processor (str): post processor scheme for prediction.
+                        Overrides post_processor for all models.
+            """
+            self.xlinear_params.override_with_kwargs(pred_kwargs)
+            return self
+
+    def get_pred_params(self):
+        """get pred_params saved in the model"""
+        ret_pred_params = self.PredParams(
+            xlinear_params=self.xlinear_models.get_pred_params(),
+        )
+        return ret_pred_params
+
     def save(self, model_folder):
         """Save the Text2Text model
 
@@ -129,6 +173,12 @@ class Text2Text(object):
         for i, model_kwargs in enumerate(ensemble_config["kwargs"]):
             folder = path.join(xlinear_folder, "{}".format(i))
             xlinear_models += [(XLinearModel.load(folder, is_predict_only, **kwargs), model_kwargs)]
+
+        if len(xlinear_models) > 1:
+            LOGGER.warning(
+                f"Deprecation warning: loaded {len(xlinear_models)} xlinear models, multi-model ensemble prediction will be deprecated in future releases."
+            )
+
         output_items = None
         folder_path = pathlib.Path(model_folder)
         json_output_items_filepath = folder_path / "output_items.json"
@@ -144,28 +194,12 @@ class Text2Text(object):
         cls,
         input_text_path,
         output_text_path,
+        label_embed_type="pifa",
         vectorizer_config=None,
-        dtype=np.float32,
-        label_embed_type=["pifa"],
-        indexer_algo=["hierarchicalkmeans"],
-        imbalanced_ratio=0.0,
-        imbalanced_depth=100,
-        spherical=True,
-        nr_splits=16,
-        max_leaf_size=[100],
-        seed=[0],
-        max_iter=[20],
-        solver_type=["L2R_L2LOSS_SVC_DUAL"],
-        Cp=[1.0],
-        Cn=[1.0],
-        bias=1.0,
-        threshold=[0.1],
-        negative_sampling_scheme="tfn",
-        pred_kwargs=None,
-        rel_mode="disable",
-        rel_norm="no-norm",
-        threads=-1,
+        train_params=None,
+        pred_params=None,
         workspace_folder=None,
+        **kwargs,
     ):
         """Train a Text2Text model
 
@@ -179,50 +213,24 @@ class Text2Text(object):
             output_text_path (str): The file path for output text items.
                 Format: each line corresponds to a representation
                 of the output item. We assume utf-8 encoding for text.
-            vectorizer_config_json (str): Json_format string for vectorizer config (default None)
-            dtype (float32 | float64): data type (default float32)
             label_embed_type (list of str): Label embedding types. (default pifa).
                 We support pifa, pifa_lf_concat::Z=path, and pifa_lf_convex_combine::Z=path::alpha=scalar_value.
                 Multiple values will lead to different individual models for ensembling.
-            indexer_algo (list of str): Indexer algorithm (default ["hierarchicalkmeans"]).
-            imbalanced_ratio (float): Value between 0.0 and 0.5 (inclusive). Indicates how relaxed the balancedness
-                constraint of 2_means can be. Specifically, if an iteration of 2_means is clustering L labels,
-                the size of the output 2 clusters will be within approx imbalanced_ratio * 2 * L of each other.
-                (default 0.0)
-            imbalanced_depth (int): After hierarchical 2_means clustering has reached this depth,
-                it will continue clustering as if imbalanced_ratio is set to 0.0. (default 100)
-            spherical (bool): Do l2_normalize cluster centers while clustering (default True).
-            nr_splits (int): number of splits used to construct hierarchy (a power of 2 is recommended, default 16)
-            max_leaf_size (list of int): The max size of the leaf nodes of hierarchical 2_means clustering.
-                Multiple values (separated by comma) are supported and will lead to different
-                individual models for ensembling. (default [100])
-            seed (list of int): Random seeds (default [0]). Multiple values will lead to different individual
-                models for ensembling.
-            max_iter (int): The max iteration for indexing (default 20)
-            solver_type (list of string): solver type for ranking (default ["L2R_L2LOSS_SVC_DUAL"])
-            Cp (float): Coefficient for positive class in the loss function (default 1.0)
-            Cn (float): Coefficient for negative class in the loss function (default 1.0)
-            bias (float): bias for the ranking model (default=1.0)
-            threshold (float): Threshold to sparsify the model weights (default 0.1)
-            negative_sampling (str, choices=[tfn, man, tfn+man]): Negative Sampling Schemes (default tfn)
-            pred_kwargs (dict): kwargs for prediction used in matching-aware training
-                only_topk (int): the default number of top labels used in the prediction
-                beam_size (int): the default size of beam search used in the prediction
-                post_processor (str): the default post processor used in the prediction
-            rel_mode (bool, optional): mode to use relevance score for cost sensitive learning
-                    'disable': do not use cost-sensitive learning (default)
-                    'induce': induce relevance matrix into relvance chain by label aggregation.
-                            Use all 1.0 if relevance score is not provided.
-                    'ranker-only': only use cost-sensitive learning for ranker.
-            rel_norm (str): norm type to row-wise normalzie relevance matrix for cost-sensitive learning
+            vectorizer_config_json (str): Json_format string for vectorizer config (default None)
+            train_params (Text2Text.TrainParams): params to train Text2Text model
+            pred_params (Text2Text.PredParams): params to predict Text2Text model
             workspace_folder: (str, default=None): A folder name for storing intermediate
                 variables during training
+            kwargs:
+                {"beam_size": INT, "only_topk": INT, "post_processor": STR},
+                    Default None to use HierarchicalMLModel.PredParams defaults
 
         Returns:
             A Text2Text object
         """
 
         ws = CachedWorkspace(workspace_folder)
+        dtype = np.float32
 
         # Train Preprocessor and obtain X, Y
         XY_kwargs = dict(
@@ -293,157 +301,98 @@ class Text2Text(object):
         if R is not None:
             LOGGER.info(f"Relevance matrix R loaded, cost sensitive learning enabled.")
 
-        # Grid Parameters for XLinearModel
-        ranker_param_names = [
-            "bias",
-            "Cp",
-            "Cn",
-            "solver_type",
-            "threshold",
-            "negative_sampling_scheme",
-            "pred_kwargs",
-            "rel_mode",
-            "rel_norm",
-        ]
+        # construct indexing, training and prediction params
+        if train_params is None:
+            # fill all BaseParams class with their default value
+            train_params = cls.TrainParams.from_dict(dict(), recursive=True)
+        else:
+            train_params = cls.TrainParams.from_dict(train_params)
 
-        ranker_grid_params = {}
-        for name in ranker_param_names:
-            tmp = locals()[name]
-            ranker_grid_params[name] = tmp if isinstance(tmp, (list, tuple)) else [tmp]
+        # construct pred_params
+        if pred_params is None:
+            # fill all BaseParams with their default value
+            pred_params = cls.PredParams.from_dict(dict(), recursive=True)
+        else:
+            pred_params = cls.PredParams.from_dict(pred_params)
+        pred_params = pred_params.override_with_kwargs(kwargs)
 
-        indexer_param_names = [
-            "indexer_algo",
-            "imbalanced_ratio",
-            "imbalanced_depth",
-            "spherical",
-            "seed",
-            "max_iter",
-            "max_leaf_size",
-            "nr_splits",
-            "label_embed_type",
-        ]
-
-        indexer_grid_params = {}
-        for name in indexer_param_names:
-            tmp = locals()[name]
-            indexer_grid_params[name] = tmp if isinstance(tmp, (list, tuple)) else [tmp]
-
-        # Generate various label features
-        label_feat_set = {}
-        for embed_type in indexer_grid_params["label_embed_type"]:
-            label_embed_kwargs = dict(
-                input_text_path=input_text_path,
-                output_text_path=output_text_path,
-                dtype=str(dtype),
-                vectorizer_config=vectorizer_config,
-                embed_type=embed_type,
-            )
-            label_embed_path = ws.get_path_for_name_and_kwargs("L", label_embed_kwargs)
-            if path.exists(label_embed_path):
-                LOGGER.info(f"Loading existing {embed_type} features for {Y.shape[1]} labels...")
-                label_feat_set[embed_type] = XLinearModel.load_feature_matrix(label_embed_path)
-            else:
-                LOGGER.info(f"Generating {embed_type} features for {Y.shape[1]} labels...")
-                # parse embed_type string, expect either the following three cases:
-                # (1) pifa
-                # (2) pifa_lf_concat::Z=path
-                # (3) pifa_lf_convex_combine::Z=path::alpha=value
-                lemb_key_val_list = embed_type.split("::")
-                lemb_type = lemb_key_val_list[0]
-                lemb_kwargs = {}
-                for key_val_str in lemb_key_val_list[1:]:
-                    key, val = key_val_str.split("=")
-                    if key == "Z":
-                        Z = smat_util.load_matrix(val)
-                        lemb_kwargs.update({"Z": Z})
-                    elif key == "alpha":
-                        alpha = float(val)
-                        lemb_kwargs.update({"alpha": alpha})
-                    else:
-                        raise ValueError(f"key={key}, val={val} is not supported!")
-                if "lf" in lemb_type and lemb_kwargs.get("Z", None) is None:
-                    raise ValueError(
-                        "pifa_lf_concat/pifa_lf_convex_combine must provide external path for Z."
-                    )
-                # Create label features
-                label_feat_set[embed_type] = LabelEmbeddingFactory.create(
-                    Y,
-                    X,
-                    method=lemb_type,
-                    **lemb_kwargs,
-                )
-                XLinearModel.save_feature_matrix(label_embed_path, label_feat_set[embed_type])
-
-        for indexer_values in itertools.product(
-            *[indexer_grid_params[k] for k in indexer_param_names]
-        ):
-            # Indexing
-            indexer_kwargs = dict(zip(indexer_param_names, indexer_values))
-            indexer_kwargs_local = indexer_kwargs.copy()
-            C_path = ws.get_path_for_name_and_kwargs("C", indexer_kwargs_local)
-            if path.exists(C_path):
-                LOGGER.info(f"Loading existing clustering code with params {indexer_kwargs_local}")
-                C = ClusterChain.load(C_path)
-            else:
-                label_embed_type = indexer_kwargs.pop(
-                    "label_embed_type", None
-                )  # as label_embed_type is not a valid argument for XLinearModel.train
-                LOGGER.info(f"Clustering with params {indexer_kwargs_local}...")
-                C = Indexer.gen(
-                    label_feat_set[indexer_kwargs_local["label_embed_type"]],
-                    indexer_kwargs.pop("indexer_algo"),
-                    threads=threads,
-                    **indexer_kwargs,
-                )
-                LOGGER.info(f"Created {C[-1].shape[1]} clusters.")
-                C.save(C_path)
-
-            # Ensemble Models
-            for ranker_values in itertools.product(
-                *[ranker_grid_params[k] for k in ranker_param_names]
-            ):
-                ranker_kwargs = dict(zip(ranker_param_names, ranker_values))
-                ranker_kwargs_local = ranker_kwargs.copy()
-                # Model Training
-                ranker_kwargs_local.update(indexer_kwargs_local)
-
-                model_path = ws.get_path_for_name_and_kwargs("model", ranker_kwargs_local)
-                if path.exists(model_path):
-                    LOGGER.info(f"Model with params {ranker_kwargs_local} exists")
+        # 1. Generate label features
+        label_embed_kwargs = dict(
+            input_text_path=input_text_path,
+            output_text_path=output_text_path,
+            dtype=str(dtype),
+            vectorizer_config=vectorizer_config,
+            embed_type=label_embed_type,
+        )
+        label_embed_path = ws.get_path_for_name_and_kwargs("L", label_embed_kwargs)
+        if path.exists(label_embed_path):
+            LOGGER.info(f"Loading existing {label_embed_type} features for {Y.shape[1]} labels...")
+            label_feat = XLinearModel.load_feature_matrix(label_embed_path)
+        else:
+            LOGGER.info(f"Generating {label_embed_type} features for {Y.shape[1]} labels...")
+            # parse embed_type string, expect either the following three cases:
+            # (1) pifa
+            # (2) pifa_lf_concat::Z=path
+            # (3) pifa_lf_convex_combine::Z=path::alpha=value
+            lemb_key_val_list = label_embed_type.split("::")
+            lemb_type = lemb_key_val_list[0]
+            lemb_kwargs = {}
+            for key_val_str in lemb_key_val_list[1:]:
+                key, val = key_val_str.split("=")
+                if key == "Z":
+                    Z = smat_util.load_matrix(val)
+                    lemb_kwargs.update({"Z": Z})
+                elif key == "alpha":
+                    alpha = float(val)
+                    lemb_kwargs.update({"alpha": alpha})
                 else:
-                    LOGGER.info(f"Training model with params {ranker_kwargs_local}...")
-                    m = XLinearModel.train(
-                        X,
-                        Y,
-                        C=C,
-                        R=R,
-                        threads=threads,
-                        **ranker_kwargs,
-                    )
-                    m.save(model_path)
-                    del m
-                    gc.collect()
+                    raise ValueError(f"key={key}, val={val} is not supported!")
+            if "lf" in lemb_type and lemb_kwargs.get("Z", None) is None:
+                raise ValueError(
+                    "pifa_lf_concat/pifa_lf_convex_combine must provide external path for Z."
+                )
+            # Create label features
+            label_feat = LabelEmbeddingFactory.create(
+                Y,
+                X,
+                method=lemb_type,
+                **lemb_kwargs,
+            )
+            XLinearModel.save_feature_matrix(label_embed_path, label_feat)
 
-            del C
-            gc.collect()
+        # 2. Indexing
+        indexer_kwargs_dict = train_params.indexer_params.to_dict()
+        C_path = ws.get_path_for_name_and_kwargs("C", indexer_kwargs_dict)
+        if path.exists(C_path):
+            LOGGER.info(f"Loading existing clustering code with params {indexer_kwargs_dict}")
+            C = ClusterChain.load(C_path)
+        else:
+            LOGGER.info(f"Clustering with params: {json.dumps(indexer_kwargs_dict, indent=True)}")
+            C = Indexer.gen(label_feat, train_params=train_params.indexer_params)
+            LOGGER.info("Hierarchical label tree: {}".format([cc.shape[0] for cc in C]))
+            C.save(C_path)
 
-        del X, Y, R, label_feat_set
+        del label_feat
         gc.collect()
 
-        xlinear_models = []
-        for indexer_values in itertools.product(
-            *[indexer_grid_params[k] for k in indexer_param_names]
-        ):
-            indexer_kwargs = dict(zip(indexer_param_names, indexer_values))
-            indexer_kwargs_local = indexer_kwargs.copy()
-            for ranker_values in itertools.product(
-                *[ranker_grid_params[k] for k in ranker_param_names]
-            ):
-                ranker_kwargs = dict(zip(ranker_param_names, ranker_values))
-                ranker_kwargs_local = ranker_kwargs.copy()
-                ranker_kwargs_local.update(indexer_kwargs_local)
-                model_path = ws.get_path_for_name_and_kwargs("model", ranker_kwargs_local)
-                xlinear_models += [(XLinearModel.load(model_path), ranker_kwargs_local)]
+        # Ensemble Models
+        LOGGER.info(
+            f"Training model with train params: {json.dumps(train_params.xlinear_params.to_dict(), indent=True)}"
+        )
+        LOGGER.info(
+            f"Training model with pred params: {json.dumps(pred_params.xlinear_params.to_dict(), indent=True)}"
+        )
+        m = XLinearModel.train(
+            X,
+            Y,
+            C=C,
+            R=R,
+            train_params=train_params.xlinear_params,
+            pred_params=pred_params.xlinear_params,
+            **kwargs,
+        )
+
+        xlinear_models = [[m, train_params.to_dict()]]
 
         # Load output items
         with open(output_text_path, "r", encoding="utf-8") as f:
@@ -451,22 +400,18 @@ class Text2Text(object):
 
         return cls(preprocessor, xlinear_models, output_items)
 
-    def predict(
-        self, corpus, topk=10, beam_size=None, post_processor=None, threshold=None, **kwargs
-    ):
+    def predict(self, corpus, threshold=None, **kwargs):
         """Predict labels for given inputs
 
         Args:
             corpus (list of strings): input strings.
-            topk (int, optional): override the only topk specified in the model
-                Default None to disable overriding
-            beam_size (int, optional): override the beam size specified in the model
-                Default None to disable overriding
-            post_processor (str, optional):  override the post_processor specified in the model
-                Default None to disable overriding
             threshold (float, optional): Drop output items with scores less than this threshold among top-k items
                 Default None to not threshold
             kwargs:
+                only_topk (int, optional): override the only topk specified in the model
+                    Default None to disable overriding
+                beam_size (int, optional): override the beam size specified in the model
+                    Default None to disable overriding
                 post_processor (str, optional):  override the post_processor specified in the model
                     Default None to disable overriding
                 threads (int, optional): the number of threads to use for predicting.
@@ -476,13 +421,7 @@ class Text2Text(object):
         """
 
         X = self.preprocessor.predict(corpus)
-
-        Y_pred = [
-            m.predict(
-                X, only_topk=topk, beam_size=beam_size, post_processor=post_processor, **kwargs
-            )
-            for m, _ in self.xlinear_models
-        ]
+        Y_pred = [m.predict(X, **kwargs) for m, _ in self.xlinear_models]
 
         if len(Y_pred) > 1:
             Y_pred = smat_util.CsrEnsembler.average(*Y_pred)
@@ -493,7 +432,7 @@ class Text2Text(object):
             Y_pred.data[Y_pred.data <= threshold] = 0
             Y_pred.eliminate_zeros()
 
-        return smat_util.sorted_csr(Y_pred, topk)
+        return smat_util.sorted_csr(Y_pred, only_topk=kwargs.get("only_topk", None))
 
     def set_output_constraint(self, output_items_to_keep):
         """Prune the tree
