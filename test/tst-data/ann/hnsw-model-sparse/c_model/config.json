@@ -1,5 +1,6 @@
 {
     "hnsw_t": "pecos::ann::HNSW<float, pecos::ann::FeatVecSparseIPSimd<uint32_t, float>>",
+    "version": "v1.0",
     "train_params": {
         "efC": 100,
         "init_node": 50,
