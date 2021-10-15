@@ -68,7 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ------
 
-** Robin Hood Hashing; version 3.9.0 --
+** Robin Hood Hashing; version 3.11.3 --
 https://github.com/martinus/robin-hood-hashing
 Copyright (c) 2018-2019 Martin Ankerl
 

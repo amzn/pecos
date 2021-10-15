@@ -11,12 +11,12 @@
 import argparse
 import logging
 import sys
+import json
 
-import numpy as np
 from pecos.core import XLINEAR_SOLVERS
 from pecos.utils import cli, logging_util
 from pecos.utils.featurization.text.vectorizers import Vectorizer
-from pecos.xmc import Indexer, PostProcessor
+from pecos.xmc import PostProcessor
 
 from .model import Text2Text
 
@@ -27,12 +27,42 @@ def parse_arguments(args):
     parser = argparse.ArgumentParser(
         description="Text2Text: Read input text training files, output item files and train a model"
     )
+    parser.add_argument(
+        "--generate-train-params-skeleton",
+        action="store_true",
+        help="generate template train-params-json to stdout",
+    )
+    parser.add_argument(
+        "--generate-pred-params-skeleton",
+        action="store_true",
+        help="generate template pred-params-json to stdout",
+    )
+
+    gen_train_params = "--generate-train-params-skeleton" in sys.argv
+    gen_pred_params = "--generate-pred-params-skeleton" in sys.argv
+    skip_training = gen_train_params or gen_pred_params
+    # ========= parameter jsons ============
+    parser.add_argument(
+        "--train-params-path",
+        type=str,
+        default=None,
+        metavar="TRAIN_PARAMS_PATH",
+        help="Json file for train_params (default None)",
+    )
+    parser.add_argument(
+        "--pred-params-path",
+        type=str,
+        default=None,
+        metavar="PRED_PARAMS_PATH",
+        help="Json file for pred_params (default None)",
+    )
+    # ======= actual arguments ========
 
     parser.add_argument(
         "-i",
         "--input-text-path",
         type=str,
-        required=True,
+        required=not skip_training,
         metavar="INPUT_TEXT_PATH",
         help="Text input file name. Format: in each line, OUTPUT_ID1,OUTPUT_ID2,OUTPUT_ID3,...\t INPUT_TEXT \
                     where OUTPUT_IDs are the zero-based output item indices corresponding to the line numbers of OUTPUT_ITEM_PATH. We assume utf-8 encoding for text.",
@@ -42,7 +72,7 @@ def parse_arguments(args):
         "-q",
         "--output-item-path",
         type=str,
-        required=True,
+        required=not skip_training,
         metavar="OUTPUT_ITEM_PATH",
         help="Output item file name. Format: each line corresponds to a representation of the output item. We assume utf-8 encoding for text.",
     )
@@ -51,7 +81,7 @@ def parse_arguments(args):
         "-m",
         "--model-folder",
         type=str,
-        required=True,
+        required=not skip_training,
         metavar="MODEL_FOLDER",
         help="Output model folder name",
     )
@@ -82,18 +112,11 @@ def parse_arguments(args):
     )
 
     parser.add_argument(
-        "--dtype",
-        type=lambda x: np.float32 if "32" in x else np.float64,
-        default=np.float32,
-        help="data type for the csr matrix. float32 | float64. (default float32)",
-    )
-
-    parser.add_argument(
         "--max-leaf-size",
-        type=cli.comma_separated_type(int),
-        default=[100],
-        metavar="INT-LIST",
-        help="The max size of the leaf nodes of hierarchical 2-means clustering. Multiple values (separated by comma) are supported and will lead to different individual models for ensembling. (default [100])",
+        type=int,
+        default=100,
+        metavar="INT",
+        help="The max size of the leaf nodes of hierarchical 2-means clustering. (default 100)",
     )
 
     parser.add_argument(
@@ -122,21 +145,12 @@ def parse_arguments(args):
 
     parser.add_argument(
         "--label-embed-type",
-        type=cli.comma_separated_type(str),
+        type=str,
         default="pifa",
-        metavar="STR-LIST",
+        metavar="STR",
         help="Label embedding types. (default pifa).\
             We support pifa, pifa_lf_concat::Z=path, and pifa_lf_convex_combine::Z=path::alpha=scalar_value,\
-            where path is the additional user-porivded label embedding path and alpha is the scalar value for convex combination.\
-            Multiple values (separated by comma) are supported and will lead to different individual models for ensembling.",
-    )
-
-    parser.add_argument(
-        "--indexer",
-        choices=Indexer.indexer_dict.keys(),
-        default="hierarchicalkmeans",
-        metavar="STR",
-        help=f"Indexer algorithm (default hierarchicalkmeans). Available choices are {', '.join(Indexer.indexer_dict.keys())}",
+            where path is the additional user-porivded label embedding path and alpha is the scalar value for convex combination.",
     )
 
     parser.add_argument(
@@ -149,10 +163,10 @@ def parse_arguments(args):
 
     parser.add_argument(
         "--seed",
-        type=cli.comma_separated_type(int),
-        default=[0],
-        metavar="INT-LIST",
-        help="Random seeds (default 0). Multiple values (separated by comma) are supported and will lead to different individual models for ensembling.",
+        type=int,
+        default=0,
+        metavar="INT",
+        help="Random seeds (default 0).",
     )
 
     parser.add_argument(
@@ -286,6 +300,33 @@ def train(args):
     Args:
         args (argparse.Namespace): Command line arguments parsed by `parser.parse_args()`
     """
+    if args.generate_train_params_skeleton:
+        train_params = Text2Text.TrainParams.from_dict({}, recursive=True)
+        print(f"{json.dumps(train_params.to_dict(), indent=True)}")
+        return
+
+    if args.generate_pred_params_skeleton:
+        pred_params = Text2Text.PredParams.from_dict({}, recursive=True)
+        print(f"{json.dumps(pred_params.to_dict(), indent=True)}")
+        return
+
+    if args.train_params_path:
+        with open(args.train_params_path, "r") as fin:
+            train_params = Text2Text.TrainParams.from_dict(json.load(fin))
+    else:
+        train_params = Text2Text.TrainParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
+
+    if args.pred_params_path:
+        with open(args.pred_params_path, "r") as fin:
+            pred_params = Text2Text.PredParams.from_dict(json.load(fin))
+    else:
+        pred_params = Text2Text.PredParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
 
     pred_kwargs = {
         "beam_size": args.beam_size,
@@ -299,27 +340,11 @@ def train(args):
         args.input_text_path,
         args.output_item_path,
         label_embed_type=args.label_embed_type,
-        max_leaf_size=args.max_leaf_size,
-        nr_splits=args.nr_splits,
         vectorizer_config=vectorizer_config,
-        dtype=args.dtype,
-        indexer_algo=[args.indexer],
-        imbalanced_ratio=args.imbalanced_ratio,
-        imbalanced_depth=args.imbalanced_depth,
-        spherical=args.spherical,
-        seed=args.seed,
-        max_iter=args.max_iter,
-        threads=args.threads,
-        solver_type=args.solver_type,
-        Cp=args.Cp,
-        Cn=args.Cn,
-        bias=args.bias,
-        threshold=args.threshold,
-        negative_sampling_scheme=args.negative_sampling,
-        pred_kwargs=pred_kwargs,
-        rel_mode=args.rel_mode,
-        rel_norm=args.rel_norm,
+        train_params=train_params,
+        pred_params=pred_params,
         workspace_folder=args.workspace_folder,
+        **pred_kwargs,
     )
 
     t2t_model.save(args.model_folder)
