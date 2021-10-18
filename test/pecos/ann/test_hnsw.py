@@ -36,12 +36,12 @@ def test_save_and_load(tmpdir):
         train_params=train_params,
         pred_params=pred_params,
     )
-    Yp_from_mem, _ = model.predict(X_tst)
+    Yp_from_mem, _ = model.predict(X_tst, ret_csr=False)
     model.save(model_folder)
     del model
 
     model = HNSW.load(model_folder)
-    Yp_from_file, _ = model.predict(X_tst, pred_params=pred_params)
+    Yp_from_file, _ = model.predict(X_tst, pred_params=pred_params, ret_csr=False)
     assert Yp_from_mem == approx(
         Yp_from_file, abs=0.0
     ), f"save and load failed: Yp_from_mem != Yp_from_file"
@@ -112,3 +112,34 @@ def test_predict_and_recall():
             1.0, abs=1e-2
         ), f"hnsw inference failed: data_type=csr, efS={efS}, recall={recall}"
     del searchers, model
+
+
+def test_cli(tmpdir):
+    import subprocess
+    import shlex
+
+    x_trn_path = "test/tst-data/ann/X.trn.l2-normalized.npy"
+    x_tst_path = "test/tst-data/ann/X.tst.l2-normalized.npy"
+    model_folder = str(tmpdir.join("hnsw_save_model"))
+    y_pred_path = str(tmpdir.join("Yt_pred.npz"))
+
+    # train
+    cmd = []
+    cmd += ["python3 -m pecos.ann.hnsw.train"]
+    cmd += ["-x {}".format(x_trn_path)]
+    cmd += ["-m {}".format(model_folder)]
+    process = subprocess.run(
+        shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert process.returncode == 0, " ".join(cmd)
+
+    # predict
+    cmd = []
+    cmd += ["python3 -m pecos.ann.hnsw.predict"]
+    cmd += ["-x {}".format(x_tst_path)]
+    cmd += ["-m {}".format(model_folder)]
+    cmd += ["-o {}".format(y_pred_path)]
+    process = subprocess.run(
+        shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert process.returncode == 0, " ".join(cmd)

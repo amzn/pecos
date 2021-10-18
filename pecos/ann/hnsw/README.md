@@ -8,6 +8,23 @@
 * Supports **thread-safe** graph construction in parallel on multi-core shared memory machines
 * Supports **thread-safe** Searchers to do inference in parallel, which reduces inference overhead
 
+## Command Line Usage
+Basic training (building HNSW index) and predicting (HNSW inference):
+```bash
+python3 -m pecos.ann.hnsw.train -x ${X_path} -m ${model_folder}
+python3 -m pecos.ann.hnsw.predict -x ${Xt_path} -m ${model_folder} -o ${Yp_path}
+```
+where
+* `X_path` and `Xt_path` are the paths to the CSR npz or Row-majored npy files of the training/test feature matrices with shape `(N,d)` and `(Nt,d)`
+* `model_folder` is the path to the model folder where the trained model will be saved to, will be created if not exist 
+* `Yp_path` is the path to save the prediction label matrix with shape `(Nt, N)`
+
+For detailed usage, please refer to
+```bash
+python3 -m pecos.ann.hnsw.train --help
+python3 -m pecos.ann.hnsw.predict --help
+```
+
 ## Python API examples
 
 #### Prepare data
@@ -20,11 +37,15 @@ X_tst = np.random.randn(1000, 100).astype(np.float32)
 Note that the data type needed to be `np.float32`.   
 
 #### HNSW Training
-Train the HNSW model (i.e., building the graph-based indexing data structure) with maximum number of threads available on your machine (`threads=0`):
+Train the HNSW model (i.e., building the graph-based indexing data structure) with maximum number of threads available on your machine (`threads=-1`):
 ```python
 from pecos.ann.hnsw import HNSW
 train_params = HNSW.TrainParams(M=32, efC=300, metric_type="ip", threads=-1)
-model = HNSW.train(X_trn, train_params=train_params)
+model = HNSW.train(X_trn, train_params=train_params, pred_params=None)
+```
+Users are also welcome to train the default parameters via
+```python
+model = HNSW.train(X_trn)
 ```
 
 #### HNSW Save and Load
@@ -47,11 +68,13 @@ searchers = model.searchers_create(num_searcher=4)
 Finally, we conduct ANN inference by inputing searchers to the HNSW model.
 ```python
 pred_params = HNSW.PredParams(efS=100, topk=10)
-indices, distances = model.predict(X_tst, pred_params=pred_params, searchers=searchers, ret_csr=False)
+Yt_pred = model.predict(X_tst, pred_params=pred_params, searchers=searchers)
 ```
+where `Yt_pred` is a `scipy.sparse.csr_matrix` whose column indices for each row are sorted by its distances ascendingly.  
+
 Alternatively, it is also feasible to do inference without pre-allocating searchers, which may have larger overhead since it will **re-allocate** intermediate graph-searhing variables for each query matrix `X_tst`.
 ```python
 pred_params.threads = 2
 indices, distances = model.predict(X_tst, pred_params=pred_params, ret_csr=False)
 ```
-When `ret_csr=True`, the prediction function will return a single csr matrix that combines the indices and distances numpy array.
+When `ret_csr=False`, the prediction function will return the indices and distances numpy array.

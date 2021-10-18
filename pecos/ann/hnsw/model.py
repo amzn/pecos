@@ -34,14 +34,14 @@ class HNSW(pecos.BaseClass):
         """Training Parameters of HNSW class
 
         Attributes:
-            M (int): maximum number of edges per node for layer l=1,...,L. For layer l=0, its 2*M.
+            M (int): maximum number of edges per node for layer l=1,...,L. For layer l=0, its 2*M. Default 32
             efC (int): size of the priority queue when performing best first search during construction. Default 100
             threads (int): number of threads to use for training HNSW indexer. Default -1 to use all
             max_level_upper_bound (int): number of maximum layers in the hierarchical graph. Default -1 to ignore
             metric_type (str): distance metric type, can be "ip" for inner product or "l2" for Euclidean distance
         """
 
-        M: int = 24
+        M: int = 32
         efC: int = 100
         threads: int = -1
         max_level_upper_bound: int = -1
@@ -213,13 +213,13 @@ class HNSW(pecos.BaseClass):
         """
         return copy.deepcopy(self.pred_params)
 
-    def predict(self, X, pred_params=None, searchers=None, ret_csr=False):
+    def predict(self, X, pred_params=None, searchers=None, ret_csr=True):
         """predict with multi-thread. If searchers are provided, less overhead for online inference.
         Args:
             X (nd.array/ScipyDrmF32, scipy.sparse.csr_matrix/ScipyCsrF32): query matrix to be predicted. (num_query x feat_dim).
             pred_params (HNSW.PredParams, optional): instance of pecos.ann.hnsw.HNSW.PredParams
             searchers (c_void_p): pointer to C/C++ std::vector<pecos::ann::HNSW:Searcher>. It's an object returned by self.create_searcher().
-            ret_csr (bool): if true, the returns will be csr matrix. if false, return indices/distances np.array
+            ret_csr (bool): if true, the returns will be csr matrix. if false, return indices/distances np.array (default true)
         Returns:
             indices (np.array): returned indices array, sorted by smallest-to-largest distances. (num_query x pred_params.topk)
             distances (np.array): returned dinstances array, sorted by smallest-to-largest distances (num_query x pred_params.topk)
