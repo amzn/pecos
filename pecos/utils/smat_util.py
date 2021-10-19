@@ -783,6 +783,30 @@ def get_cocluster_spectral_embeddings(A, dim=24):
     return row_embedding, col_embedding
 
 
+def csr_row_softmax(mat, inplace=False):
+    """Apply row-wise softmax transform to csr_matrix
+
+    Args:
+        mat (csr_matrix): input csr_matrix to transform
+        inplace (bool, optional): if True do the transform in-place, else return a copy. Default False
+
+    Returns:
+        row-wise softmaxed mat
+    """
+    if not isinstance(mat, smat.csr_matrix):
+        raise ValueError(f"Got {type(mat)} when expecting csr_matrix")
+
+    from scipy.special import softmax
+
+    if not inplace:
+        mat = mat.copy()
+
+    for i in range(mat.shape[0]):
+        rng = slice(mat.indptr[i], mat.indptr[i + 1])
+        mat.data[rng] = softmax(mat.data[rng])
+    return mat
+
+
 class CsrEnsembler(object):
     """A class implementing several ensemblers for a list sorted CSR predictions"""
 
@@ -831,6 +855,47 @@ class CsrEnsembler(object):
         return ret
 
     @staticmethod
+    def sigmoid_average(*args):
+        """Ensemble predictions by averaging sigmoid transformed prediction values
+
+        Args:
+            args (iterable over csr_matrix): input CSR matrices
+
+        Returns:
+            ret (csr_matrix): ensembled prediction CSR matrix
+        """
+        CsrEnsembler.check_validlity(*args)
+
+        def sigmoid(z):
+            return 1 / (1 + np.exp(-z))
+
+        for i in range(len(args)):
+            args[i].data = sigmoid(args[i].data)
+        ret = sum(args)
+        ret = sorted_csr(ret)
+        ret.data /= len(args)
+        return ret
+
+    @staticmethod
+    def softmax_average(*args):
+        """Ensemble predictions by averaging softmax normalized prediction values
+        The softmax is only applied on non-zero entrees of the matrix.
+
+        Args:
+            args (iterable over csr_matrix): input CSR matrices
+
+        Returns:
+            ret (csr_matrix): ensembled prediction CSR matrix
+        """
+        CsrEnsembler.check_validlity(*args)
+        # apply softmax
+        args = [csr_row_softmax(x) for x in args]
+        ret = sum(args)
+        ret = sorted_csr(ret)
+        ret.data /= len(args)
+        return ret
+
+    @staticmethod
     def round_robin(*args):
         """Ensemble predictions by round robin
 
@@ -854,21 +919,28 @@ class CsrEnsembler(object):
         return ret
 
     @staticmethod
-    def print_ens(Ytrue, pred_set, param_set, topk=10):
-        """Print matrices before and after ensemble
+    def print_ens(Ytrue, pred_set, param_set, ens_method="rank_average", topk=10):
+        """Print metrics before and after ensemble
 
         Args:
             Ytrue (csr_matrix): ground truth label matrix
             pred_set (iterable over csr_matrix): prediction matrices to ensemble
             param_set (iterable): parameters or model names associated with pred_set
+            ens_method (list or str): list of ensemble methods or single str. Default 'rank_average'
+            topk (int, optional): only generate topk prediction. Default 10
         """
 
         for param, pred in zip(param_set, pred_set):
             print("param: {}".format(param))
             print(Metrics.generate(Ytrue, pred, topk=topk))
-        for ens in [CsrEnsembler.average, CsrEnsembler.rank_average, CsrEnsembler.round_robin]:
-            print("ens: {}".format(ens.__name__))
-            print(Metrics.generate(Ytrue, ens(*pred_set), topk=topk))
+
+        if not isinstance(ens_method, list):
+            ens_method = [ens_method]
+        for ens_name in ens_method:
+            ens = getattr(CsrEnsembler, ens_name)
+            cur_pred = ens(*pred_set)
+            print(f"==== {ens_name} ensemble results ====")
+            print(Metrics.generate(Ytrue, cur_pred, topk=topk))
 
 
 class Metrics(collections.namedtuple("Metrics", ["prec", "recall"])):

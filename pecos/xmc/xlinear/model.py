@@ -172,8 +172,8 @@ class XLinearModel(pecos.BaseClass):
             train_params (XLinearModel.TrainParams, optional): instance of XLinearModel.TrainParams
             pred_params (XLinearModel.PredParams, optional): instance of XLinearModel.PredParams
             kwargs:
-                {"beam_size": INT, "only_topk": INT, "post_processor": STR},
-                Default None to use HierarchicalMLModel.PredParams defaults
+                pred_kwargs (dict, optional): prediction kwargs {"beam_size": INT, "only_topk": INT, "post_processor": STR},
+                    Default None to use HierarchicalMLModel.DEFAULT_PRED_KWARGS
 
         Returns:
             XLinearModel: the trained XLinearModel
@@ -194,6 +194,10 @@ class XLinearModel(pecos.BaseClass):
         else:
             pred_params = cls.PredParams.from_dict(pred_params)
         # we don't override pred_params with kwargs["pred_kwargs"] because model depth is unknown!
+        if kwargs.get("pred_kwargs", None) is None:
+            kwargs["pred_kwargs"] = dict()
+            for kw in ["beam_size", "only_topk", "post_processor"]:
+                kwargs["pred_kwargs"][kw] = kwargs.get(kw, None)
 
         if not train_params.min_codes:
             train_params.min_codes = train_params.nr_splits

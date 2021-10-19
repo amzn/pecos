@@ -81,6 +81,7 @@ extern "C" {
             bool binary,
             bool use_idf,
             bool smooth_idf,
+            bool add_one_idf,
             bool sublinear_tf,
             bool keep_frequent_feature,
             int32_t norm_p,
@@ -96,6 +97,7 @@ extern "C" {
         binary(binary),
         use_idf(use_idf),
         smooth_idf(smooth_idf),
+        add_one_idf(add_one_idf),
         sublinear_tf(sublinear_tf),
         keep_frequent_feature(keep_frequent_feature),
         norm_p(norm_p),
@@ -112,7 +114,7 @@ extern "C" {
         int32_t max_length, max_feature;
         float min_df_ratio, max_df_ratio;
         int32_t min_df_cnt, max_df_cnt;
-        bool binary, use_idf, smooth_idf, sublinear_tf, keep_frequent_feature;
+        bool binary, use_idf, smooth_idf, add_one_idf, sublinear_tf, keep_frequent_feature;
         int32_t norm_p, tok_type;
 
         void save(const string& filepath) const {
@@ -129,6 +131,7 @@ extern "C" {
                     {"binary", binary},
                     {"use_idf", use_idf},
                     {"smooth_idf", smooth_idf},
+                    {"add_one_idf", add_one_idf},
                     {"sublinear_tf", sublinear_tf},
                     {"keep_frequent_feature", keep_frequent_feature},
                     {"norm_p", norm_p == 1 ? "l1" : "l2"}
@@ -181,6 +184,8 @@ extern "C" {
             } else {
                 throw std::invalid_argument("Unknown normalization type");
             }
+	    // handle missing key by filling default value
+            add_one_idf = kwargs.value("add_one_idf", false);
         }
 
     };
@@ -955,7 +960,7 @@ private:
             auto& cur_ptr = ptr_vec[cur_idx + start_idx];
             auto cur_df = final_chunk[cur_ptr->first];
             feature_vocab[cur_ptr->first] = static_cast<idx_type>(cur_idx);
-            idx_idf[cur_idx] = std::max(log(float(nr_doc) / (cur_df + param.smooth_idf)), 0.0);
+            idx_idf[cur_idx] = std::max(log(float(nr_doc) / (cur_df + (size_t)param.smooth_idf)), 0.0) + float(param.add_one_idf);
         }
     }
 
