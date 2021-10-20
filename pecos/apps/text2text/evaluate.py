@@ -54,7 +54,16 @@ def parse_arguments():
         help="Text item file name. Format: each line corresponds to a text item. If this path is given, we assume TRUTH_PATH uses Format 2. Otherwise, TRUTH_PATH uses Format 1",
     )
 
-    parser.add_argument("-k", "--topk", type=int, default=10, metavar="INT", help="evaluate @k")
+    parser.add_argument(
+        "-k",
+        "--topk",
+        "--only-topk",
+        type=int,
+        default=10,
+        dest="topk",
+        metavar="INT",
+        help="evaluate @k",
+    )
 
     return parser
 
@@ -119,7 +128,7 @@ def do_evaluation(args):
     Y_true = smat.csr_matrix((val_t, (row_id_t, col_id_t)), shape=(num_samples_t, len(item_dict)))
     Y_pred = smat.csr_matrix((val_p, (row_id_p, col_id_p)), shape=(num_samples_p, len(item_dict)))
 
-    metric = smat_util.Metrics.generate(Y_true, Y_pred, args.topk)
+    metric = smat_util.Metrics.generate(Y_true, Y_pred, topk=args.topk)
     print("==== evaluation results ====")
     print(metric)
 

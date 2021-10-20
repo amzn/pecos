@@ -66,6 +66,7 @@ class TfidfBaseVectorizerParam(ctypes.Structure):
         ("binary", c_bool),
         ("use_idf", c_bool),
         ("smooth_idf", c_bool),
+        ("add_one_idf", c_bool),
         ("sublinear_tf", c_bool),
         ("keep_frequent_feature", c_bool),
         ("norm_p", c_int32),
@@ -84,6 +85,7 @@ class TfidfBaseVectorizerParam(ctypes.Structure):
         "binary": False,
         "use_idf": True,
         "smooth_idf": True,
+        "add_one_idf": False,
         "sublinear_tf": False,
         "keep_frequent_feature": True,
         "norm_p": 2,
@@ -1262,7 +1264,16 @@ class corelib(object):
             self.clib_float32.c_run_clustering_drm_f32, None, [POINTER(ScipyDrmF32)] + arg_list[1:]
         )
 
-    def run_clustering(self, py_feat_mat, depth, algo, seed, codes=None, max_iter=10, threads=-1):
+    def run_clustering(
+        self,
+        py_feat_mat,
+        depth,
+        algo,
+        seed,
+        codes=None,
+        kmeans_max_iter=20,
+        threads=-1,
+    ):
         """
         Run clustering with given label embedding matrix and parameters in C++.
 
@@ -1272,7 +1283,7 @@ class corelib(object):
             algo (str): The algorithm for clustering, either `KMEANS` or `SKMEANS`.
             seed (int): Randoms seed.
             codes (ndarray, optional): Label clustering results.
-            max_iter (int, optional): Maximum number of iter for reordering each node based on score.
+            kmeans_max_iter (int, optional): Maximum number of iter for reordering each node based on score.
             threads (int, optional): The number of threads. Default -1 to use all cores.
 
         Return:
@@ -1296,7 +1307,7 @@ class corelib(object):
             depth,
             algo,
             seed,
-            max_iter,
+            kmeans_max_iter,
             threads,
             codes.ctypes.data_as(POINTER(c_uint32)),
         )
@@ -1404,6 +1415,7 @@ class corelib(object):
                     binary (bool): whether to binarize term frequency, default False
                     use_idf (bool): whether to use inverse document frequency, default True
                     smooth_idf (bool): whether to smooth IDF by adding 1 to all DF counts, default True
+                    add_one_idf (bool): whether to smooth IDF by adding 1 to all IDF scores, default False
                     sublinear_tf (bool): whether to use sublinear mapping (log) on term frequency, default False
                     keep_frequent_feature (bool): if max_feature > 0, will only keep max_feature features by
                                     ignoring features with low document frequency (if True, default),

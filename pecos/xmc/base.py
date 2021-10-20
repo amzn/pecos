@@ -93,7 +93,7 @@ class HierarchicalKMeans(Indexer):
         imbalanced_depth (int, optional): Maximum depth of imbalanced clustering. After depth `imbalanced_depth` is reached, balanced clustering will be used. Default is `100`.
         spherical (bool, optional): True will l2-normalize the centroids of k-means after each iteration. Default is `True`.
         seed (int, optional): Random seed. Default is `0`.
-        max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
+        kmeans_max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
         threads (int, optional): Number of threads to use. `-1` denotes all CPUs. Default is `-1`.
         """
 
@@ -104,7 +104,7 @@ class HierarchicalKMeans(Indexer):
         imbalanced_depth: int = 100
         spherical: bool = True
         seed: int = 0
-        max_iter: int = 20
+        kmeans_max_iter: int = 20
         threads: int = -1
 
     @classmethod
@@ -133,6 +133,10 @@ class HierarchicalKMeans(Indexer):
 
         if train_params.min_codes is None:
             train_params.min_codes = train_params.nr_splits
+
+        LOGGER.debug(
+            f"HierarchicalKMeans train_params: {json.dumps(train_params.to_dict(), indent=True)}"
+        )
 
         # use optimized c++ clustering code if doing balanced clustering
         if train_params.imbalanced_ratio == 0:
@@ -168,7 +172,7 @@ class HierarchicalKMeans(Indexer):
                 algo,
                 train_params.seed,
                 codes=codes,
-                max_iter=train_params.max_iter,
+                kmeans_max_iter=train_params.kmeans_max_iter,
                 threads=train_params.threads,
             )
             C = cls.convert_codes_to_csc_matrix(codes, depth)
@@ -183,7 +187,7 @@ class HierarchicalKMeans(Indexer):
                 imbalanced_depth=train_params.imbalanced_depth,
                 spherical=train_params.spherical,
                 seed=train_params.seed,
-                max_iter=train_params.max_iter,
+                kmeans_max_iter=train_params.kmeans_max_iter,
                 threads=train_params.threads,
             )
             cluster_chain = ClusterChain(cluster_chain)
@@ -1375,6 +1379,12 @@ class HierarchicalMLModel(pecos.BaseClass):
             )
         pred_params.override_with_kwargs(kwargs.get("pred_kwargs", None))
 
+        LOGGER.debug(
+            f"HierarchicalMLModel train_params: {json.dumps(train_params.to_dict(), indent=True)}"
+        )
+        LOGGER.debug(
+            f"HierarchicalMLModel pred_params: {json.dumps(pred_params.to_dict(), indent=True)}"
+        )
         # construct Y_chain
         # avoid large matmul_threads to prevent overhead in Y.dot(C) and save memory
         matmul_threads = train_params.model_chain[0].threads

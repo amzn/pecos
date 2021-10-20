@@ -150,7 +150,7 @@ def predict(args):
                     Y = t2t_model.predict(
                         corpus,
                         beam_size=args.beam_size,
-                        topk=args.only_topk,
+                        only_topk=args.only_topk,
                         threshold=args.threshold,
                     )
                     if args.meta_info_path is None:
@@ -163,7 +163,7 @@ def predict(args):
             if len(corpus) > 0:
                 Y = t2t_model.predict(
                     corpus,
-                    topk=args.only_topk,
+                    only_topk=args.only_topk,
                     beam_size=args.beam_size,
                     post_processor=args.post_processor,
                     threshold=args.threshold,
@@ -177,7 +177,7 @@ def predict(args):
         for line in fin:
             Y = t2t_model.predict(
                 [line.strip()],
-                topk=args.only_topk,
+                only_topk=args.only_topk,
                 beam_size=args.beam_size,
                 post_processor=args.post_processor,
                 threshold=args.threshold,

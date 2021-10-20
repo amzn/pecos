@@ -10,12 +10,16 @@
 #  and limitations under the License.
 import argparse
 import os
+import sys
+import json
+import logging
 
 from pecos.core import XLINEAR_SOLVERS
 from pecos.utils import cli
-from pecos.utils import smat_util
+from pecos.utils import smat_util, logging_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.xmc import Indexer, LabelEmbeddingFactory, PostProcessor
+from pecos.xmc.base import HierarchicalKMeans
 
 from .model import XLinearModel
 
@@ -25,12 +29,29 @@ def parse_arguments():
 
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        "--generate-params-skeleton",
+        action="store_true",
+        help="generate template params-json to stdout",
+    )
+
+    skip_training = "--generate-params-skeleton" in sys.argv
+    # ========= parameter jsons ============
+    parser.add_argument(
+        "--params-path",
+        type=str,
+        default=None,
+        metavar="PARAMS_PATH",
+        help="Json file for params (default None)",
+    )
+    # ======= actual arguments ========
+
     # Required parameters
     parser.add_argument(
         "-x",
         "--inst-path",
         type=str,
-        required=True,
+        required=not skip_training,
         metavar="PATH",
         help="path to the CSR npz or Row-majored npy file of the feature matrix (nr_insts * nr_feats)",
     )
@@ -39,7 +60,7 @@ def parse_arguments():
         "-y",
         "--label-path",
         type=str,
-        required=True,
+        required=not skip_training,
         metavar="PATH",
         help="path to the CSR npz file of the label matrix (nr_insts * nr_labels)",
     )
@@ -48,7 +69,7 @@ def parse_arguments():
         "-m",
         "--model-folder",
         type=str,
-        required=True,
+        required=not skip_training,
         metavar="DIR",
         help="path to the model folder.",
     )
@@ -71,14 +92,6 @@ def parse_arguments():
         default=16,
         metavar="INT",
         help="number of splits used to construct hierarchy (a power of 2 is recommended)",
-    )
-
-    parser.add_argument(
-        "--indexer",
-        choices=Indexer.indexer_dict.keys(),
-        default="hierarchicalkmeans",
-        metavar="STR",
-        help=f"Indexer algorithm (default hierarchicalkmeans). Available choices are {', '.join(Indexer.indexer_dict.keys())}",
     )
 
     parser.add_argument(
@@ -118,11 +131,11 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--max-iter",
+        "--kmeans-max-iter",
         type=int,
         default=20,
         metavar="INT",
-        help="max iterations for indexer (default 20)",
+        help="max number of k-means iterations for indexer (default 20)",
     )
 
     parser.add_argument(
@@ -224,6 +237,7 @@ def parse_arguments():
         choices=["tfn", "man", "tfn+man", "usn", "usn+tfn", "usn+man", "usn+tfn+man"],
         default="tfn",
         metavar="STR",
+        dest="neg_mining_chain",
         help="Negative Sampling Schemes",
     )
 
@@ -250,7 +264,7 @@ def parse_arguments():
         "-k",
         "--only-topk",
         type=int,
-        default=20,
+        default=None,
         metavar="INT",
         help="the default number of top labels used in the prediction",
     )
@@ -269,9 +283,18 @@ def parse_arguments():
         "--post-processor",
         type=str,
         choices=PostProcessor.valid_list(),
-        default="l3-hinge",
+        default=None,
         metavar="STR",
         help="the default post processor used in the prediction",
+    )
+
+    parser.add_argument(
+        "--verbose-level",
+        type=int,
+        choices=logging_util.log_levels.keys(),
+        default=1,
+        metavar="INT",
+        help=f"the verbose level, {', '.join([str(k) + ' for ' + logging.getLevelName(v) for k, v in logging_util.log_levels.items()])}. Default 1",
     )
 
     return parser
@@ -283,6 +306,47 @@ def do_train(args):
     Args:
         args (argparse.Namespace): Command line arguments parsed by `parser.parse_args()`
     """
+    params = dict()
+    if args.generate_params_skeleton:
+        params["train_params"] = XLinearModel.TrainParams.from_dict({}, recursive=True).to_dict()
+        params["pred_params"] = XLinearModel.PredParams.from_dict({}, recursive=True).to_dict()
+        params["indexer_params"] = HierarchicalKMeans.TrainParams.from_dict(
+            {}, recursive=True
+        ).to_dict()
+        print(f"{json.dumps(params, indent=True)}")
+        return
+
+    if args.params_path:
+        with open(args.params_path, "r") as fin:
+            params = json.load(fin)
+
+    train_params = params.get("train_params", None)
+    pred_params = params.get("pred_params", None)
+    indexer_params = params.get("indexer_params", None)
+
+    if train_params is not None:
+        train_params = XLinearModel.TrainParams.from_dict(train_params)
+    else:
+        train_params = XLinearModel.TrainParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
+
+    if pred_params is not None:
+        pred_params = XLinearModel.PredParams.from_dict(pred_params)
+    else:
+        pred_params = XLinearModel.PredParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
+
+    if indexer_params is not None:
+        indexer_params = HierarchicalKMeans.TrainParams.from_dict(indexer_params)
+    else:
+        indexer_params = HierarchicalKMeans.TrainParams.from_dict(
+            {k: v for k, v in vars(args).items() if v is not None},
+            recursive=True,
+        )
 
     # Create model folder
     if not os.path.exists(args.model_folder):
@@ -300,18 +364,7 @@ def do_train(args):
         else:
             label_feat = LabelEmbeddingFactory.create(Y, X, method="pifa")
 
-        cluster_chain = Indexer.gen(
-            label_feat,
-            args.indexer,
-            nr_splits=args.nr_splits,
-            max_leaf_size=args.max_leaf_size,
-            imbalanced_depth=args.imbalanced_depth,
-            imbalanced_ratio=args.imbalanced_ratio,
-            seed=args.seed,
-            max_iter=args.max_iter,
-            threads=args.threads,
-            spherical=args.spherical,
-        )
+        cluster_chain = Indexer.gen(label_feat, train_params=indexer_params)
 
     # load label importance matrix if given
     if args.usn_label_path:
@@ -339,21 +392,12 @@ def do_train(args):
     xlm = XLinearModel.train(
         X,
         Y,
-        cluster_chain,
+        C=cluster_chain,
         R=R,
         user_supplied_negatives=usn_match_dict,
-        negative_sampling_scheme=args.negative_sampling,
+        train_params=train_params,
+        pred_params=pred_params,
         pred_kwargs=pred_kwargs,
-        nr_splits=args.nr_splits,
-        threads=args.threads,
-        solver_type=args.solver_type,
-        Cp=args.Cp,
-        Cn=args.Cn,
-        bias=args.bias,
-        threshold=args.threshold,
-        max_nonzeros_per_label=args.max_nonzeros_per_label,
-        rel_mode=args.rel_mode,
-        rel_norm=args.rel_norm,
     )
 
     xlm.save(args.model_folder)
@@ -362,4 +406,5 @@ def do_train(args):
 if __name__ == "__main__":
     parser = parse_arguments()
     args = parser.parse_args()
+    logging_util.setup_logging_config(level=args.verbose_level)
     do_train(args)

@@ -42,21 +42,18 @@ For detailed usage, please refer to
   > python3 -m pecos.xmc.xtransformer.encode --help
 ```
 
-### Advanced Usage: Train/Pred params via JSON input
+### Advanced Usage: Give parameters via a JSON file
 `pecos.xmc.xtransformer` supports accepting training and predicting parameters from an input JSON file.
 Moreover, `python3 -m pecos.xmc.xtransformer.train` helpfully provide the option to generate all parameters in JSON format to stdout.
 
-You can generate train/pred parameter to `.json` files
-with all of the parameters that you can edit and fill in.
+You can generate a `.json` file with all of the parameters that you can edit and fill in.
 ```bash
-  > python3 -m pecos.xmc.xtransformer.train --generate-train-params-skeleton &> train_params.json
-  > python3 -m pecos.xmc.xtransformer.train --generate-pred-params-skeleton &> pred_params.json
+  > python3 -m pecos.xmc.xtransformer.train --generate-train-params-skeleton &> params.json
 ```
-After editing the `train_params.json` and `pred_params.json` files, you can do training via:
+After editing the `params.json` file, you can do training via:
 ```bash
   > python3 -m pecos.xmc.xtransformer.train -t ${T_path} -x ${X_path} -y ${Y_path} -m ${model_dir} \
-					--train-params-path train_params.json \
-					--pred-params-path pred_params.json
+	--params-path params.json
 ```
 
 ### Python Example

@@ -209,3 +209,39 @@ def test_get_row_submatrices():
     assert X0_sub == approx(Xres)
     assert type(X1_sub) == type(X1)
     assert X1_sub.todense() == approx(Xres)
+
+
+def test_csr_ensembler():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    X0 = np.array([[0.5, 0, 0, 1.0], [0, 0.2, 0, 0.5]])
+    X1 = np.array([[1.0, 0, 0, 0.2], [0, 0, 0.2, 0]])
+    X0 = smat_util.sorted_csr(smat.csr_matrix(X0))
+    X1 = smat_util.sorted_csr(smat.csr_matrix(X1))
+
+    # average
+    X_avr = np.array([[0.75, 0, 0, 0.6], [0, 0.1, 0.1, 0.25]])
+    X_avr_pred = smat_util.CsrEnsembler.average(X0, X1).todense()
+    assert X_avr_pred == approx(X_avr), X_avr_pred
+
+    # rank_average
+    X_rank = np.array([[1.5, 0, 0, 1.5], [0, 0.5, 1, 1]])
+    X_rank_pred = smat_util.CsrEnsembler.rank_average(X0, X1).todense()
+    assert X_rank_pred == approx(X_rank), X_rank_pred
+
+    # sigmoid_average
+    X_sig = np.array([[0.67675895, 0.0, 0.0, 0.64044629], [0.0, 0.274917, 0.274917, 0.31122967]])
+    X_sig_pred = smat_util.CsrEnsembler.sigmoid_average(X0, X1).todense()
+    assert X_sig_pred == approx(X_sig), X_sig_pred
+
+    # softmax_average
+    X_soft = np.array([[0.5090297, 0, 0, 0.4909703], [0, 0.24092582, 0.5, 0.25907418]])
+    X_soft_pred = smat_util.CsrEnsembler.softmax_average(X0, X1).todense()
+    assert X_soft_pred == approx(X_soft), X_soft_pred
+
+    # round_robin
+    X_rr = np.array([[1.16666667, 0, 0, 1.33333333], [0, 0.83333333, 1.16666667, 1.33333333]])
+    X_rr_pred = smat_util.CsrEnsembler.round_robin(X0, X1).todense()
+    assert X_rr_pred == approx(X_rr), X_rr_pred

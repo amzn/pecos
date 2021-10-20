@@ -261,27 +261,20 @@ def test_xtransformer_param_skeleton(tmpdir):
     Y_trn_file = "test/tst-data/xmc/xtransformer/train_label.npz"
 
     model_folder = tmpdir.join("skeleton")
-    train_params_file = tmpdir.join("train_params.json")
-    pred_params_file = tmpdir.join("pred_params.json")
+    params_file = tmpdir.join("params.json")
     save_P_file = str(tmpdir.join("P.npz"))
     # gen train and pred skeleton to file
     cmd = []
     cmd += ["python3 -m pecos.xmc.xtransformer.train"]
-    cmd += ["--generate-train-params-skeleton"]
-    process = subprocess.run(
-        shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    print(process.stdout)
-    assert process.returncode == 0, " ".join(cmd)
-    train_params = XTransformer.TrainParams.from_dict(json.loads(process.stdout))
-    cmd = []
-    cmd += ["python3 -m pecos.xmc.xtransformer.train"]
-    cmd += ["--generate-pred-params-skeleton"]
+    cmd += ["--generate-params-skeleton"]
+    print(" ".join(cmd))
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
     assert process.returncode == 0, " ".join(cmd)
-    pred_params = XTransformer.PredParams.from_dict(json.loads(process.stdout))
+    params = json.loads(process.stdout)
+    train_params = XTransformer.TrainParams.from_dict(params["train_params"])
+    pred_params = XTransformer.PredParams.from_dict(params["pred_params"])
 
     train_params.matcher_params_chain.init_model_dir = bert_model_path
     train_params.matcher_params_chain.batch_size = 1
@@ -291,13 +284,12 @@ def test_xtransformer_param_skeleton(tmpdir):
 
     pred_params.matcher_params_chain.only_topk = 2
     pred_params.ranker_params.hlm_args.model_chain.only_topk = 2
-    print(train_params.to_dict())
-    print(pred_params.to_dict())
 
-    with open(str(train_params_file), "w") as fout:
-        fout.write(json.dumps(train_params.to_dict(), indent=True))
-    with open(str(pred_params_file), "w") as fout:
-        fout.write(json.dumps(pred_params.to_dict(), indent=True))
+    params["train_params"] = train_params.to_dict()
+    params["pred_params"] = pred_params.to_dict()
+    print(json.dumps(params, indent=True))
+    with open(str(params_file), "w") as fout:
+        fout.write(json.dumps(params, indent=True))
 
     # Training matcher with indexing
     cmd = []
@@ -306,11 +298,12 @@ def test_xtransformer_param_skeleton(tmpdir):
     cmd += ["--trn-label-path {}".format(Y_trn_file)]
     cmd += ["--model-dir {}".format(str(model_folder))]
     cmd += ["--trn-text-path {}".format(X_trn_file)]
-    cmd += ["--train-params-path {}".format(str(train_params_file))]
-    cmd += ["--pred-params-path {}".format(str(pred_params_file))]
+    cmd += ["--params-path {}".format(str(params_file))]
+    cmd += ["--verbose-level {}".format(3)]
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
+    print(" ".join(cmd))
     assert process.returncode == 0, " ".join(cmd)
 
     # Predict
@@ -324,6 +317,7 @@ def test_xtransformer_param_skeleton(tmpdir):
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
     )
+    print(" ".join(cmd))
     assert process.returncode == 0, " ".join(cmd)
 
     # Evaluate ranker prediction
