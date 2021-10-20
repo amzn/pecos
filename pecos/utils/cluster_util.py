@@ -287,7 +287,7 @@ def hierarchical_kmeans(
     imbalanced_depth=100,
     spherical=True,
     seed=0,
-    max_iter=20,
+    kmeans_max_iter=20,
     threads=-1,
 ):
     """Python implementation of hierarchical 2-means.
@@ -301,7 +301,7 @@ def hierarchical_kmeans(
         imbalanced_depth (int, optional): Maximum depth of imbalanced clustering. After depth `imbalanced_depth` is reached, balanced clustering will be used. Default is `100`.
         spherical (bool, optional): True will l2-normalize the centroids of k-means after each iteration. Default is `True`.
         seed (int, optional): Random seed. Default is `0`.
-        max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
+        kmeans_max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
         threads (int, optional): Number of threads to use. `-1` denotes all CPUs. Default is `-1`.
 
     Returns:
@@ -310,19 +310,19 @@ def hierarchical_kmeans(
 
     global run_kmeans
 
-    def run_kmeans(cluster, c1, c2, min_size, max_iter, spherical=True):
-        indexer = kmeans(feat_mat_global[cluster], c1, c2, min_size, max_iter, spherical)
+    def run_kmeans(cluster, c1, c2, min_size, kmeans_max_iter, spherical=True):
+        indexer = kmeans(feat_mat_global[cluster], c1, c2, min_size, kmeans_max_iter, spherical)
         return cluster[indexer], cluster[~indexer]
 
     global kmeans
 
-    def kmeans(feat_mat, c1=-1, c2=-1, min_size=50, max_iter=20, spherical=True):
+    def kmeans(feat_mat, c1=-1, c2=-1, min_size=50, kmeans_max_iter=20, spherical=True):
         if c1 == -1:
             c1, c2 = np.random.randint(feat_mat.shape[0]), np.random.randint(1, feat_mat.shape[0])
         c1, c2 = feat_mat[c1], feat_mat[(c1 + c2) % feat_mat.shape[0]]
         old_indexer = np.ones(feat_mat.shape[0]) * -1
 
-        for _ in range(max_iter):
+        for _ in range(kmeans_max_iter):
             scores = np.squeeze(np.asarray(feat_mat.multiply(c1 - c2).sum(1)))
             indexer = scores >= 0
             if indexer.sum() < min_size:
@@ -370,7 +370,7 @@ def hierarchical_kmeans(
                         clusters_big,
                         *map(list, zip(*seeds)),
                         min_sizes,
-                        repeat(max_iter),
+                        repeat(kmeans_max_iter),
                         repeat(spherical),
                     ),
                 )

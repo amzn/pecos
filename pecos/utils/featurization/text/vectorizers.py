@@ -127,6 +127,7 @@ class Vectorizer(metaclass=VectorizerMeta):
         """
 
         config = config if config is not None else {"type": "tfidf", "kwargs": {}}
+        LOGGER.debug(f"Train Vectorizer with config: {json.dumps(config, indent=True)}")
         vectorizer_type = config.get("type", None)
         assert (
             vectorizer_type is not None
@@ -245,6 +246,7 @@ class Tfidf(Vectorizer):
                     binary (bool): whether to binarize term frequency, default False
                     use_idf (bool): whether to use inverse document frequency, default True
                     smooth_idf (bool): whether to smooth IDF by adding 1 to all DF counts, default True
+                    add_one_idf (bool): whether to smooth IDF by adding 1 to all IDF scores, default False
                     sublinear_tf (bool): whether to use sublinear mapping (log) on term frequency, default False
                     keep_frequent_feature (bool): if max_feature > 0, will only keep max_feature features by
                                     ignoring features with low document frequency (if True, default),
@@ -276,6 +278,7 @@ class Tfidf(Vectorizer):
             "binary": False,
             "use_idf": True,
             "smooth_idf": True,
+            "add_one_idf": False,
             "sublinear_tf": False,
             "keep_frequent_feature": True,
             "norm": "l2",

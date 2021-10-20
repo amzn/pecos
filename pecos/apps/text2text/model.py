@@ -129,7 +129,7 @@ class Text2Text(object):
     def get_pred_params(self):
         """get pred_params saved in the model"""
         ret_pred_params = self.PredParams(
-            xlinear_params=self.xlinear_models.get_pred_params(),
+            xlinear_params=self.xlinear_models[0][0].get_pred_params(),
         )
         return ret_pred_params
 
@@ -367,7 +367,6 @@ class Text2Text(object):
             LOGGER.info(f"Loading existing clustering code with params {indexer_kwargs_dict}")
             C = ClusterChain.load(C_path)
         else:
-            LOGGER.info(f"Clustering with params: {json.dumps(indexer_kwargs_dict, indent=True)}")
             C = Indexer.gen(label_feat, train_params=train_params.indexer_params)
             LOGGER.info("Hierarchical label tree: {}".format([cc.shape[0] for cc in C]))
             C.save(C_path)
@@ -376,12 +375,6 @@ class Text2Text(object):
         gc.collect()
 
         # Ensemble Models
-        LOGGER.info(
-            f"Training model with train params: {json.dumps(train_params.xlinear_params.to_dict(), indent=True)}"
-        )
-        LOGGER.info(
-            f"Training model with pred params: {json.dumps(pred_params.xlinear_params.to_dict(), indent=True)}"
-        )
         m = XLinearModel.train(
             X,
             Y,
@@ -389,7 +382,7 @@ class Text2Text(object):
             R=R,
             train_params=train_params.xlinear_params,
             pred_params=pred_params.xlinear_params,
-            **kwargs,
+            pred_kwargs=kwargs,
         )
 
         xlinear_models = [[m, train_params.to_dict()]]

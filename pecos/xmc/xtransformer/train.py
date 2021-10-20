@@ -31,19 +31,20 @@ def parse_arguments():
     """Parse training arguments"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--generate-train-params-skeleton",
+        "--generate-params-skeleton",
         action="store_true",
         help="generate template train-params-json to stdout",
     )
-    parser.add_argument(
-        "--generate-pred-params-skeleton",
-        action="store_true",
-        help="generate template pred-params-json to stdout",
-    )
 
-    gen_train_params = "--generate-train-params-skeleton" in sys.argv
-    gen_pred_params = "--generate-pred-params-skeleton" in sys.argv
-    skip_training = gen_train_params or gen_pred_params
+    skip_training = "--generate-params-skeleton" in sys.argv
+    # ========= parameter jsons ============
+    parser.add_argument(
+        "--params-path",
+        type=str,
+        default=None,
+        metavar="PARAMS_PATH",
+        help="Json file for params (default None)",
+    )
     # ========= train data paths ============
     parser.add_argument(
         "-t",
@@ -101,21 +102,6 @@ def parse_arguments():
         metavar="PATH",
         default="",
         help="path to the file of the test label matrix",
-    )
-    # ========= parameter jsons ============
-    parser.add_argument(
-        "--train-params-path",
-        type=str,
-        default=None,
-        metavar="TRAIN_PARAMS_PATH",
-        help="Json file for train_params (default None)",
-    )
-    parser.add_argument(
-        "--pred-params-path",
-        type=str,
-        default=None,
-        metavar="PRED_PARAMS_PATH",
-        help="Json file for pred_params (default None)",
     )
     # ========= indexer parameters ============
     parser.add_argument(
@@ -242,6 +228,7 @@ def parse_arguments():
         type=str,
         choices=["tfn", "man", "tfn+man"],
         default="tfn",
+        dest="neg_mining_chain",
         metavar="STR",
         help="Negative Sampling Schemes",
     )
@@ -470,31 +457,30 @@ def do_train(args):
     Args:
         args (argparse.Namespace): Command line arguments parsed by `parser.parse_args()`
     """
-    if args.generate_train_params_skeleton:
-        train_params = XTransformer.TrainParams.from_dict({}, recursive=True)
-        print(f"{json.dumps(train_params.to_dict(), indent=True)}")
+    params = dict()
+    if args.generate_params_skeleton:
+        params["train_params"] = XTransformer.TrainParams.from_dict({}, recursive=True).to_dict()
+        params["pred_params"] = XTransformer.PredParams.from_dict({}, recursive=True).to_dict()
+        print(f"{json.dumps(params, indent=True)}")
         return
 
-    if args.generate_pred_params_skeleton:
-        pred_params = XTransformer.PredParams.from_dict({}, recursive=True)
-        print(f"{json.dumps(pred_params.to_dict(), indent=True)}")
-        return
+    if args.params_path:
+        with open(args.params_path, "r") as fin:
+            params = json.load(fin)
 
-    # for HierarchicalMLModel.TrainParams
-    args.neg_mining_chain = args.negative_sampling
+    train_params = params.get("train_params", None)
+    pred_params = params.get("pred_params", None)
 
-    if args.train_params_path:
-        with open(args.train_params_path, "r") as fin:
-            train_params = XTransformer.TrainParams.from_dict(json.load(fin))
+    if train_params is not None:
+        train_params = XTransformer.TrainParams.from_dict(train_params)
     else:
         train_params = XTransformer.TrainParams.from_dict(
             {k: v for k, v in vars(args).items() if v is not None},
             recursive=True,
         )
 
-    if args.pred_params_path:
-        with open(args.pred_params_path, "r") as fin:
-            pred_params = XTransformer.PredParams.from_dict(json.load(fin))
+    if pred_params is not None:
+        pred_params = XTransformer.PredParams.from_dict(pred_params)
     else:
         pred_params = XTransformer.PredParams.from_dict(
             {k: v for k, v in vars(args).items() if v is not None},

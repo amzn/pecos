@@ -38,7 +38,16 @@ def parse_arguments():
         help="path to the file of predicted output (CSR: nr_insts * nr_items)",
     )
 
-    parser.add_argument("-k", "--topk", type=int, default=10, metavar="INT", help="evaluate @k")
+    parser.add_argument(
+        "-k",
+        "--topk",
+        "--only-topk",
+        type=int,
+        default=10,
+        dest="topk",
+        metavar="INT",
+        help="evaluate @k",
+    )
 
     return parser
 
@@ -52,7 +61,7 @@ def do_evaluation(args):
 
     Y_true = smat_util.load_matrix(args.truth_path).tocsr()
     Y_pred = smat_util.load_matrix(args.pred_path).tocsr()
-    metric = smat_util.Metrics.generate(Y_true, Y_pred, args.topk)
+    metric = smat_util.Metrics.generate(Y_true, Y_pred, topk=args.topk)
     print("==== evaluation results ====")
     print(metric)
 

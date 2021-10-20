@@ -28,33 +28,19 @@ def parse_arguments(args):
         description="Text2Text: Read input text training files, output item files and train a model"
     )
     parser.add_argument(
-        "--generate-train-params-skeleton",
+        "--generate-params-skeleton",
         action="store_true",
-        help="generate template train-params-json to stdout",
-    )
-    parser.add_argument(
-        "--generate-pred-params-skeleton",
-        action="store_true",
-        help="generate template pred-params-json to stdout",
+        help="generate template params-json to stdout",
     )
 
-    gen_train_params = "--generate-train-params-skeleton" in sys.argv
-    gen_pred_params = "--generate-pred-params-skeleton" in sys.argv
-    skip_training = gen_train_params or gen_pred_params
+    skip_training = "--generate-params-skeleton" in sys.argv
     # ========= parameter jsons ============
     parser.add_argument(
-        "--train-params-path",
+        "--params-path",
         type=str,
         default=None,
-        metavar="TRAIN_PARAMS_PATH",
-        help="Json file for train_params (default None)",
-    )
-    parser.add_argument(
-        "--pred-params-path",
-        type=str,
-        default=None,
-        metavar="PRED_PARAMS_PATH",
-        help="Json file for pred_params (default None)",
+        metavar="PARAMS_PATH",
+        help="Json file for params (default None)",
     )
     # ======= actual arguments ========
 
@@ -170,11 +156,11 @@ def parse_arguments(args):
     )
 
     parser.add_argument(
-        "--max-iter",
+        "--kmeans-max-iter",
         type=int,
         default=20,
         metavar="INT",
-        help="The max iteration for indexing (default 20)",
+        help="The max number of k-means iteration for indexing (default 20)",
     )
 
     parser.add_argument(
@@ -222,6 +208,7 @@ def parse_arguments(args):
         type=str,
         choices=["tfn", "man", "tfn+man"],
         default="tfn",
+        dest="neg_mining_chain",
         metavar="STR",
         help="Negative Sampling Schemes",
     )
@@ -240,7 +227,7 @@ def parse_arguments(args):
         "-k",
         "--only-topk",
         type=int,
-        default=20,
+        default=None,
         metavar="INT",
         help="the default number of top labels used in the prediction",
     )
@@ -259,7 +246,7 @@ def parse_arguments(args):
         "--post-processor",
         type=str,
         choices=PostProcessor.valid_list(),
-        default="l3-hinge",
+        default=None,
         metavar="STR",
         help="the default post processor used in the prediction",
     )
@@ -300,28 +287,30 @@ def train(args):
     Args:
         args (argparse.Namespace): Command line arguments parsed by `parser.parse_args()`
     """
-    if args.generate_train_params_skeleton:
-        train_params = Text2Text.TrainParams.from_dict({}, recursive=True)
-        print(f"{json.dumps(train_params.to_dict(), indent=True)}")
+    params = dict()
+    if args.generate_params_skeleton:
+        params["train_params"] = Text2Text.TrainParams.from_dict({}, recursive=True).to_dict()
+        params["pred_params"] = Text2Text.PredParams.from_dict({}, recursive=True).to_dict()
+        print(f"{json.dumps(params, indent=True)}")
         return
 
-    if args.generate_pred_params_skeleton:
-        pred_params = Text2Text.PredParams.from_dict({}, recursive=True)
-        print(f"{json.dumps(pred_params.to_dict(), indent=True)}")
-        return
+    if args.params_path:
+        with open(args.params_path, "r") as fin:
+            params = json.load(fin)
 
-    if args.train_params_path:
-        with open(args.train_params_path, "r") as fin:
-            train_params = Text2Text.TrainParams.from_dict(json.load(fin))
+    train_params = params.get("train_params", None)
+    pred_params = params.get("pred_params", None)
+
+    if train_params is not None:
+        train_params = Text2Text.TrainParams.from_dict(train_params)
     else:
         train_params = Text2Text.TrainParams.from_dict(
             {k: v for k, v in vars(args).items() if v is not None},
             recursive=True,
         )
 
-    if args.pred_params_path:
-        with open(args.pred_params_path, "r") as fin:
-            pred_params = Text2Text.PredParams.from_dict(json.load(fin))
+    if pred_params is not None:
+        pred_params = Text2Text.PredParams.from_dict(pred_params)
     else:
         pred_params = Text2Text.PredParams.from_dict(
             {k: v for k, v in vars(args).items() if v is not None},

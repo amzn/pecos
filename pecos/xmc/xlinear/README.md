@@ -4,7 +4,7 @@
 It takes sparse or dense numerical vectors as the input and outputs relevant labels for the input vectors.
 
 ## Getting started
-### Command line usage
+### Basic Command line usage
 
 Basic Training and predicting:
 ```bash
@@ -27,6 +27,21 @@ For detailed usage, please refer to
   > python3 -m pecos.xmc.xlinear.train --help
   > python3 -m pecos.xmc.xlinear.predict --help
   > python3 -m pecos.xmc.xlinear.evaluate --help
+```
+
+### Advanced Usage: Give parameters via a JSON file
+`pecos.xmc.xlinear.train` supports accepting training and predicting parameters from an input JSON file.
+Moreover, `python3 -m pecos.xmc.xlinear.train` helpfully provide the option to generate all parameters in JSON format to stdout.
+
+You can generate a `.json` file with all of the parameters that you can edit and fill in.
+```bash
+  > python3 -m pecos.xmc.xlinear.train --generate-params-skeleton &> params.json
+```
+After editing the `params.json` file, you can do training via:
+```bash
+  > python3 -m pecos.xmc.xlinear.train \
+	-x ${X_path} -y ${Y_path} -m ${model_dir} \
+	--params-path params.json
 ```
 
 ### Python Example
