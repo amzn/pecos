@@ -82,43 +82,21 @@ __version__ = "%s"
 
 
 class BlasHelper(object):
-    """Helper class to figure out BLAS library with path from user's Numpy backend libraries."""
-
-    @classmethod
-    def __get_numpy_openblas_lib(cls):
-        """Return NumPy's backend OpenBLAS lib if installed from pip wheel"""
-        import numpy
-        if numpy.distutils.system_info.get_info('openblas'):
-            # System has OpenBLAS, no need to get NumPy's copy
-            return ""
-
-        np_lib_path = os.path.dirname(numpy.__file__) + '.libs'
-
-        for lib_file in os.listdir(np_lib_path):
-            if lib_file.startswith("libopenblas"):
-                lib_path = os.path.join(np_lib_path, lib_file)
-                print(f"NumPy's backend OpenBLAS lib is: {lib_path}")
-                return lib_path
-        else: # Not Found
-            print("NumPy's backend OpenBLAS lib is not found")
-            return ""
+    """Helper class to figure out user's BLAS library path by Numpy's system-info tool."""
 
     @classmethod
     def get_blas_lib_dir(cls):
-        """Return user's NumPy backend BLAS library. If not found, will raise error."""
+        """Return user's BLAS library found by Numpy's system-info tool. If not found, will raise error."""
         import numpy.distutils.system_info as nps
 
-        # Add NumPy's backend openblas lib into search scope
-        os.environ["LAPACK"] = cls.__get_numpy_openblas_lib()
-
         blas_info = nps.get_info('lapack_opt')
-        assert blas_info, "NumPy backend BLAS/LAPACK library not found, need to re-install NumPy"
+        assert blas_info, "No BLAS/LAPACK library is found, need to install BLAS."
 
         blas_lib = blas_info['libraries']
         blas_dir = blas_info['library_dirs']
 
-        assert blas_lib, "NumPy backend BLAS/LAPACK library empty, need to re-install NumPy."
-        assert blas_dir, "NumPy backend BLAS/LAPACK library directory empty, need to re-install NumPy."
+        assert blas_lib, "No BLAS/LAPACK library is found, need to install BLAS."
+        assert blas_dir, "No BLAS/LAPACK library directory is found, need to install BLAS."
 
         return blas_lib, blas_dir
 

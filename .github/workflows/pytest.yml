@@ -22,7 +22,11 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
+        sudo apt-get update && sudo apt-get install -y libopenblas-dev
         python -m pip install pip
+        python -m pip install --upgrade pip
+    - name: Install PECOS
+      run: |
         make libpecos VFLAG=-v WARN_AS_ERROR=True
     - name: Test with pytest
       run: |
