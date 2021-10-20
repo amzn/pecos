@@ -56,7 +56,7 @@ See more details in [`pecos.utils.featurization.text`](https://github.com/amzn/p
 
 (3) Next we fit the TF-IDF models
 ```python
-python -m pecos.utils.featurization.text.preprocess build \
+python3 -m pecos.utils.featurization.text.preprocess build \
     --input-text-path ./corpus.txt \
     --vectorizer-config-path ./config.json \
     --output-model-folder ./tfidf-model \
@@ -66,19 +66,19 @@ python -m pecos.utils.featurization.text.preprocess build \
 (4) We then predict the TF-IDF matrix for all text files
 ```bash
 # For X.trn.txt
-python -m pecos.utils.featurization.text.preprocess run \
+python3 -m pecos.utils.featurization.text.preprocess run \
     --input-preprocessor-folder ./tfidf-model \
     --input-text-path ./X.trn.txt \
     --output-inst-path ./X.trn.npz \
     --text-pos 0
 # For X.tst.txt
-python -m pecos.utils.featurization.text.preprocess run \
+python3 -m pecos.utils.featurization.text.preprocess run \
     --input-preprocessor-folder ./tfidf-model \
     --input-text-path ./X.tst.txt \
     --output-inst-path ./X.tst.npz \
     --text-pos 0
 # For Z.all.txt
-python -m pecos.utils.featurization.text.preprocess run \
+python3 -m pecos.utils.featurization.text.preprocess run \
     --input-preprocessor-folder ./tfidf-model \
     --input-text-path ./Z.all.txt \
     --output-inst-path ./Z.all.npz \

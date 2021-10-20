@@ -22,6 +22,11 @@ Given an input, PECOS identifies a small set (10-100) of relevant outputs from a
 
 * text2text application ([`pecos.apps.text2text`](pecos/apps/text2text/README.md)): an easy-to-use text classification pipeline (with X-Linear backend) that supports n-gram TFIDF vectorization, classification, and ensemble predictions. 
 
+* ANN Search with HNSW ([`pecos.ann.hnsw`](pecos/ann/hnsw/README.md)): a PECOS Approximated Nearest Neighbor (ANN) search module that implements the Hierarchical Navigable Small World Graphs (HNSW) algorithm ([`Malkov et al., TPAMI 2018`](https://arxiv.org/ftp/arxiv/papers/1603/1603.09320.pdf)).
+  + Supports both sparse and dense input features
+  +  SIMD optimization for both dense/sparse distance computation
+  +  Supports thread-safe graph construction in parallel on multi-core shared memory machines
+  +  Supports thread-safe Searchers to do inference in parallel, which reduces inference overhead
 
 
 ## Requirements and Installation
@@ -55,6 +60,16 @@ apt-get update && apt-get install -y build-essential git python3 python3-distuti
 * For Amazon Linux 2:
 ``` bash
 yum -y install python3 python3-devel python3-distutils python3-venv &&  yum -y install groupinstall 'Development Tools' 
+```
+One needs to install at least one BLAS library to compile PECOS, e.g. `OpenBLAS`:
+* For Ubuntu (18.04, 20.04):
+``` bash
+apt-get install -y libopenblas-dev
+```
+* For Amazon Linux 2:
+``` bash
+amazon-linux-extras install epel -y
+yum install openblas-devel -y
 ```
 
 #### Install and develop locally
