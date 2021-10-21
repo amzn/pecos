@@ -20,8 +20,13 @@ Given an input, PECOS identifies a small set (10-100) of relevant outputs from a
   + easy to extend with many pre-trained Transformer models from [huggingface transformers](https://github.com/huggingface/transformers).
   + one of the State-of-the-art in deep learning based XMC methods.
 
-* text2text application ([`pecos.apps.text2text`](pecos/apps/text2text/README.md)): an easy-to-use text classification pipeline (with X-Linear backend) that supports n-gram TFIDF vectorization, classification, and ensemble predictions. 
+* text2text application ([`pecos.apps.text2text`](pecos/apps/text2text/README.md)): an easy-to-use text classification pipeline (with X-Linear backend) that supports n-gram TFIDF vectorization. 
 
+* ANN Search with HNSW ([`pecos.ann.hnsw`](pecos/ann/hnsw/README.md)): a PECOS Approximated Nearest Neighbor (ANN) search module that implements the Hierarchical Navigable Small World Graphs (HNSW) algorithm ([`Malkov et al., TPAMI 2018`](https://arxiv.org/ftp/arxiv/papers/1603/1603.09320.pdf)).
+  + Supports both sparse and dense input features
+  +  SIMD optimization for both dense/sparse distance computation
+  +  Supports thread-safe graph construction in parallel on multi-core shared memory machines
+  +  Supports thread-safe Searchers to do inference in parallel, which reduces inference overhead
 
 
 ## Requirements and Installation
@@ -42,7 +47,7 @@ If you're unfamiliar with Python virtual environments, check out the [user guide
 
 PECOS can be installed using pip as follows:
 ```bash
-pip3 install libpecos
+python3 -m pip install libpecos
 ```
 
 ### Installation from Source
@@ -50,18 +55,28 @@ pip3 install libpecos
 #### Prerequisite builder tools
 * For Ubuntu (18.04, 20.04):
 ``` bash
-apt-get update && apt-get install -y build-essential git python3 python3-distutils python3-venv
+sudo apt-get update && sudo apt-get install -y build-essential git python3 python3-distutils python3-venv
 ```
-* For Amazon Linux 2:
+* For Amazon Linux 2 Image:
 ``` bash
-yum -y install python3 python3-devel python3-distutils python3-venv &&  yum -y install groupinstall 'Development Tools' 
+sudo yum -y install python3 python3-devel python3-distutils python3-venv && sudo yum -y install groupinstall 'Development Tools' 
+```
+One needs to install at least one BLAS library to compile PECOS, e.g. `OpenBLAS`:
+* For Ubuntu (18.04, 20.04):
+``` bash
+sudo apt-get install -y libopenblas-dev
+```
+* For Amazon Linux 2 Image and AMI:
+``` bash
+sudo amazon-linux-extras install epel -y
+sudo yum install openblas-devel -y
 ```
 
 #### Install and develop locally
 ```bash
 git clone https://github.com/amzn/pecos
 cd pecos
-pip3 install --editable ./
+python3 -m pip install --editable ./
 ```
 
 

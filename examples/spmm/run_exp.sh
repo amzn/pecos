@@ -20,7 +20,7 @@ if [[ "${exp_mode}" == "single-thread" ]]; then
             export MKL_INTERFACE_LAYER=ILP64
             export OMP_NUM_THREADS=${n_thread}
             export MKL_NUM_THREADS=${n_thread}
-            python -u run_exp.py \
+            python3 -u run_exp.py \
                 --x-npz-path ${x_npz_path} \
                 --y-npz-path ${y_npz_path} \
                 --spmm-algo ${algo} \
@@ -39,7 +39,7 @@ elif [[ "${exp_mode}" == "multi-thread" ]]; then
                 export MKL_INTERFACE_LAYER=ILP64
                 export OMP_NUM_THREADS=${n_thread}
                 export MKL_NUM_THREADS=${n_thread}
-                python -u run_exp.py \
+                python3 -u run_exp.py \
                     --x-npz-path ${x_npz_path} \
                     --y-npz-path ${y_npz_path} \
                     --spmm-algo ${algo} \
