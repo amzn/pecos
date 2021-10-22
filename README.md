@@ -126,13 +126,13 @@ Some papers from our group using PECOS:
 
 * [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., 2021)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
 
-* [Label Disentanglement in Partition-based Extreme Multilabel Classification (Liu et al., 2021)](https://arxiv.org/pdf/2106.12751.pdf) [[bib]](./bibtex/liu2021label.bib)
-
 * [Enabling Efficiency-Precision Trade-offs for Label Trees in Extreme Classification (Baharav et al., 2021)](https://arxiv.org/pdf/2106.00730.pdf) [[bib]](./bibtex/baharav2021enabling.bib)
 
-* [Extreme Multi-label Learning for Semantic Matching in Product Search (Chang et al., KDD 2021)](https://arxiv.org/pdf/2106.12657.pdf) [[bib]](./bibtex/chang2021extreme.bib)
-
 * [Fast Multi-Resolution Transformer Fine-tuning for Extreme Multi-label Text Classification (Zhang et al., NeurIPS 2021)](https://arxiv.org/pdf/2110.00685.pdf) [[bib]](./bibtex/zhang2021fast.bib)
+
+* [Label Disentanglement in Partition-based Extreme Multilabel Classification (Liu et al., NeurIPS 2021)](https://arxiv.org/pdf/2106.12751.pdf) [[bib]](./bibtex/liu2021label.bib)
+
+* [Extreme Multi-label Learning for Semantic Matching in Product Search (Chang et al., KDD 2021)](https://arxiv.org/pdf/2106.12657.pdf) [[bib]](./bibtex/chang2021extreme.bib)
 
 * [Session-Aware Query Auto-completion using Extreme Multi-label Ranking (Yadav et al., KDD 2021)](https://arxiv.org/pdf/2012.07654.pdf)  [[bib]](./bibtex/yadav2021session.bib)
 

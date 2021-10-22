@@ -12,7 +12,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import transformers
 from pecos.utils.featurization.text.vectorizers import TransformerModelClass
 from pecos.xmc import MLModel
 from transformers import (
@@ -33,26 +32,16 @@ from transformers import (
 from transformers.file_utils import add_start_docstrings
 from transformers.modeling_utils import SequenceSummary
 
-TRANSFORMERS_MAJOR_VERSION = int(transformers.__version__.split(".")[0])
-if TRANSFORMERS_MAJOR_VERSION >= 4:
-    from transformers.models.bert.modeling_bert import BERT_INPUTS_DOCSTRING, BERT_START_DOCSTRING
-    from transformers.models.roberta.modeling_roberta import (
-        ROBERTA_INPUTS_DOCSTRING,
-        ROBERTA_START_DOCSTRING,
-    )
-    from transformers.models.xlm_roberta.modeling_xlm_roberta import XLM_ROBERTA_START_DOCSTRING
-    from transformers.models.xlnet.modeling_xlnet import (
-        XLNET_INPUTS_DOCSTRING,
-        XLNET_START_DOCSTRING,
-    )
-else:
-    from transformers.modeling_bert import BERT_INPUTS_DOCSTRING, BERT_START_DOCSTRING
-    from transformers.modeling_roberta import (
-        ROBERTA_INPUTS_DOCSTRING,
-        ROBERTA_START_DOCSTRING,
-    )
-    from transformers.modeling_xlm_roberta import XLM_ROBERTA_START_DOCSTRING
-    from transformers.modeling_xlnet import XLNET_INPUTS_DOCSTRING, XLNET_START_DOCSTRING
+from transformers.models.bert.modeling_bert import BERT_INPUTS_DOCSTRING, BERT_START_DOCSTRING
+from transformers.models.roberta.modeling_roberta import (
+    ROBERTA_INPUTS_DOCSTRING,
+    ROBERTA_START_DOCSTRING,
+)
+from transformers.models.xlm_roberta.modeling_xlm_roberta import XLM_ROBERTA_START_DOCSTRING
+from transformers.models.xlnet.modeling_xlnet import (
+    XLNET_INPUTS_DOCSTRING,
+    XLNET_START_DOCSTRING,
+)
 
 
 class HingeLoss(nn.Module):
