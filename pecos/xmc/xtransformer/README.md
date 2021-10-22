@@ -48,7 +48,7 @@ Moreover, `python3 -m pecos.xmc.xtransformer.train` helpfully provide the option
 
 You can generate a `.json` file with all of the parameters that you can edit and fill in.
 ```bash
-  > python3 -m pecos.xmc.xtransformer.train --generate-train-params-skeleton &> params.json
+  > python3 -m pecos.xmc.xtransformer.train --generate-params-skeleton &> params.json
 ```
 After editing the `params.json` file, you can do training via:
 ```bash

@@ -34,15 +34,15 @@ class XTransformer(pecos.BaseClass):
     """Hierarchical-XTransformer for XMC.
     Consists of one or more TransformerMatcher models followed by an optional XLinearModel.
 
-    See more details in Section 5 of PECOS paper (Yu et al., 2020) and X-Transformer paper (Chang et al., 2020).
+    See more details in Section 5 of PECOS paper (Yu et al., 2020) and XR-Transformer paper (Zhang et al., 2021).
 
     PECOS: Prediction for Enormous and Correlated Output Spaces
         Hsiang-Fu Yu, Kai Zhong, Inderjit S. Dhillon
         https://arxiv.org/abs/2010.05878
 
-    Taming Pre-trained Transformers for Extreme Multi-label Text Classification (KDD 2020)
-        Wei-Cheng Chang, Hsiang-Fu Yu, Kai Zhong, Yiming Yang, Inderjit Dhillon
-        https://arxiv.org/abs/1905.02331
+    Fast Multi-Resolution Transformer Fine-tuning for Extreme Multi-label Text Classification
+        Jiong Zhang, Wei-Cheng Chang, Hsiang-Fu Yu, Inderjit Dhillon
+        https://arxiv.org/pdf/2110.00685
     """
 
     @dc.dataclass

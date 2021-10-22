@@ -33,7 +33,7 @@ def parse_arguments():
     parser.add_argument(
         "--generate-params-skeleton",
         action="store_true",
-        help="generate template train-params-json to stdout",
+        help="generate template params-json to stdout",
     )
 
     skip_training = "--generate-params-skeleton" in sys.argv

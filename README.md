@@ -16,11 +16,9 @@ Given an input, PECOS identifies a small set (10-100) of relevant outputs from a
   + fast real-time inference in C++
   + can handle 100MM output space
 
-* X-Transformer ([`pecos.xmc.xtransformer`](pecos/xmc/xtransformer/README.md)): a Transformer matcher learning to traverse an input from the root of a hierarchical label tree to a few leaf node clusters, and return top-k relevant labels within the clusters using a linear ranker as predictions. See technical details in [X-Transformer paper (Chang et al., 2020)](https://arxiv.org/pdf/1905.02331.pdf) and latest SOTA results in the [PECOS paper (Yu et al., 2020)](https://arxiv.org/pdf/2010.05878.pdf).
+* XR-Transformer ([`pecos.xmc.xtransformer`](pecos/xmc/xtransformer/README.md)): Transformer based XMC framework that fine-tunes pre-trained transformers recursively on multi-resolution objectives. It can be used to generate top-k relevant labels for a given instance or simply as a fine-tuning engine for task aware embeddings. See technical details in [XR-Transformer paper (Zhang et al., 2021)](https://arxiv.org/pdf/2110.00685.pdf).
   + easy to extend with many pre-trained Transformer models from [huggingface transformers](https://github.com/huggingface/transformers).
-  + one of the State-of-the-art in deep learning based XMC methods.
-
-* text2text application ([`pecos.apps.text2text`](pecos/apps/text2text/README.md)): an easy-to-use text classification pipeline (with X-Linear backend) that supports n-gram TFIDF vectorization. 
+  + establishes the State-of-the-art on public XMC benchmarks.
 
 * ANN Search with HNSW ([`pecos.ann.hnsw`](pecos/ann/hnsw/README.md)): a PECOS Approximated Nearest Neighbor (ANN) search module that implements the Hierarchical Navigable Small World Graphs (HNSW) algorithm ([`Malkov et al., TPAMI 2018`](https://arxiv.org/ftp/arxiv/papers/1603/1603.09320.pdf)).
   + Supports both sparse and dense input features
@@ -133,6 +131,8 @@ Some papers from our group using PECOS:
 * [Enabling Efficiency-Precision Trade-offs for Label Trees in Extreme Classification (Baharav et al., 2021)](https://arxiv.org/pdf/2106.00730.pdf) [[bib]](./bibtex/baharav2021enabling.bib)
 
 * [Extreme Multi-label Learning for Semantic Matching in Product Search (Chang et al., KDD 2021)](https://arxiv.org/pdf/2106.12657.pdf) [[bib]](./bibtex/chang2021extreme.bib)
+
+* [Fast Multi-Resolution Transformer Fine-tuning for Extreme Multi-label Text Classification (Zhang et al., NeurIPS 2021)](https://arxiv.org/pdf/2110.00685.pdf) [[bib]](./bibtex/zhang2021fast.bib)
 
 * [Session-Aware Query Auto-completion using Extreme Multi-label Ranking (Yadav et al., KDD 2021)](https://arxiv.org/pdf/2012.07654.pdf)  [[bib]](./bibtex/yadav2021session.bib)
 
