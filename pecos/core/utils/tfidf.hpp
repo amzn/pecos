@@ -733,7 +733,9 @@ public:
             throw std::runtime_error("Unable to load tfidf model file to " + model_filename);
         } else {
             size_t total_features = 0;
-            fscanf(fp, "%ld", &total_features);
+            if (1 != fscanf(fp, "%ld", &total_features)) {
+                throw std::runtime_error("Invalid tfidf model file (total_features).");
+            }
             feature_vocab.reserve(total_features);
             idx_idf.reserve(total_features);
 
@@ -742,12 +744,16 @@ public:
                 int32_t idx = 0;
                 float32_t idf = 0.0;
                 uint64_t ngram_len = 0;
-                fscanf(fp, "%d%f%ld", &idx, &idf, &ngram_len);
+                if (3 != fscanf(fp, "%d%f%ld", &idx, &idf, &ngram_len)) {
+                    throw std::runtime_error("Invalid tfidf model file (idx, idf, ngram_len).");
+                }
                 idx_idf[idx] = idf;
                 idx_vec_t ngram(ngram_len);
                 for(size_t tid = 0; tid < ngram_len; tid++) {
                     int32_t tok_idx;
-                    fscanf(fp, "%d", &tok_idx);
+                    if (1 != fscanf(fp, "%d", &tok_idx)) {
+                        throw std::runtime_error("Invalid tfidf model file (tok_idx).");
+                    }
                     ngram[tid] = tok_idx;
                 }
                 feature_vocab[ngram] = idx;
