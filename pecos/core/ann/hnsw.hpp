@@ -786,26 +786,29 @@ namespace ann {
                 }
                 // visiting neighbors of candidate node
                 const auto neighbors = G->get_neighborhood(cand_node, level);
-                graph_l0.prefetch_node_feat(neighbors[0]);
-                for(index_type j = 0; j < neighbors.degree(); j++) {
-                    graph_l0.prefetch_node_feat(neighbors[j + 1]);
-                    auto next_node = neighbors[j];
-                    if(!searcher.is_visited(next_node)) {
-                        searcher.mark_visited(next_node);
-                        dist_t next_lb_dist;
-                        next_lb_dist = feat_vec_t::distance(
-                            query,
-                            graph_l0.get_node_feat(next_node)
-                        );
-                        if(topk_queue.size() < efS || next_lb_dist < topk_ub_dist) {
-                            cand_queue.emplace(next_lb_dist, next_node);
-                            graph_l0.prefetch_node_feat(cand_queue.top().node_id);
-                            topk_queue.emplace(next_lb_dist, next_node);
-                            if(topk_queue.size() > efS) {
-                                topk_queue.pop();
-                            }
-                            if(!topk_queue.empty()) {
-                                topk_ub_dist = topk_queue.top().dist;
+                if(neighbors.degree() != 0) {
+                    graph_l0.prefetch_node_feat(neighbors[0]);
+                    index_type max_j = neighbors.degree() - 1;
+                    for(index_type j = 0; j <= max_j; j++) {
+                        graph_l0.prefetch_node_feat(neighbors[std::min(j + 1, max_j)]);
+                        auto next_node = neighbors[j];
+                        if(!searcher.is_visited(next_node)) {
+                            searcher.mark_visited(next_node);
+                            dist_t next_lb_dist;
+                            next_lb_dist = feat_vec_t::distance(
+                                query,
+                                graph_l0.get_node_feat(next_node)
+                            );
+                            if(topk_queue.size() < efS || next_lb_dist < topk_ub_dist) {
+                                cand_queue.emplace(next_lb_dist, next_node);
+                                graph_l0.prefetch_node_feat(cand_queue.top().node_id);
+                                topk_queue.emplace(next_lb_dist, next_node);
+                                if(topk_queue.size() > efS) {
+                                    topk_queue.pop();
+                                }
+                                if(!topk_queue.empty()) {
+                                    topk_ub_dist = topk_queue.top().dist;
+                                }
                             }
                         }
                     }
@@ -833,18 +836,21 @@ namespace ann {
                 while (changed) {
                     changed = false;
                     const auto neighbors = G1.get_neighborhood(curr_node, curr_level);
-                    graph_l0.prefetch_node_feat(neighbors[0]);
-                    for(index_type j = 0; j < neighbors.degree(); j++) {
-                        graph_l0.prefetch_node_feat(neighbors[j + 1]);
-                        auto next_node = neighbors[j];
-                        dist_t next_dist = feat_vec_t::distance(
-                            query,
-                            G0.get_node_feat(next_node)
-                        );
-                        if(next_dist < curr_dist) {
-                            curr_dist = next_dist;
-                            curr_node = next_node;
-                            changed = true;
+                    if(neighbors.degree() != 0) {
+                        graph_l0.prefetch_node_feat(neighbors[0]);
+                        index_type max_j = neighbors.degree() - 1;
+                        for(index_type j = 0; j <= max_j; j++) {
+                            graph_l0.prefetch_node_feat(neighbors[std::min(j + 1, max_j)]);
+                            auto next_node = neighbors[j];
+                            dist_t next_dist = feat_vec_t::distance(
+                                query,
+                                G0.get_node_feat(next_node)
+                            );
+                            if(next_dist < curr_dist) {
+                                curr_dist = next_dist;
+                                curr_node = next_node;
+                                changed = true;
+                            }
                         }
                     }
                 }
