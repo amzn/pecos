@@ -3,8 +3,8 @@ name: Python Unit Tests
 on: [push, pull_request]
 
 jobs:
-  Python-Unit-Test:
-    name: Python Unit Tests
+  Ubuntu-Python-Unit-Test:
+    name: Ubuntu Python Unit Tests
     strategy:
       max-parallel: 4
       fail-fast: false
@@ -30,4 +30,48 @@ jobs:
         make libpecos VFLAG=-v WARN_AS_ERROR=True
     - name: Test with pytest
       run: |
+        make test VFLAG=-v WARN_AS_ERROR=True
+
+  AmazonLinux-Python-Unit-Test:
+    name: AmazonLinux Python Unit Tests
+    strategy:
+      max-parallel: 4
+      fail-fast: false
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+
+    runs-on: ubuntu-latest
+    container: amazonlinux:latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install dependencies
+      run: |
+        yum -y update
+        yum -y groupinstall 'Development Tools'
+        amazon-linux-extras install epel -y
+        yum install openblas-devel -y
+    - name: Set up Python ${{ matrix.python-version }} via miniconda
+      run: |
+        curl https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh;
+        bash /tmp/miniconda.sh -b -p /tmp/miniconda
+        export PATH=/tmp/miniconda/bin:$PATH
+        conda create -n "py${{ matrix.python-version }}" python=${{ matrix.python-version }} -y
+        source activate "py${{ matrix.python-version }}"
+
+        rm /tmp/miniconda/envs/py${{ matrix.python-version }}/compiler_compat/ld
+
+        python3 -m pip install pip
+        python3 -m pip install --upgrade pip
+    - name: Install PECOS
+      run: |
+        export PATH=/tmp/miniconda/bin:$PATH
+        source activate "py${{ matrix.python-version }}"
+
+        make libpecos VFLAG=-v WARN_AS_ERROR=True
+    - name: Test with pytest
+      run: |
+        export PATH=/tmp/miniconda/bin:$PATH
+        source activate "py${{ matrix.python-version }}"
+
         make test VFLAG=-v WARN_AS_ERROR=True
