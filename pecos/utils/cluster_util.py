@@ -275,7 +275,10 @@ class ClusterChain(object):
         relevance_chain.reverse()
 
         if norm_type not in [None, "no-norm"]:
-            relevance_chain = [sk_normalize(rr.tocsr(), norm=norm_type) for rr in relevance_chain]
+            relevance_chain = [
+                sk_normalize(rr.tocsr(), norm=norm_type) if rr is not None else None
+                for rr in relevance_chain
+            ]
 
         return relevance_chain[1:]
 

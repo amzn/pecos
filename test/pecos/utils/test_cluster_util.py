@@ -73,6 +73,12 @@ def test_cluster_chain(tmpdir):
     relevance_chain = chain_orig.generate_relevance_chain({0: R, 2: R2, 3: None}, norm_type="l1")
     for pred, res in zip(relevance_chain, [R0_res, R1_res, R2_res]):
         assert pred.toarray() == approx(res)
+    relevance_chain = chain_orig.generate_relevance_chain({0: R}, norm_type="l1", induce=False)
+    for pred, res in zip(relevance_chain, [None, None, R2_res]):
+        if res is None:
+            assert pred is None
+        else:
+            assert pred.toarray() == approx(res)
 
 
 def test_hierarchical_kmeans():
