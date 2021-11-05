@@ -1,0 +1,301 @@
+{
+ "train_params": {
+  "__meta__": {
+   "class_fullname": "pecos.xmc.xtransformer.model###XTransformer.TrainParams"
+  },
+  "preliminary_indexer_params": {
+   "__meta__": {
+    "class_fullname": "pecos.xmc.base###HierarchicalKMeans.TrainParams"
+   },
+   "nr_splits": 16,
+   "min_codes": 16,
+   "max_leaf_size": 16,
+   "imbalanced_ratio": 0.0,
+   "imbalanced_depth": 100,
+   "spherical": true,
+   "seed": 1,
+   "kmeans_max_iter": 20,
+   "threads": -1
+  },
+  "refined_indexer_params": {
+   "__meta__": {
+    "class_fullname": "pecos.xmc.base###HierarchicalKMeans.TrainParams"
+   },
+   "nr_splits": 8,
+   "min_codes": null,
+   "max_leaf_size": 16,
+   "imbalanced_ratio": 0.0,
+   "imbalanced_depth": 100,
+   "spherical": true,
+   "seed": 1,
+   "kmeans_max_iter": 20,
+   "threads": -1
+  },
+  "matcher_params_chain": [
+   {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.xtransformer.matcher###TransformerMatcher.TrainParams"
+    },
+    "model_shortcut": "roberta-base",
+    "negative_sampling": "tfn+man",
+    "loss_function": "weighted-squared-hinge",
+    "bootstrap_method": "weighted-linear",
+    "lr_schedule": "linear",
+    "threshold": 0.001,
+    "hidden_dropout_prob": 0.1,
+    "batch_size": 32,
+    "batch_gen_workers": 16,
+    "max_active_matching_labels": 1000,
+    "max_num_labels_in_gpu": 65536,
+    "max_steps": 600,
+    "max_no_improve_cnt": -1,
+    "num_train_epochs": 10,
+    "gradient_accumulation_steps": 1,
+    "weight_decay": 0.0,
+    "max_grad_norm": 1.0,
+    "learning_rate": 5e-05,
+    "adam_epsilon": 1e-08,
+    "warmup_steps": 100,
+    "logging_steps": 50,
+    "save_steps": 200,
+    "cost_sensitive_ranker": false,
+    "use_gpu": true,
+    "checkpoint_dir": "",
+    "cache_dir": "",
+    "init_model_dir": ""
+   },
+   {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.xtransformer.matcher###TransformerMatcher.TrainParams"
+    },
+    "model_shortcut": "roberta-base",
+    "negative_sampling": "tfn+man",
+    "loss_function": "weighted-squared-hinge",
+    "bootstrap_method": "weighted-linear",
+    "lr_schedule": "linear",
+    "threshold": 0.001,
+    "hidden_dropout_prob": 0.1,
+    "batch_size": 32,
+    "batch_gen_workers": 16,
+    "max_active_matching_labels": 1000,
+    "max_num_labels_in_gpu": 65536,
+    "max_steps": 800,
+    "max_no_improve_cnt": -1,
+    "num_train_epochs": 10,
+    "gradient_accumulation_steps": 1,
+    "weight_decay": 0.0,
+    "max_grad_norm": 1.0,
+    "learning_rate": 5e-05,
+    "adam_epsilon": 1e-08,
+    "warmup_steps": 100,
+    "logging_steps": 50,
+    "save_steps": 200,
+    "cost_sensitive_ranker": false,
+    "use_gpu": true,
+    "checkpoint_dir": "",
+    "cache_dir": "",
+    "init_model_dir": ""
+   },
+   {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.xtransformer.matcher###TransformerMatcher.TrainParams"
+    },
+    "model_shortcut": "roberta-base",
+    "negative_sampling": "tfn+man",
+    "loss_function": "weighted-squared-hinge",
+    "bootstrap_method": "weighted-linear",
+    "lr_schedule": "linear",
+    "threshold": 0.001,
+    "hidden_dropout_prob": 0.1,
+    "batch_size": 32,
+    "batch_gen_workers": 16,
+    "max_active_matching_labels": 1000,
+    "max_num_labels_in_gpu": 65536,
+    "max_steps": 1200,
+    "max_no_improve_cnt": -1,
+    "num_train_epochs": 10,
+    "gradient_accumulation_steps": 1,
+    "weight_decay": 0.0,
+    "max_grad_norm": 1.0,
+    "learning_rate": 5e-05,
+    "adam_epsilon": 1e-08,
+    "warmup_steps": 100,
+    "logging_steps": 50,
+    "save_steps": 200,
+    "cost_sensitive_ranker": false,
+    "use_gpu": true,
+    "checkpoint_dir": "",
+    "cache_dir": "",
+    "init_model_dir": ""
+   }
+  ],
+  "ranker_params": {
+   "__meta__": {
+    "class_fullname": "pecos.xmc.xlinear.model###XLinearModel.TrainParams"
+   },
+   "mode": "full-model",
+   "ranker_level": 1,
+   "nr_splits": 16,
+   "min_codes": null,
+   "shallow": false,
+   "rel_mode": "induce",
+   "rel_norm": "l1",
+   "hlm_args": {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.base###HierarchicalMLModel.TrainParams"
+    },
+    "neg_mining_chain": [
+     "tfn",
+     "tfn",
+     "tfn",
+     "tfn+man"
+    ],
+    "model_chain": [
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.TrainParams"
+      },
+      "threshold": 0.001,
+      "max_nonzeros_per_label": null,
+      "solver_type": "L2R_L2LOSS_SVC_DUAL",
+      "Cp": 1.0,
+      "Cn": 2.0,
+      "max_iter": 100,
+      "eps": 0.1,
+      "bias": 1.0,
+      "threads": -1,
+      "verbose": 0,
+      "newton_eps": 0.01
+     },
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.TrainParams"
+      },
+      "threshold": 0.001,
+      "max_nonzeros_per_label": null,
+      "solver_type": "L2R_L2LOSS_SVC_DUAL",
+      "Cp": 1.0,
+      "Cn": 2.0,
+      "max_iter": 100,
+      "eps": 0.1,
+      "bias": 1.0,
+      "threads": -1,
+      "verbose": 0,
+      "newton_eps": 0.01
+     },
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.TrainParams"
+      },
+      "threshold": 0.001,
+      "max_nonzeros_per_label": null,
+      "solver_type": "L2R_L2LOSS_SVC_DUAL",
+      "Cp": 1.0,
+      "Cn": 2.0,
+      "max_iter": 100,
+      "eps": 0.1,
+      "bias": 1.0,
+      "threads": -1,
+      "verbose": 0,
+      "newton_eps": 0.01
+     },
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.TrainParams"
+      },
+      "threshold": 0.001,
+      "max_nonzeros_per_label": null,
+      "solver_type": "L2R_L2LOSS_SVC_DUAL",
+      "Cp": 2.0,
+      "Cn": 1.0,
+      "max_iter": 100,
+      "eps": 0.1,
+      "bias": 1.0,
+      "threads": -1,
+      "verbose": 0,
+      "newton_eps": 0.01
+     }
+    ]
+   }
+  },
+  "do_fine_tune": true,
+  "only_encoder": false,
+  "fix_clustering": false,
+  "max_match_clusters": 32768,
+  "save_emb_dir": ""
+ },
+ "pred_params": {
+  "__meta__": {
+   "class_fullname": "pecos.xmc.xtransformer.model###XTransformer.PredParams"
+  },
+  "matcher_params_chain": [
+   {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.xtransformer.matcher###TransformerMatcher.PredParams"
+    },
+    "only_topk": 5,
+    "post_processor": "l3-hinge",
+    "ensemble_method": "concat-only",
+    "truncate_length": 128
+   },
+   {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.xtransformer.matcher###TransformerMatcher.PredParams"
+    },
+    "only_topk": 5,
+    "post_processor": "l3-hinge",
+    "ensemble_method": "concat-only",
+    "truncate_length": 128
+   },
+   {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.xtransformer.matcher###TransformerMatcher.PredParams"
+    },
+    "only_topk": 5,
+    "post_processor": "l3-hinge",
+    "ensemble_method": "concat-only",
+    "truncate_length": 128
+   }
+  ],
+  "ranker_params": {
+   "__meta__": {
+    "class_fullname": "pecos.xmc.xlinear.model###XLinearModel.PredParams"
+   },
+   "hlm_args": {
+    "__meta__": {
+     "class_fullname": "pecos.xmc.base###HierarchicalMLModel.PredParams"
+    },
+    "model_chain": [
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.PredParams"
+      },
+      "only_topk": 75,
+      "post_processor": "l3-hinge"
+     },
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.PredParams"
+      },
+      "only_topk": 75,
+      "post_processor": "l3-hinge"
+     },
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.PredParams"
+      },
+      "only_topk": 100,
+      "post_processor": "l3-hinge"
+     },
+     {
+      "__meta__": {
+       "class_fullname": "pecos.xmc.base###MLModel.PredParams"
+      },
+      "only_topk": 25,
+      "post_processor": "noop"
+     }
+    ]
+   }
+  }
+ }
+}

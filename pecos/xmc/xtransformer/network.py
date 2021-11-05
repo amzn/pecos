@@ -339,7 +339,7 @@ class XLMRobertaForXMC(RobertaForXMC):
     documentation alongside usage examples.
     """
 
-    config_class = XLMRobertaConfig
+    config_class = XLMRobertaConfig  # type: ignore
 
 
 @add_start_docstrings(
