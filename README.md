@@ -124,6 +124,8 @@ If you find PECOS useful, please consider citing the following paper:
 
 Some papers from our group using PECOS:
 
+* [Node Feature Extraction by Self-Supervised Multi-scale Neighborhood Prediction (Chien et al., 2021)](https://arxiv.org/pdf/2111.00064.pdf) [[bib]](./bibtex/chien2021node.bib)
+
 * [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., 2021)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
 
 * [Enabling Efficiency-Precision Trade-offs for Label Trees in Extreme Classification (Baharav et al., 2021)](https://arxiv.org/pdf/2106.00730.pdf) [[bib]](./bibtex/baharav2021enabling.bib)
