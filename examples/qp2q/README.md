@@ -70,7 +70,7 @@ Each folder contains a `.json` file. Each line in the file contains a data point
 * To generate query suggestions and evaluate the predictions for Most-Frequent-Query (MFQ) baseline:
     - First generate a dictionary mapping each prefix to a list of top-k (k=10) query suggestions and then run eval.  
       ```bash 
-      python utils/create_pref_to_top_k_suggestions_dict.py --k 10 --fdir <train/data/folder> --out_file </output/filename>
+      python utils/create_pref_to_top_k_suggestions_dict.py --k 10 --fdir <train/data/folder> --out_fname </output/filename>
       python eval/run_mfq_eval.py --gt <path/to/gt/file> --out_dir <path/to/result/dir> --topk_file <path/to/prefix/to/topk/query/file> 
       ```
   
