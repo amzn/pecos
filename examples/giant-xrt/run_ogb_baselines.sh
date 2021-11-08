@@ -10,6 +10,7 @@ fi
 if [ ${gnn_algo} == "mlp" ]; then
     python -u OGB_baselines/${dataset}/mlp.py \
         --runs ${RUNS} \
+        --log_steps 10 \
         --data_root_dir ./dataset \
         --node_emb_path ./proc_data_xrt/${dataset}/X.all.xrt-emb.npy \
         |& tee OGB_baselines/${dataset}/mlp.giant-xrt.log
@@ -26,7 +27,9 @@ elif [ ${gnn_algo} == "graph-saint" ]; then
         --runs ${RUNS} \
         --data_root_dir ./dataset \
         --eval_steps 5 \
-        --epochs 35 \
+        --epochs 50 \
+        --num_layers 1 \
+        --walk_length 1 \
         --node_emb_path ./proc_data_xrt/${dataset}/X.all.xrt-emb.npy \
         |& tee OGB_baselines/${dataset}/graph-saint.giant-xrt.log
 else 

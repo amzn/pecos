@@ -1,4 +1,4 @@
-# Giant-XRT: Node Feature Extraction by Self-supervised Multi-scale Neighborhood Prediction
+# GIANT-XRT: Node Feature Extraction by Self-supervised Multi-scale Neighborhood Prediction
 
 ## Requirement and Install
 First let's setup a conda enviroment
@@ -55,7 +55,7 @@ python -c "import ogb; from ogb.graphproppred import PygGraphPropPredDataset; pr
 ```
 
 
-## Download Giant-XRT Preporcessed Data
+## Download GIANT-XRT Preporcessed Data
 This step is required for all the remaining subsection!
 ```bash
 cd ./proc_data_xrt
@@ -71,7 +71,7 @@ After downloading the pre-processed data, you should see files under the `./proc
         |---- download_data.sh
         |---- vect_config.json
         |---- ogbn-arxiv/
-                |---- params.json			# hyper-paramters for Giant-XRT pre-training
+                |---- params.json			# hyper-paramters for GIANT-XRT pre-training
                 |---- X.all.txt				# node raw text
                 |---- X.all.xrt-emb.npy		# node embeddings from XR-Transformer
                 |---- xrt_models/			# XR-Transformer fine-tined models
@@ -79,15 +79,32 @@ After downloading the pre-processed data, you should see files under the `./proc
 
 
 ## Run GNN Baselines on OGB Datasets
-For users who only want to take Giant-XRT node embeddings for running GNN models:
+For users who only want to take GIANT-XRT node embeddings for running GNN models:
 ```bash
 dataset=ogbn-arxiv	# can be either ogbn-arxiv or ogbn-products
 gnn_algo=mlp		# for ogbn-arxiv: mlp/graph-sage; for ogbn-products: mlp/graph-saint;
 bash ./run_ogb_baselines.sh ${dataset} ${gnn_algo}
 ```
 
+### Results
+| ogbn-arxiv | MLP | GraphSAGE |
+|---|---|---|
+| Test accuracy (%) | 73.06 ± 0.11 | 74.35 ± 0.14 |
 
-## Pre-training with Giant-XRT
+
+| ogbn-products | MLP | GraphSAINT |
+|---|---|---|
+| Test accuracy (%) | 80.49 ± 0.28 | 84.15 ± 0.22 |
+
+**Remark**: Note that we do not fix random seed as in the original OGB implementation. So the results can be slightly different (usually within 1 std).
+
+## Run SOTA GNNs with GIANT-XRT on OGB Datasets
+
+For ogbn-arxiv, please check this [Repo](https://github.com/elichienxD/deep_gcns_torch).
+
+For ogbn-products, please check this [Repo](https://github.com/elichienxD/SAGN_with_SLE).
+
+## Pre-training with GIANT-XRT
 This subsection is for advanced users who want to run the pre-training procedure.
 
 ### Create Pre-training Data
@@ -96,13 +113,13 @@ dataset=ogbn-arxiv
 bash proc_data_xrt.sh ${dataset}
 ```
 
-### Pre-training Giant-XRT
+### Pre-training GIANT-XRT
 ```bash
 data_dir=./proc_data_xrt/ogbn-arxiv
 bash xrt_train.sh ${data_dir}
 ```
 
-### Get Node Embeddings by Giant-XRT
+### Get Node Embeddings by GIANT-XRT
 ```bash
 bash xrt_get_emb.sh ${data_dir}
 ```
