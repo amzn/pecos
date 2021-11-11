@@ -1,6 +1,6 @@
 
 dataset=$1
-if [ ${dataset} != "ogbn-arxiv" ] && [ ${dataset} != "ogbn-products" ]; then
+if [ ${dataset} != "ogbn-arxiv" ] && [ ${dataset} != "ogbn-products" ] && [ ${dataset} != "ogbn-papers100M" ]; then
     echo "dataset=${dataset} is not yet supported!"
     exit
 fi
