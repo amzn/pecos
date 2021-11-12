@@ -114,9 +114,20 @@ For `ogbn-papers100M`, we report the mean/std of 5 runs.
 
 ## Run SOTA GNNs with GIANT-XRT on OGB Datasets
 
-For ogbn-arxiv, please check this [Repo](https://github.com/elichienxD/deep_gcns_torch).
+For **ogbn-arxiv**, please check this [Repo](https://github.com/elichienxD/deep_gcns_torch).
+<p align="center">
+    <img src="./bar-plot_ogbn-arxiv.png" width=80%>
+</p>
 
-For ogbn-products, please check this [Repo](https://github.com/elichienxD/SAGN_with_SLE).
+For **ogbn-products**, please check this [Repo](https://github.com/elichienxD/SAGN_with_SLE).
+<p align="center">
+    <img src="./bar-plot_ogbn-products.png" width=80%>
+</p>
+
+For **ogbn-papers100M**, please check this [Repo](https://github.com/OctoberChang/GAMLP).
+<p align="center">
+    <img src="./bar-plot_ogbn-papers100M.png" width=80%>
+</p>
 
 
 ## Pre-training with GIANT-XRT
