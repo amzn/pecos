@@ -801,9 +801,9 @@ namespace pecos {
             mem_index_type row_end = row_ptr[row + 1];
 
             mem_index_type write_addr = row_start;
-            index_type parent_read_begin = parent_row_ptr[row];
-            index_type parent_read_end = parent_row_ptr[row + 1];
-            for (index_type parent_read_addr = parent_read_begin; parent_read_addr < parent_read_end;
+            mem_index_type parent_read_begin = parent_row_ptr[row];
+            mem_index_type parent_read_end = parent_row_ptr[row + 1];
+            for (mem_index_type parent_read_addr = parent_read_begin; parent_read_addr < parent_read_end;
                 ++parent_read_addr) {
                 compute_queries[parent_read_addr].row = row;
                 compute_queries[parent_read_addr].chunk = parent_col_idx[parent_read_addr];
@@ -994,7 +994,7 @@ namespace pecos {
         mem_index_type* row_ptr = new mem_index_type[rows + 1];
         row_ptr[0] = 0;
         for (index_type row = 0; row < rows; ++row) {
-            index_type row_nnz = 0;
+            mem_index_type row_nnz = 0;
 
             mem_index_type row_start = csr_pred.row_ptr[row];
             mem_index_type row_end = csr_pred.row_ptr[row + 1];
@@ -1072,7 +1072,7 @@ namespace pecos {
 
         // X_permutation is used to rearrange the elements so that the top k in
         // value are at the beginning of every row.
-        std::vector<index_type> X_permutation(X.get_nnz());
+        std::vector<mem_index_type> X_permutation(X.get_nnz());
 
 #pragma omp parallel for schedule(dynamic,2)
         for (index_type row = 0; row < rows; ++row) {
@@ -1091,7 +1091,7 @@ namespace pecos {
             }
 
             // A compare function to sort elements in this row by value
-            auto comp = [vals](const index_type i, const index_type j) {
+            auto comp = [vals](const mem_index_type i, const mem_index_type j) {
                 if (vals[i] == vals[j]) {
                     // Break ties by column index. Technically this is arbitrary,
                     // but we need this to pass the tests.
@@ -1112,7 +1112,7 @@ namespace pecos {
             std::sort(&X_permutation[source_row_start], &X_permutation[source_row_start + copy_size], comp);
 
             // Copy all selected entries
-            for (index_type i = 0; i < copy_size; ++i, ++target_write_head, ++source_read_head) {
+            for (mem_index_type i = 0; i < copy_size; ++i, ++target_write_head, ++source_read_head) {
                 new_val[target_write_head] = X.val[X_permutation[source_read_head]];
                 new_col_idx[target_write_head] = X.col_idx[X_permutation[source_read_head]];
             }
