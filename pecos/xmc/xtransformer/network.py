@@ -28,6 +28,10 @@ from transformers import (
     XLNetModel,
     XLNetPreTrainedModel,
     XLNetTokenizerFast,
+    DistilBertModel,
+    DistilBertConfig,
+    DistilBertTokenizerFast,
+    DistilBertPreTrainedModel,
 )
 from transformers.file_utils import add_start_docstrings
 from transformers.modeling_utils import SequenceSummary
@@ -41,6 +45,10 @@ from transformers.models.xlm_roberta.modeling_xlm_roberta import XLM_ROBERTA_STA
 from transformers.models.xlnet.modeling_xlnet import (
     XLNET_INPUTS_DOCSTRING,
     XLNET_START_DOCSTRING,
+)
+from transformers.models.distilbert.modeling_distilbert import (
+    DISTILBERT_INPUTS_DOCSTRING,
+    DISTILBERT_START_DOCSTRING,
 )
 
 
@@ -417,6 +425,72 @@ class XLNetForXMC(XLNetPreTrainedModel):
         }
 
 
+@add_start_docstrings(
+    """DistilBert Model with mutli-label classification head on top for XMC.\n""",
+    DISTILBERT_START_DOCSTRING,
+)
+class DistilBertForXMC(DistilBertPreTrainedModel):
+    """
+    Examples:
+        tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+        model = DistilBertForXMC.from_pretrained('distilbert-base-uncased')
+        input_ids = torch.tensor(tokenizer.encode("iphone 11 case", add_special_tokens=True)).unsqueeze(0)
+        outputs = model(input_ids)
+        last_hidden_states = outputs["hidden_states"]
+    """
+
+    def __init__(self, config):
+        super(DistilBertForXMC, self).__init__(config)
+        self.num_labels = config.num_labels
+
+        self.distilbert = DistilBertModel(config)
+        self.dropout = nn.Dropout(config.dropout)
+
+        self.init_weights()
+
+    def init_from(self, model):
+        self.distilbert = model.distilbert
+
+    @add_start_docstrings(DISTILBERT_INPUTS_DOCSTRING.format("(batch_size, sequence_length)"))
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        label_embedding=None,
+    ):
+        r"""
+        Returns:
+          :obj:`dict` containing:
+                {'logits': (:obj:`torch.FloatTensor` of shape (batch_size, num_labels)) pred logits for each label,
+                 'pooled_output': (:obj:`torch.FloatTensor` of shape (batch_size, hidden_dim)) input sequence embedding vector,
+                 'hidden_states': (:obj:`torch.FloatTensor` of shape (batch_size, sequence_length, hidden_dim)) the last layer hidden states,
+                }
+        """
+        outputs = self.distilbert(
+            input_ids,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            return_dict=True,
+        )
+        pooled_output = self.dropout(outputs.last_hidden_state[:, 0, :])
+        instance_hidden_states = outputs.last_hidden_state
+        logits = None
+        if label_embedding is not None:
+            W_act, b_act = label_embedding
+            W_act = W_act.to(pooled_output.device)
+            b_act = b_act.to(pooled_output.device)
+            logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
+        return {
+            "logits": logits,
+            "pooled_output": pooled_output,
+            "hidden_states": instance_hidden_states,
+        }
+
+
 ENCODER_CLASSES = {
     "bert": TransformerModelClass(BertConfig, BertForXMC, BertTokenizerFast),
     "roberta": TransformerModelClass(RobertaConfig, RobertaForXMC, RobertaTokenizerFast),
@@ -424,4 +498,7 @@ ENCODER_CLASSES = {
         XLMRobertaConfig, XLMRobertaForXMC, XLMRobertaTokenizerFast
     ),
     "xlnet": TransformerModelClass(XLNetConfig, XLNetForXMC, XLNetTokenizerFast),
+    "distilbert": TransformerModelClass(
+        DistilBertConfig, DistilBertForXMC, DistilBertTokenizerFast
+    ),
 }
