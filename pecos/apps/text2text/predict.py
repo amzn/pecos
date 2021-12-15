@@ -61,8 +61,9 @@ def parse_arguments():
         "-k",
         "--only-topk",
         type=int,
-        default=20,
-        help="Output top-k items for each input (default 20)",
+        default=None,
+        metavar="INT",
+        help="override the only topk specified in the model (default None to disable overriding)",
     )
 
     parser.add_argument(
