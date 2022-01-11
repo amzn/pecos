@@ -1030,7 +1030,10 @@ class HierarchicalMLModel(pecos.BaseClass):
         def __add__(self, other):
             if not isinstance(other, HierarchicalMLModel.PredParams):
                 other = HierarchicalMLModel.PredParams(other)
-            ret_model_chain = self.model_chain + other.model_chain
+
+            # one is list, the other is tuple
+            ret_model_chain = tuple(self.model_chain) + tuple(other.model_chain)
+
             return HierarchicalMLModel.PredParams(model_chain=ret_model_chain)
 
         def __getitem__(self, key):
@@ -1116,13 +1119,18 @@ class HierarchicalMLModel(pecos.BaseClass):
             else:
                 self.model_chain = [model_chain]
 
-        if pred_params is None:
+        if pred_params is None and not isinstance(self.model_chain, int):
+            # If pred params not provided, and model chain is a python object,
+            # copy from model chain
             pred_params = self.PredParams(
-                model_chain=[MLModel.PredParams() for _ in range(len(self.model_chain))],
+                model_chain=[model.get_pred_params() for model in self.model_chain]
             )
         else:
-            pred_params = pred_params.from_dict(pred_params)
+            # If pred params provided, or not provided but model chain is a C++ object,
+            # initialize with default
+            pred_params = self.PredParams.from_dict(pred_params)
         pred_params.override_with_kwargs(kwargs.get("pred_kwargs", None))
+
         self.pred_params = pred_params
         self.is_predict_only = is_predict_only
 
