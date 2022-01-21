@@ -1,5 +1,5 @@
 data=$1
-data_dir="./xmc-base/${data_name}/"
+data_dir="./xmc-base/${data}/"
 
 if [ ${data} == "eurlex-4k" ]; then
 	models=(bert roberta xlnet)
