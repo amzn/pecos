@@ -66,7 +66,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--max-pred-chunk",
-        default=10 ** 7,
+        default=10**7,
         metavar="INT",
         type=int,
         help="Max number of instances to predict on at once, set to avoid OOM. Set to None to predict on all instances at once. Default 10^7",

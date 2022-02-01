@@ -492,7 +492,7 @@ class XLinearModel(pecos.BaseClass):
         if (pred_params is not None) and (not isinstance(pred_params, self.PredParams)):
             raise TypeError("type(pred_kwargs) is not supported")
 
-        max_pred_chunk = kwargs.get("max_pred_chunk", 10 ** 7)
+        max_pred_chunk = kwargs.get("max_pred_chunk", 10**7)
         if not isinstance(max_pred_chunk, (int, None)):
             raise TypeError("type(max_pred_chunk) is not supported.")
 

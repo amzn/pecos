@@ -85,7 +85,7 @@ class HingeLoss(nn.Module):
 
         # Hinge loss
         loss = F.relu(self.margin - y_new * z)
-        loss = loss ** self.power
+        loss = loss**self.power
         # if y = [1, 4, 0, 0]
         if self.cost_weighted:
             # weight = [1, 4, 1, 1]
