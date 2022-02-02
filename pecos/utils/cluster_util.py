@@ -353,6 +353,7 @@ def hierarchical_kmeans(
         clusters_big.append(np.arange(feat_mat.shape[0]))
     else:
         clusters_small.append(np.arange(feat_mat.shape[0]))
+    threads = threads if threads > 0 else mp.cpu_count()
 
     while len(clusters_big) > 0:
         # Do balanced clustering beyond imbalanced_depth to ensure reasonably timely termination
@@ -364,20 +365,16 @@ def hierarchical_kmeans(
         cols_big, cols_small = [], [x + len(clusters_big) for x in range(len(clusters_small))]
         seeds = [(random.randint(s), random.randint(1, s)) for s in map(len, clusters_big)]
         min_sizes = [int(s * (0.5 - imbalanced_ratio)) for s in map(len, clusters_big)]
-
-        with mp.Pool(threads if threads > 0 else mp.cpu_count()) as p:
-            for col, child_clusters in enumerate(
-                p.starmap(
-                    run_kmeans,
-                    zip(
-                        clusters_big,
-                        *map(list, zip(*seeds)),
-                        min_sizes,
-                        repeat(kmeans_max_iter),
-                        repeat(spherical),
-                    ),
-                )
-            ):
+        zip_args = zip(
+            clusters_big,
+            *map(list, zip(*seeds)),
+            min_sizes,
+            repeat(kmeans_max_iter),
+            repeat(spherical),
+        )
+        local_threads = min(threads, len(clusters_big))
+        with mp.Pool(local_threads) as p:
+            for col, child_clusters in enumerate(p.starmap(run_kmeans, zip_args)):
                 for cluster in child_clusters:
                     if len(cluster) > max_leaf_size:
                         new_clusters_big.append(cluster)

@@ -584,7 +584,7 @@ class XTransformer(pecos.BaseClass):
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
         use_gpu = kwargs.get("use_gpu", True)
-        max_pred_chunk = kwargs.get("max_pred_chunk", 10 ** 7)
+        max_pred_chunk = kwargs.get("max_pred_chunk", 10**7)
         device, n_gpu = torch_util.setup_device(use_gpu)
 
         # get the override pred_params
@@ -668,7 +668,7 @@ class XTransformer(pecos.BaseClass):
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
         use_gpu = kwargs.get("use_gpu", True)
-        max_pred_chunk = kwargs.get("max_pred_chunk", 10 ** 7)
+        max_pred_chunk = kwargs.get("max_pred_chunk", 10**7)
         device, n_gpu = torch_util.setup_device(use_gpu)
 
         # get the override pred_params

@@ -148,7 +148,7 @@ class HierarchicalKMeans(Indexer):
                 )
 
             depth = max(1, int(math.ceil(math.log2(nr_instances / train_params.max_leaf_size))))
-            if (2 ** depth) > nr_instances:
+            if (2**depth) > nr_instances:
                 raise ValueError(
                     f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {nr_instances} to avoid empty clusters"
                 )

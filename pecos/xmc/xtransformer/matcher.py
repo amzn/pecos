@@ -681,7 +681,7 @@ class TransformerMatcher(pecos.BaseClass):
             )
 
         nr_inst = X_text["input_ids"].shape[0]
-        max_pred_chunk = kwargs.pop("max_pred_chunk", 10 ** 7)
+        max_pred_chunk = kwargs.pop("max_pred_chunk", 10**7)
 
         if max_pred_chunk is None or max_pred_chunk >= nr_inst:
             label_pred, embeddings = self._predict(

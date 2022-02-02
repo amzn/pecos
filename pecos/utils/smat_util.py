@@ -304,7 +304,7 @@ def dense_to_csr(dense, topk=None, batch=None):
         csr_matrix that has topk nnz each row with the same shape as dense.
     """
 
-    BATCH_LIMIT = 10 ** 5
+    BATCH_LIMIT = 10**5
 
     if topk is None:
         keep_topk = dense.shape[1]

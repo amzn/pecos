@@ -87,7 +87,7 @@ def test_hierarchical_kmeans():
     from pecos.utils.cluster_util import hierarchical_kmeans
 
     X = smat.csr_matrix([[1, 1, 0, 0], [1, 1, 0, 0], [0, 0, 1, 1], [0, 0, 1, 1]])
-    cluster_chain = hierarchical_kmeans(X, max_leaf_size=2, seed=0, threads=-1)
+    cluster_chain = hierarchical_kmeans(X, max_leaf_size=2, seed=0, threads=1)
     C1_res = np.array([[1.0, 0], [1.0, 0], [0, 1.0], [0, 1.0]])
     C0_res = np.array([[1.0], [1.0]])
     for pred, res in zip(cluster_chain, [C0_res, C1_res]):
