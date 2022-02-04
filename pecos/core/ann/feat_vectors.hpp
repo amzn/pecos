@@ -145,7 +145,16 @@ namespace ann {
 
     // =============== Various Distance Functions defined for FeatVecDense/FeatVecDensePtr ================
 
-    inline float do_dot_product_simd_sse(const float *x, const float *y, size_t len) {
+    __attribute__((__target__("default")))
+    inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
+        float sum = 0;
+        for(size_t i = 0; i < len; i++) {
+            sum += x[i] * y[i];
+        }
+        return sum;
+    }
+    __attribute__((__target__("sse")))
+    inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
         size_t len16  = len / 16;
         size_t len4  = len / 4;
         const float *x_end16 = x + 16 * len16;
@@ -187,8 +196,8 @@ namespace ann {
         }
         return sum;
     }
-
-    inline float do_dot_product_simd_avx(const float *x, const float *y, size_t len) {
+    __attribute__((__target__("avx")))
+    inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
         size_t len16  = len / 16;
         size_t len4  = len / 4;
         const float *x_end16 = x + 16 * len16;
@@ -224,8 +233,55 @@ namespace ann {
         }
         return sum;
     }
+    __attribute__((__target__("avx512f")))
+    inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
+        size_t len16  = len / 16;
+        size_t len4  = len / 4;
+        const float *x_end16 = x + 16 * len16;
+        const float *x_end4 = x + 4 * len4;
+        const float *x_end = x + len;
 
-    inline float do_l2_distance_simd_sse(const float *x, const float *y, size_t len) {
+        __m512  v1_512, v2_512;
+        __m512  sum_prod_512 = _mm512_set1_ps(0);
+
+        while(x < x_end16) {
+            v1_512 = _mm512_loadu_ps(x); x += 16;
+            v2_512 = _mm512_loadu_ps(y); y += 16;
+            sum_prod_512 = _mm512_add_ps(sum_prod_512, _mm512_mul_ps(v1_512, v2_512));
+        }
+        __m128 v1_128, v2_128;
+        __m128 sum_prod_128 = _mm_add_ps(
+            _mm_add_ps(_mm512_extractf32x4_ps(sum_prod_512, 0), _mm512_extractf32x4_ps(sum_prod_512, 1)),
+            _mm_add_ps(_mm512_extractf32x4_ps(sum_prod_512, 2), _mm512_extractf32x4_ps(sum_prod_512, 3))
+        );
+
+        while(x < x_end4) {
+            v1_128 = _mm_loadu_ps(x); x += 4;
+            v2_128 = _mm_loadu_ps(y); y += 4;
+            sum_prod_128 = _mm_add_ps(sum_prod_128, _mm_mul_ps(v1_128, v2_128));
+        }
+        float PORTABLE_ALIGN32 tmp_sum[4];
+        _mm_store_ps(tmp_sum, sum_prod_128);
+        float sum = tmp_sum[0] + tmp_sum[1] + tmp_sum[2] + tmp_sum[3];
+        while(x < x_end) {
+            sum += (*x) * (*y);
+            x++;
+            y++;
+        }
+        return sum;
+    }
+
+    __attribute__((__target__("default")))
+    inline float do_l2_distance_simd(const float *x, const float *y, size_t len) {
+        float sum = 0.0;
+        for(size_t i = 0; i < len; i++) {
+            float diff = x[i] - y[i];
+            sum += diff * diff;
+        }
+        return sum;
+    }
+    __attribute__((__target__("sse")))
+    inline float do_l2_distance_simd(const float *x, const float *y, size_t len) {
         size_t len16  = len / 16;
         size_t len4  = len / 4;
         const float *x_end16 = x + 16 * len16;
@@ -275,8 +331,8 @@ namespace ann {
         }
         return sum;
     }
-
-    inline float do_l2_distance_simd_avx(const float *x, const float *y, size_t len) {
+    __attribute__((__target__("avx")))
+    inline float do_l2_distance_simd(const float *x, const float *y, size_t len) {
         size_t len16  = len / 16;
         size_t len4  = len / 4;
         const float *x_end16 = x + 16 * len16;
@@ -317,6 +373,47 @@ namespace ann {
         }
         return sum;
     }
+    __attribute__((__target__("avx512f")))
+    inline float do_l2_distance_simd(const float *x, const float *y, size_t len) {
+        size_t len16  = len / 16;
+        size_t len4  = len / 4;
+        const float *x_end16 = x + 16 * len16;
+        const float *x_end4 = x + 4 * len4;
+        const float *x_end = x + len;
+
+        __m512  v1_512, v2_512, diff_512;
+        __m512  sum_prod_512 = _mm512_set1_ps(0);
+
+        while(x < x_end16) {
+            v1_512 = _mm512_loadu_ps(x); x += 16;
+            v2_512 = _mm512_loadu_ps(y); y += 16;
+            diff_512 = _mm512_sub_ps(v1_512, v2_512);
+            sum_prod_512 = _mm512_add_ps(sum_prod_512, _mm512_mul_ps(diff_512, diff_512));
+        }
+
+        __m128 v1_128, v2_128, diff_128;
+        __m128 sum_prod_128 = _mm_add_ps(
+            _mm_add_ps(_mm512_extractf32x4_ps(sum_prod_512, 0), _mm512_extractf32x4_ps(sum_prod_512, 1)),
+            _mm_add_ps(_mm512_extractf32x4_ps(sum_prod_512, 2), _mm512_extractf32x4_ps(sum_prod_512, 3))
+        );
+
+        while(x < x_end4) {
+            v1_128 = _mm_loadu_ps(x); x += 4;
+            v2_128 = _mm_loadu_ps(y); y += 4;
+            diff_128 = _mm_sub_ps(v1_128, v2_128);
+            sum_prod_128 = _mm_add_ps(sum_prod_128, _mm_mul_ps(diff_128, diff_128));
+        }
+        float PORTABLE_ALIGN32 tmp_sum[4];
+        _mm_store_ps(tmp_sum, sum_prod_128);
+        float sum = tmp_sum[0] + tmp_sum[1] + tmp_sum[2] + tmp_sum[3];
+        while(x < x_end) {
+            float diff = (*x) - (*y);
+            sum += diff * diff;
+            x++;
+            y++;
+        }
+        return sum;
+    }
 
     template<class VAL_T>
     struct FeatVecDenseIPSimd : FeatVecDense<VAL_T> {
@@ -324,7 +421,7 @@ namespace ann {
         using feat_vec_t::feat_vec_t;
         static VAL_T distance(const feat_vec_t& x, const feat_vec_t& y) {
             size_t feat_dim = x.len;
-            return 1.0 - do_dot_product_simd_avx(x.val, y.val, feat_dim);
+            return 1.0 - do_dot_product_simd(x.val, y.val, feat_dim);
         }
     };
 
@@ -334,7 +431,7 @@ namespace ann {
         using feat_vec_t::feat_vec_t;
         static VAL_T distance(const feat_vec_t& x, const feat_vec_t& y) {
             size_t feat_dim = x.len;
-            return 1.0 - do_dot_product_simd_avx(x.val, y.val, feat_dim);
+            return 1.0 - do_dot_product_simd(x.val, y.val, feat_dim);
         }
     };
 
@@ -344,7 +441,7 @@ namespace ann {
         using feat_vec_t::feat_vec_t;
         static VAL_T distance(const feat_vec_t& x, const feat_vec_t& y) {
             size_t feat_dim = x.len;
-            return do_l2_distance_simd_avx(x.val, y.val, feat_dim);
+            return do_l2_distance_simd(x.val, y.val, feat_dim);
         }
     };
 
@@ -354,11 +451,106 @@ namespace ann {
         using feat_vec_t::feat_vec_t;
         static VAL_T distance(const feat_vec_t& x, const feat_vec_t& y) {
             size_t feat_dim = x.len;
-            return do_l2_distance_simd_avx(x.val, y.val, feat_dim);
+            return do_l2_distance_simd(x.val, y.val, feat_dim);
         }
     };
 
     // =============== Various Distance Functions defined for FeatVecSparse/FeatVecSparsePtr ================
+
+    template<uint64_t step=4>
+    inline float do_dot_product_sparse_block(
+        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
+        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
+
+        size_t i_a = 0, i_b = 0;
+        float ret = 0;
+
+        // trim lengths to be a multiple of step
+        size_t st_a = (s_a / step) * step;
+        size_t st_b = (s_b / step) * step;
+
+        if(i_a < st_a && i_b < st_b) {
+            while (true) {
+                uint64_t PORTABLE_ALIGN32 a[step];
+                uint64_t PORTABLE_ALIGN32 b[step];
+
+                for(auto i = 0u; i < step; i++) {
+                    a[i] = A[i_a + i];
+                    b[i] = B[i_b + i];
+                }
+
+                auto* xx = x + i_a;
+                auto* yy = y + i_b;
+
+                for(auto i = 0u; i < step; i++){
+                    for(auto j = 0u; j < step; j++){
+                        if(a[i] == b[j]) {
+                            ret += xx[i] * yy[j];
+                            break;
+                        }
+                    }
+                }
+
+
+                // move block based on the last element in both sub arrays
+                if (a[step - 1] <= b[step - 1]) {
+                    i_a += step;
+                    if (i_a == st_a) {
+                        break;
+                    }
+                }
+                if (a[step - 1] >= b[step - 1]) {
+                    i_b += step;
+                    if (i_b == st_b) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if(i_a < s_a && i_b < s_b) {
+            // intersect the tail using scalar intersection
+            while(1) {
+                while(A[i_a] < B[i_b]) {
+                    if(++i_a == s_a) {
+                        return ret;
+                    }
+                }
+                while(B[i_b] < A[i_a]) {
+                    if(++i_b == s_b) {
+                        return ret;
+                    }
+                }
+                if(A[i_a] == B[i_b]) {
+                    ret += x[i_a] * y[i_b];
+                    if(++i_a == s_a || ++i_b == s_b) {
+                        return ret;
+                    }
+                }
+            }
+        }
+
+        return ret;
+    }
+
+    template<uint64_t step=4>
+    inline float do_l2_distance_sparse_block(
+        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
+        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
+
+        float x_sq = do_l2_distance_simd(x, x, s_a);
+        float y_sq = do_l2_distance_simd(y, y, s_b);
+        return x_sq + y_sq - 2.0 * do_dot_product_sparse_block<step>(s_a, x, A, s_b, y, B);
+    }
+
+    __attribute__((__target__("default")))
+    inline float do_dot_product_sparse_simd(
+        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
+        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
+        return do_dot_product_sparse_block<4>(s_a, x, A, s_b, y, B);
+    }
+
+    __attribute__((__target__("avx")))
     inline float do_dot_product_sparse_simd(
         const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
         const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
@@ -487,95 +679,9 @@ namespace ann {
     inline float do_l2_distance_sparse_simd(
         const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
         const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
-        float x_sq = do_l2_distance_simd_avx(x, x, s_a);
-        float y_sq = do_l2_distance_simd_avx(y, y, s_b);
+        float x_sq = do_l2_distance_simd(x, x, s_a);
+        float y_sq = do_l2_distance_simd(y, y, s_b);
         return x_sq + y_sq - 2.0 * do_dot_product_sparse_simd(s_a, x, A, s_b, y, B);
-    }
-
-    template<uint64_t step=4>
-    inline float do_dot_product_sparse_block(
-        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
-        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
-
-        size_t i_a = 0, i_b = 0;
-        float ret = 0;
-
-        // trim lengths to be a multiple of step
-        size_t st_a = (s_a / step) * step;
-        size_t st_b = (s_b / step) * step;
-
-        if(i_a < st_a && i_b < st_b) {
-            while (true) {
-                uint64_t PORTABLE_ALIGN32 a[step];
-                uint64_t PORTABLE_ALIGN32 b[step];
-
-                for(auto i = 0u; i < step; i++) {
-                    a[i] = A[i_a + i];
-                    b[i] = B[i_b + i];
-                }
-
-                auto* xx = x + i_a;
-                auto* yy = y + i_b;
-
-                for(auto i = 0u; i < step; i++){
-                    for(auto j = 0u; j < step; j++){
-                        if(a[i] == b[j]) {
-                            ret += xx[i] * yy[j];
-                            break;
-                        }
-                    }
-                }
-
-
-                // move block based on the last element in both sub arrays
-                if (a[step - 1] <= b[step - 1]) {
-                    i_a += step;
-                    if (i_a == st_a) {
-                        break;
-                    }
-                }
-                if (a[step - 1] >= b[step - 1]) {
-                    i_b += step;
-                    if (i_b == st_b) {
-                        break;
-                    }
-                }
-            }
-        }
-
-        if(i_a < s_a && i_b < s_b) {
-            // intersect the tail using scalar intersection
-            while(1) {
-                while(A[i_a] < B[i_b]) {
-                    if(++i_a == s_a) {
-                        return ret;
-                    }
-                }
-                while(B[i_b] < A[i_a]) {
-                    if(++i_b == s_b) {
-                        return ret;
-                    }
-                }
-                if(A[i_a] == B[i_b]) {
-                    ret += x[i_a] * y[i_b];
-                    if(++i_a == s_a || ++i_b == s_b) {
-                        return ret;
-                    }
-                }
-            }
-        }
-
-        return ret;
-    }
-
-    template<uint64_t step=4>
-    inline float do_l2_distance_sparse_block(
-        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
-        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
-
-        float x_sq = do_l2_distance_simd_avx(x, x, s_a);
-        float y_sq = do_l2_distance_simd_avx(y, y, s_b);
-        return x_sq + y_sq - 2.0 * do_dot_product_sparse_block<step>(s_a, x, A, s_b, y, B);
     }
 
     template<class IDX_T, class VAL_T>
@@ -653,8 +759,8 @@ namespace ann {
         typedef FeatVecSparse<IDX_T, VAL_T> feat_vec_t;
         using feat_vec_t::feat_vec_t;
         static VAL_T distance(const feat_vec_t& x, const feat_vec_t& y) {
-            float x_sq = do_l2_distance_simd_avx(x.val, x.val, x.len);
-            float y_sq = do_l2_distance_simd_avx(y.val, y.val, y.len);
+            float x_sq = do_l2_distance_simd(x.val, x.val, x.len);
+            float y_sq = do_l2_distance_simd(y.val, y.val, y.len);
             return x_sq + y_sq + 2 * FeatVecSparseIPMp<IDX_T, VAL_T>::distance(x, y) - 2.0;
         }
     };
@@ -714,8 +820,8 @@ namespace ann {
         typedef FeatVecSparse<IDX_T, VAL_T> feat_vec_t;
         using feat_vec_t::feat_vec_t;
         static VAL_T distance(const FeatVecSparse<IDX_T, VAL_T>& x, const FeatVecSparse<IDX_T, VAL_T>& y) {
-            float x_sq = do_l2_distance_simd_avx(x.val, x.val, x.len);
-            float y_sq = do_l2_distance_simd_avx(y.val, y.val, y.len);
+            float x_sq = do_l2_distance_simd(x.val, x.val, x.len);
+            float y_sq = do_l2_distance_simd(y.val, y.val, y.len);
             return x_sq + y_sq + 2 * FeatVecSparseIPBs<IDX_T, VAL_T>::distance(x, y) - 2.0;
         }
     };
