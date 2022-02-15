@@ -29,7 +29,7 @@ Given an input, PECOS identifies a small set (10-100) of relevant outputs from a
 
 ## Requirements and Installation
 
-* Python (>=3.6)
+* Python (>=3.6, <=3.9)
 * Pip (>=19.3)
 
 See other dependencies in [`setup.py`](https://github.com/amzn/pecos/blob/mainline/setup.py#L135)
