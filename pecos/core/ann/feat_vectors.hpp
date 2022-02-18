@@ -12,6 +12,13 @@
  */
 
 #pragma once
+#if defined(__x86_64__) || defined(__amd64__) || defined(_M_IX86) || defined(_M_X64)
+#define PLATFORM__X86
+#elif defined(__aarch64__)
+#define PLATFORM__ARM64
+#endif
+
+
 #ifndef NO_MANUAL_VECTORIZATION
 #ifdef __SSE__
 #define USE_SSE
@@ -28,13 +35,14 @@
 #else
 #include <x86intrin.h>
 #endif
+#endif
 
 #if defined(__GNUC__)
 #define PORTABLE_ALIGN32 __attribute__((aligned(32)))
 #else
 #define PORTABLE_ALIGN32 __declspec(align(32))
 #endif
-#endif
+
 
 namespace pecos {
 
@@ -145,6 +153,7 @@ namespace ann {
 
     // =============== Various Distance Functions defined for FeatVecDense/FeatVecDensePtr ================
 
+    #if defined(PLATFORM__X86)
     __attribute__((__target__("default")))
     inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
         float sum = 0;
@@ -414,6 +423,41 @@ namespace ann {
         }
         return sum;
     }
+    #elif defined(PLATFORM__ARM64)
+    // Placeholder for now
+    inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
+        float sum = 0;
+        for(size_t i = 0; i < len; i++) {
+            sum += x[i] * y[i];
+        }
+        return sum;
+    }
+    inline float do_l2_distance_simd(const float *x, const float *y, size_t len) {
+        float sum = 0.0;
+        for(size_t i = 0; i < len; i++) {
+            float diff = x[i] - y[i];
+            sum += diff * diff;
+        }
+        return sum;
+    }
+    #else
+    // Fall back to vanilla implementation
+    inline float do_dot_product_simd(const float *x, const float *y, size_t len) {
+        float sum = 0;
+        for(size_t i = 0; i < len; i++) {
+            sum += x[i] * y[i];
+        }
+        return sum;
+    }
+    inline float do_l2_distance_simd(const float *x, const float *y, size_t len) {
+        float sum = 0.0;
+        for(size_t i = 0; i < len; i++) {
+            float diff = x[i] - y[i];
+            sum += diff * diff;
+        }
+        return sum;
+    }
+    #endif
 
     template<class VAL_T>
     struct FeatVecDenseIPSimd : FeatVecDense<VAL_T> {
@@ -543,6 +587,7 @@ namespace ann {
         return x_sq + y_sq - 2.0 * do_dot_product_sparse_block<step>(s_a, x, A, s_b, y, B);
     }
 
+    #if defined(PLATFORM__X86)
     __attribute__((__target__("default")))
     inline float do_dot_product_sparse_simd(
         const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
@@ -675,6 +720,19 @@ namespace ann {
         }
         return ret;
     }
+    #elif defined(PLATFORM__ARM64)
+    inline float do_dot_product_sparse_simd(
+        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
+        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
+        return do_dot_product_sparse_block<4>(s_a, x, A, s_b, y, B);
+    }
+    #else
+    inline float do_dot_product_sparse_simd(
+        const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
+        const size_t s_b, const float * __restrict__ y, const uint32_t * __restrict__ B) {
+        return do_dot_product_sparse_block<4>(s_a, x, A, s_b, y, B);
+    }
+    #endif
 
     inline float do_l2_distance_sparse_simd(
         const size_t s_a, const float * __restrict__ x, const uint32_t * __restrict__ A,
