@@ -1,0 +1,35 @@
+name: Python Unit Tests aarch64
+
+on: [push, pull_request]
+
+jobs:
+  Ubuntu-Python-Unit-Test:
+    name: Ubuntu 18.04 Python3.6 Unit Tests
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+      with:
+        platforms: all
+
+    - name: Check QEMU Simulator
+      uses: docker://arm64v8/ubuntu:18.04
+      with:
+        args: 'uname -a'
+
+    - name: Install dependencies and Pytest
+      uses: docker://arm64v8/ubuntu:18.04
+      with:
+        args: >
+          bash -c
+          "apt-get update &&
+          apt-get install -y build-essential git python3 python3-distutils libopenblas-dev wget &&
+          wget https://bootstrap.pypa.io/pip/3.6/get-pip.py &&
+          python3 get-pip.py &&
+          python3 -m pip install --upgrade pip &&
+          make libpecos VFLAG=-v WARN_AS_ERROR=True &&
+          make test VFLAG=-v WARN_AS_ERROR=True"
