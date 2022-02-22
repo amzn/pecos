@@ -10,12 +10,17 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [3.6, 3.7, 3.8, 3.9]
-        build_platform: ["manylinux2014_x86_64"]
+        build_platform: ["manylinux2014_x86_64", "manylinux2014_aarch64"]
 
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v1
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+      with:
+        platforms: all
 
     - name: Build Wheel
       env:

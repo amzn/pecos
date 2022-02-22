@@ -14,7 +14,23 @@ echo "pip: $($PIP --version)"
 # Install dependencies
 echo "Install dependencies..."
 $PIP install setuptools wheel twine auditwheel
-yum install -y openblas-devel
+
+# Install OpenBLAS
+if [ "$PLAT" = "manylinux2014_x86_64" ]; then
+   yum install -y openblas-devel
+elif [ "$PLAT" = "manylinux2014_aarch64" ]; then
+   yum install wget -y
+   # From Numpy pre-build OpenBLAS v0.3.19 on Anaconda
+   # Refer to: https://github.com/MacPython/openblas-libs
+   # OpenBLAS64 is for ILP64, which is not our case
+   # See Numpy OpenBLAS downloader:
+   # https://github.com/mattip/numpy/blob/1edb44669f9acddebd92df794ca9731fd92f4e06/tools/openblas_support.py#L49
+   wget https://anaconda.org/multibuild-wheels-staging/openblas-libs/v0.3.19-22-g5188aede/download/openblas-v0.3.19-22-g5188aede-manylinux2014_aarch64.tar.gz
+   tar -xvf openblas-v0.3.19-22-g5188aede-manylinux2014_aarch64.tar.gz
+else
+   echo "$PLAT not supported."
+   exit 1
+fi
 
 
 # Build wheel
