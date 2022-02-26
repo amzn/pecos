@@ -120,19 +120,19 @@ PECOS also offers optimized C++ implementation for fast real-time inference
 
 If you find PECOS useful, please consider citing the following paper:
 
-* [PECOS: Prediction for Enormous and Correlated Output Spaces (Yu et al., 2020)](https://arxiv.org/pdf/2010.05878.pdf) [[bib]](./bibtex/yu2020pecos.bib)
+* [PECOS: Prediction for Enormous and Correlated Output Spaces (Yu et al., JMLR 2022)](https://arxiv.org/pdf/2010.05878.pdf) [[bib]](./bibtex/yu2020pecos.bib)
 
 Some papers from our group using PECOS:
 
-* [Node Feature Extraction by Self-Supervised Multi-scale Neighborhood Prediction (Chien et al., 2021)](https://arxiv.org/pdf/2111.00064.pdf) [[bib]](./bibtex/chien2021node.bib)
+* [Node Feature Extraction by Self-Supervised Multi-scale Neighborhood Prediction (Chien et al., ICLR 2022)](https://arxiv.org/pdf/2111.00064.pdf) [[bib]](./bibtex/chien2021node.bib)
 
-* [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., 2021)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
-
-* [Enabling Efficiency-Precision Trade-offs for Label Trees in Extreme Classification (Baharav et al., 2021)](https://arxiv.org/pdf/2106.00730.pdf) [[bib]](./bibtex/baharav2021enabling.bib)
+* [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., WWW 2022)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
 
 * [Fast Multi-Resolution Transformer Fine-tuning for Extreme Multi-label Text Classification (Zhang et al., NeurIPS 2021)](https://arxiv.org/pdf/2110.00685.pdf) [[bib]](./bibtex/zhang2021fast.bib)
 
 * [Label Disentanglement in Partition-based Extreme Multilabel Classification (Liu et al., NeurIPS 2021)](https://arxiv.org/pdf/2106.12751.pdf) [[bib]](./bibtex/liu2021label.bib)
+
+* [Enabling Efficiency-Precision Trade-offs for Label Trees in Extreme Classification (Baharav et al., CIKM 2021)](https://arxiv.org/pdf/2106.00730.pdf) [[bib]](./bibtex/baharav2021enabling.bib)
 
 * [Extreme Multi-label Learning for Semantic Matching in Product Search (Chang et al., KDD 2021)](https://arxiv.org/pdf/2106.12657.pdf) [[bib]](./bibtex/chang2021extreme.bib)
 
