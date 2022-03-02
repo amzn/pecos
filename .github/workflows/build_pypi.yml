@@ -17,6 +17,11 @@ jobs:
     steps:
     - uses: actions/checkout@v1
 
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v1
+      with:
+        python-version: ${{ matrix.python-version }}
+
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v1
       with:
@@ -33,6 +38,18 @@ jobs:
         --env PLAT=${{ matrix.build_platform }} --env PIP_VER=${{ matrix.python-version }} \
         --env DOCKER_MNT=$DOCKER_MNT --env WHEEL_DIR=$WHEEL_DIR \
         $DOCKER_IMG /bin/bash /$DOCKER_MNT/.github/build_pypi_wheel.sh
+
+    - name: Test Wheel
+      if: matrix.build_platform == 'manylinux2014_x86_64' # Only test for x86, aarch64 simulation too slow
+      env:
+        WHEEL_DIR: wheel # wheel location
+      run: |
+        python3 -m pip install $WHEEL_DIR/$(ls $WHEEL_DIR)
+        mkdir wheel_test
+        cp -r test/ wheel_test/
+        cd wheel_test
+        python3 -m pip install pytest pytest-coverage
+        python3 -m pytest
 
     - name: Check Version Tag
       id: check-ver-tag

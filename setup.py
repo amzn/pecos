@@ -140,7 +140,7 @@ ext_module = setuptools.Extension(
     "pecos.core.libpecos_float32",
     sources=["pecos/core/libpecos.cpp"],
     include_dirs=["pecos/core", "/usr/include/", "/usr/local/include"],
-    libraries=["gomp"] + blas_lib,
+    libraries=["gomp", "gcc"] + blas_lib,
     library_dirs=blas_dir,
     extra_compile_args=["-fopenmp", "-O3", "-std=c++14"] + manual_compile_args,
     extra_link_args=['-Wl,--no-as-needed', f"-Wl,-rpath,{':'.join(blas_dir)}"]
