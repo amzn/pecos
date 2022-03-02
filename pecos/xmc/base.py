@@ -1806,9 +1806,13 @@ class LabelEmbeddingFactory(object):
             "pifa": LabelEmbeddingFactory.pifa,
             "pifa_lf_concat": LabelEmbeddingFactory.pifa_lf_concat,
             "pifa_lf_convex_combine": LabelEmbeddingFactory.pifa_lf_convex_combine,
+            "pii": LabelEmbeddingFactory.pii,
         }
         if method.lower() in mapping:
-            return mapping[method.lower()](Y, X, **kwargs)
+            if method.lower() == "pii":
+                return mapping[method.lower()](Y)
+            else:
+                return mapping[method.lower()](Y, X, **kwargs)
         else:
             assert NotImplementedError(
                 f"Label embedding method '{method}' is not implemented. Valid ones: {mapping.keys()}"
@@ -1952,5 +1956,23 @@ class LabelEmbeddingFactory(object):
             if isinstance(Z, smat.csr_matrix):
                 Z = Z.toarray()
             label_embedding = alpha[:, None] * pifa + alpha_complementary[:, None] * Z
+
+        return label_embedding
+
+    @staticmethod
+    def pii(Y):
+        """Create PII label embedding by normalize along each label.
+
+        Args:
+            Y (smat.spmatrix): label matrix (num_samples x num_labels).
+        Returns:
+            label_embedding (csr_matrix): pii embeddings. (num_labels x num_samples)
+        """
+
+        if not isinstance(Y, smat.spmatrix):
+            raise NotImplementedError("type(Y) should be scipy.sparse.spmatrix")
+
+        label_embedding = Y.T.tocsr(copy=True)
+        label_embedding = normalize(label_embedding, axis=1, norm="l2", copy=False)
 
         return label_embedding

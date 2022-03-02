@@ -734,7 +734,13 @@ def test_reconstruct_model():
     parent_model = model_group["parent_model"]
     child_models_with_ids = model_group["child_models"]
     child_models = [child_model_with_ids[0] for child_model_with_ids in child_models_with_ids]
-    new_xlm = XLinearModel.reconstruct_model(parent_model, child_models)
+
+    parent_leaf_nr = parent_model.model.model_chain[-1].C.shape[0]
+    child_leaf_nr = child_models[0].model.model_chain[-1].C.shape[0]
+    Y_ids_of_child_models = np.array_split(
+        np.arange(int(parent_leaf_nr * child_leaf_nr)), parent_leaf_nr
+    )
+    new_xlm = XLinearModel.reconstruct_model(parent_model, child_models, Y_ids_of_child_models)
 
     assert len(new_xlm.model.model_chain) == 2
     assert new_xlm.model.model_chain[0].C.shape == (2, 1)
