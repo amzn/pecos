@@ -243,3 +243,12 @@ def test_label_embedding():
     assert Lt == approx(
         Lp, abs=1e-6
     ), f"Lt (true label embedding) != Lp (pifa label embedding), where random X is sparse"
+
+    # pii, Y.dtype = csr_matrix
+    Y = np.array([[1, 1, 1, 1, 0], [1, 1, 0, 1, 1], [0, 1, 1, 1, 1]])
+    Y = smat.csr_matrix(Y).astype(np.float32)
+    Lp = LabelEmbeddingFactory.create(Y, method="pii")
+    Lt = normalize(Y.T.tocsr(copy=True), axis=1, norm="l2", copy=False)
+    assert Lt.todense() == approx(
+        Lp.todense(), abs=1e-6
+    ), f"Lt (true label embedding) != Lp (pii label embedding)"
