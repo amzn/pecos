@@ -19,11 +19,29 @@ where
 * `model_folder` is the path to the model folder where the trained model will be saved to, will be created if not exist 
 * `Yp_path` is the path to save the prediction label matrix with shape `(Nt, N)`
 
-For detailed usage, please refer to
+### training parameters
+Most commonly-used training parameters are
+* `--metric-type`: we support two distance metrics, namely `ip` and `l2`, for now.
+* `--max-edge-per-node`: maximum number of edges per node for layer l=1,...,L. For base layer l=0, it becomes 2M (default 32).
+* `--efConstruction`: size of the priority queue when performing best first search during **construction** (default 100).
+
+For more details, please refer to
 ```bash
 python3 -m pecos.ann.hnsw.train --help
+```
+
+### inference parameters
+Most commonly-used training parameters are
+* `--efSearch`: size of the priority queue when performing best first search during **inference** (Default 100).
+* `--only-topk`: maximum number of candidates (**sorted by distances, nearest first**) to be returned (Default 10).
+
+**Remark** For `metric_type=ip`, we define its distance to be `1 - <q,x>`.
+
+For more details, please refer to
+```bash
 python3 -m pecos.ann.hnsw.predict --help
 ```
+
 
 ## Python API examples
 
