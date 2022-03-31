@@ -1,6 +1,6 @@
 # Distributed PECOS eXtreme Multi-label Classification: XLinear
 
-`pecos.distributed.xmc.xlinear` enables distributed training for PECOS XLinear model ([`pecos.xmc.xlinear`](pecos/xmc/xlinear/README.md)).
+`pecos.distributed.xmc.xlinear` enables distributed training for PECOS XLinear model ([`pecos.xmc.xlinear`](../../../xmc/xlinear/README.md)).
 
 
 ## Prerequisites
@@ -80,7 +80,9 @@ You should receive N "Hello, World!" messages from each machine of the cluster.
 ### Basic Command-line Usage
 On the main node:
 ```bash
-mpiexec -f hostfile -n ${NUM_MACHINE} python3 -m pecos.distributed.xmc.xlinear.train -x ${X_PATH} -y ${Y_PATH} -m ${MODEL_DIR}
+mpiexec -f hostfile -n ${NUM_MACHINE} \
+python3 -m pecos.distributed.xmc.xlinear.train \
+-x ${X_PATH} -y ${Y_PATH} -m ${MODEL_DIR}
 ```
 where:
 * `NUM_MACHINE` is the number of machines used for distributed training, should <= number of machines in the cluster.
@@ -95,7 +97,7 @@ For detailed parameters list, please refer to:
 python3 -m pecos.distributed.xmc.xlinear.train --help
 ```
 
-After training the model, you can use [`pecos.xmc.xlinear.predict`](pecos/xmc/xlinear/README.md#basic-command-line-usage) to do inferences.
+After training the model, you can use [`pecos.xmc.xlinear.predict`](../../../xmc/xlinear/README.md#basic-command-line-usage) to do inferences.
 
 The model trained by distributed `pecos.distributed.xmc.xlinear.train` is almost identical to the model trained by single-box `pecos.xmc.xlinear.train`, if not considering the randomness introduced by sub-models. Accordingly, the inference results from distributed and single-box models should also be very similar.
 

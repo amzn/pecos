@@ -4,7 +4,7 @@
 
 Currently the following sub-modules are implemented:
 
-* Distributed X-Linear ([`pecos.distributed.xmc.xlinear`](pecos/distributed/xmc/xlinear/README.md))
+* Distributed X-Linear ([`pecos.distributed.xmc.xlinear`](xmc/xlinear/README.md))
 
 We are working to implement more distributed algorithms for PECOS existing models, please watch out for our newest releases.
 
