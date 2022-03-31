@@ -165,9 +165,10 @@ class HNSW(pecos.BaseClass):
             raise ValueError(f"param.json did not have data_type or metric_type!")
         fn_dict = pecos_clib.ann_hnsw_init(param["data_type"], param["metric_type"])
 
-        if "c_model" not in param:
-            raise ValueError(f"param.json did not have c_model")
-        model_ptr = fn_dict["load"](c_char_p(param["c_model"].encode("utf-8")))
+        c_model_dir = f"{model_folder}/c_model"
+        if not os.path.isdir(c_model_dir):
+            raise ValueError(f"c_model_dir did not exist: {c_model_dir}")
+        model_ptr = fn_dict["load"](c_char_p(c_model_dir.encode("utf-8")))
         pred_params = cls.PredParams.from_dict(param["pred_kwargs"])
         return cls(model_ptr, param["num_item"], param["feat_dim"], fn_dict, pred_params)
 
@@ -185,12 +186,12 @@ class HNSW(pecos.BaseClass):
             "num_item": self.num_item,
             "feat_dim": self.feat_dim,
             "pred_kwargs": self.pred_params.to_dict(),
-            "c_model": f"{model_folder}/c_model",
         }
         param = self.append_meta(param)
         with open("{}/param.json".format(model_folder), "w") as fout:
             fout.write(json.dumps(param, indent=True))
-        self.fn_dict["save"](self.model_ptr, c_char_p(param["c_model"].encode("utf-8")))
+        c_model_dir = f"{model_folder}/c_model"
+        self.fn_dict["save"](self.model_ptr, c_char_p(c_model_dir.encode("utf-8")))
 
     def searchers_create(self, num_searcher=1):
         """create searchers that pre-allocate intermediate variables (e.g., set of visited nodes, priority queues, etc) for HNSW graph search
