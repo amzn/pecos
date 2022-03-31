@@ -13,12 +13,13 @@ import json
 import logging
 import os
 import sys
+import gc
 
 import numpy as np
 from pecos.utils import cli, logging_util, smat_util, torch_util
 from pecos.utils.cluster_util import ClusterChain
 from pecos.utils.featurization.text.preprocess import Preprocessor
-from pecos.xmc import PostProcessor
+from pecos.xmc import PostProcessor, Indexer, LabelEmbeddingFactory
 
 from .matcher import TransformerMatcher
 from .model import XTransformer
@@ -344,14 +345,6 @@ def parse_arguments():
         help="if > 0: set total number of training steps to perform for each sub-task. Overrides num-train-epochs.",
     )
     parser.add_argument(
-        "--steps-scale",
-        nargs="+",
-        type=float,
-        default=None,
-        metavar="FLOAT",
-        help="scale number of transformer fine-tuning steps for each layer. Default None to ignore",
-    )
-    parser.add_argument(
         "--max-no-improve-cnt",
         type=int,
         default=-1,
@@ -407,13 +400,6 @@ def parse_arguments():
         metavar="INT",
         type=int,
         help="Upper limit on labels to put output layer in GPU. Default 65536",
-    )
-    parser.add_argument(
-        "--save-emb-dir",
-        default=None,
-        metavar="PATH",
-        type=str,
-        help="dir to save the final instance embeddings.",
     )
     parser.add_argument(
         "--use-gpu",
@@ -537,8 +523,7 @@ def do_train(args):
     else:
         tst_corpus = None
 
-    # load cluster chain or label features
-    cluster_chain, label_feat = None, None
+    # load cluster chain
     if os.path.exists(args.code_path):
         cluster_chain = ClusterChain.from_partial_chain(
             smat_util.load_matrix(args.code_path),
@@ -554,6 +539,15 @@ def do_train(args):
                     label_feat.shape, args.label_feat_path
                 )
             )
+        else:
+            label_feat = LabelEmbeddingFactory.pifa(Y_trn, X_trn)
+
+        cluster_chain = Indexer.gen(
+            label_feat,
+            train_params=train_params.preliminary_indexer_params,
+        )
+        del label_feat
+        gc.collect()
 
     trn_prob = MLProblemWithText(trn_corpus, Y_trn, X_feat=X_trn)
     if all(v is not None for v in [tst_corpus, Y_tst]):
@@ -568,8 +562,6 @@ def do_train(args):
         train_params=train_params,
         pred_params=pred_params,
         beam_size=args.beam_size,
-        steps_scale=args.steps_scale,
-        label_feat=label_feat,
     )
 
     xtf.save(args.model_dir)
