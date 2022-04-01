@@ -38,6 +38,7 @@ from transformers.modeling_utils import SequenceSummary
 
 from transformers.models.bert.modeling_bert import BERT_INPUTS_DOCSTRING, BERT_START_DOCSTRING
 from transformers.models.roberta.modeling_roberta import (
+    RobertaPreTrainedModel,
     ROBERTA_INPUTS_DOCSTRING,
     ROBERTA_START_DOCSTRING,
 )
@@ -269,7 +270,7 @@ class BertForXMC(BertPreTrainedModel):
     """Roberta Model with mutli-label classification head on top for XMC.\n""",
     ROBERTA_START_DOCSTRING,
 )
-class RobertaForXMC(BertPreTrainedModel):
+class RobertaForXMC(RobertaPreTrainedModel):
     """
     Examples:
         tokenizer = RobertaTokenizer.from_pretrained('roberta-base')

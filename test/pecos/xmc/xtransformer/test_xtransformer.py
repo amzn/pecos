@@ -148,7 +148,6 @@ def test_encode(tmpdir):
 
     model_folder = tmpdir.join("only_encoder")
     emb_path = model_folder.join("embeddings.npy")
-    save_emb_path = model_folder.join("X.trn.npy")
     emb_path_B1 = model_folder.join("embeddings_B1.npy")
 
     # Training matcher
@@ -164,7 +163,6 @@ def test_encode(tmpdir):
     cmd += ["--save-steps {}".format(2)]
     cmd += ["--only-topk {}".format(2)]
     cmd += ["--batch-gen-workers {}".format(2)]
-    cmd += ["--save-emb-dir {}".format(str(model_folder))]
     cmd += ["--only-encoder true"]
     process = subprocess.run(
         shlex.split(" ".join(cmd)), stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -184,9 +182,7 @@ def test_encode(tmpdir):
     )
     assert process.returncode == 0, " ".join(cmd)
 
-    X_emb_save = np.load(str(save_emb_path))
     X_emb_pred = np.load(str(emb_path))
-    assert X_emb_pred == approx(X_emb_save, abs=1e-6)
 
     # encode with max_pred_chunk=1
     cmd = []
@@ -203,7 +199,7 @@ def test_encode(tmpdir):
     assert process.returncode == 0, " ".join(cmd)
 
     X_emb_pred_B1 = np.load(str(emb_path_B1))
-    assert X_emb_pred_B1 == approx(X_emb_save, abs=1e-6)
+    assert X_emb_pred_B1 == approx(X_emb_pred, abs=1e-6)
 
 
 def test_xtransformer_python_api():

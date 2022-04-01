@@ -16,7 +16,6 @@ import tempfile
 
 import dataclasses as dc
 import pecos
-import torch
 from pecos.core import clib
 from pecos.utils import smat_util, torch_util
 from pecos.utils.cluster_util import ClusterChain
@@ -61,7 +60,6 @@ class XTransformer(pecos.BaseClass):
         only_encoder (bool, optional): if True, skip linear ranker training. Default False
         fix_clustering (bool, optional): if True, use the same hierarchial label tree for fine-tuning and final prediction. Default false.
         max_match_clusters (int, optional): max number of clusters on which to fine-tune transformer. Default 32768
-        save_emb_dir (str): dir to save instance embeddings. Default None to ignore
         """
 
         preliminary_indexer_params: HierarchicalKMeans.TrainParams = None  # type: ignore
@@ -73,7 +71,6 @@ class XTransformer(pecos.BaseClass):
         only_encoder: bool = False
         fix_clustering: bool = False
         max_match_clusters: int = 32768
-        save_emb_dir: str = None  # type: ignore
 
     @dc.dataclass
     class PredParams(pecos.BaseParams):
@@ -231,7 +228,6 @@ class XTransformer(pecos.BaseClass):
             train_params (XTransformer.TrainParams): training parameters for XTransformer
             pred_params (XTransformer.pred_params): pred parameters for XTransformer
             kwargs:
-                label_feat (ndarray or csr_matrix, optional): label features on which to generate preliminary HLT
                 saved_trn_pt (str, optional): path to save the tokenized trn text. Use a tempdir if not given
                 saved_val_pt (str, optional): path to save the tokenized val text. Use a tempdir if not given
                 matmul_threads (int, optional): number of threads to use for
@@ -289,17 +285,10 @@ class XTransformer(pecos.BaseClass):
                     "Downloaded encoder from {}.".format(matcher_train_params.model_shortcut)
                 )
 
-            parent_model.to_device(device, n_gpu=n_gpu)
-            _, inst_embeddings = parent_model.predict(
-                prob.X_text,
-                pred_params=matcher_pred_params,
-                batch_size=matcher_train_params.batch_size * max(1, n_gpu),
-                batch_gen_workers=matcher_train_params.batch_gen_workers,
-                only_embeddings=True,
-            )
-            if val_prob:
-                _, val_inst_embeddings = parent_model.predict(
-                    val_prob.X_text,
+            if not train_params.only_encoder:
+                parent_model.to_device(device, n_gpu=n_gpu)
+                _, inst_embeddings = parent_model.predict(
+                    prob.X_text,
                     pred_params=matcher_pred_params,
                     batch_size=matcher_train_params.batch_size * max(1, n_gpu),
                     batch_gen_workers=matcher_train_params.batch_gen_workers,
@@ -308,18 +297,11 @@ class XTransformer(pecos.BaseClass):
         else:
             # 1. Constructing primary Hierarchial Label Tree
             if clustering is None:
-                label_feat = kwargs.get("label_feat", None)
-                if label_feat is None:
-                    if prob.X_feat is None:
-                        raise ValueError(
-                            "Instance features are required to generate label features!"
-                        )
-                    label_feat = LabelEmbeddingFactory.pifa(prob.Y, prob.X_feat)
-
                 clustering = Indexer.gen(
-                    label_feat,
+                    LabelEmbeddingFactory.pifa(prob.Y, prob.X_feat),
                     train_params=train_params.preliminary_indexer_params,
                 )
+
             else:
                 # assert cluster chain in clustering is valid
                 clustering = ClusterChain(clustering)
@@ -336,12 +318,6 @@ class XTransformer(pecos.BaseClass):
                     [cc.shape[0] for cc in clustering[:nr_transformers]]
                 )
             )
-
-            steps_scale = kwargs.get("steps_scale", None)
-            if steps_scale is None:
-                steps_scale = [1.0] * nr_transformers
-            if len(steps_scale) != nr_transformers:
-                raise ValueError(f"steps-scale length error: {len(steps_scale)}!={nr_transformers}")
 
             # construct fields with chain now we know the depth
             train_params = HierarchicalMLModel._duplicate_fields_with_name_ending_with_chain(
@@ -399,10 +375,6 @@ class XTransformer(pecos.BaseClass):
             for i in range(nr_transformers):
                 cur_train_params = train_params.matcher_params_chain[i]
                 cur_pred_params = pred_params.matcher_params_chain[i]
-                cur_train_params.max_steps = steps_scale[i] * cur_train_params.max_steps
-                cur_train_params.num_train_epochs = (
-                    steps_scale[i] * cur_train_params.num_train_epochs
-                )
 
                 cur_ns = cur_train_params.negative_sampling
 
@@ -448,13 +420,22 @@ class XTransformer(pecos.BaseClass):
                     init_text_model = deepcopy(parent_model.text_model)
                     bootstrapping = (init_encoder, inst_embeddings, init_text_model)
 
-                # determine whether train prediction and instance embeddings are needed
-                return_train_pred = (
-                    i + 1 < nr_transformers
-                ) and "man" in train_params.matcher_params_chain[i + 1].negative_sampling
-                return_train_embeddings = (
-                    i + 1 == nr_transformers
-                ) or "linear" in cur_train_params.bootstrap_method
+                # determine whether predictions on training data are needed
+                if i == nr_transformers - 1:
+                    return_pred_on_trn = False
+                else:
+                    return_pred_on_trn = any(
+                        "man" in tp.negative_sampling
+                        for tp in train_params.matcher_params_chain[i + 1 :]
+                    )
+
+                # determine whether train instance embeddings are needed
+                if i == nr_transformers - 1:
+                    return_embed_on_trn = not train_params.only_encoder
+                else:
+                    return_embed_on_trn = (
+                        "linear" in train_params.matcher_params_chain[i + 1].bootstrap_method
+                    )
 
                 res_dict = TransformerMatcher.train(
                     cur_prob,
@@ -465,8 +446,8 @@ class XTransformer(pecos.BaseClass):
                     pred_params=cur_pred_params,
                     bootstrapping=bootstrapping,
                     return_dict=True,
-                    return_train_pred=return_train_pred,
-                    return_train_embeddings=return_train_embeddings,
+                    return_pred_on_trn=return_pred_on_trn,
+                    return_embed_on_trn=return_embed_on_trn,
                     saved_trn_pt=saved_trn_pt,
                     saved_val_pt=saved_val_pt,
                 )
@@ -474,22 +455,6 @@ class XTransformer(pecos.BaseClass):
                 M_pred = res_dict["trn_pred"]
                 val_M_pred = res_dict["val_pred"]
                 inst_embeddings = res_dict["trn_embeddings"]
-                val_inst_embeddings = res_dict["val_embeddings"]
-
-        if train_params.save_emb_dir:
-            os.makedirs(train_params.save_emb_dir, exist_ok=True)
-            if inst_embeddings is not None:
-                smat_util.save_matrix(
-                    os.path.join(train_params.save_emb_dir, "X.trn.npy"),
-                    inst_embeddings,
-                )
-                LOGGER.info(f"Trn embeddings saved to {train_params.save_emb_dir}/X.trn.npy")
-            if val_inst_embeddings is not None:
-                smat_util.save_matrix(
-                    os.path.join(train_params.save_emb_dir, "X.val.npy"),
-                    val_inst_embeddings,
-                )
-                LOGGER.info(f"Val embeddings saved to {train_params.save_emb_dir}/X.val.npy")
 
         ranker = None
         if not train_params.only_encoder:
@@ -566,7 +531,6 @@ class XTransformer(pecos.BaseClass):
                     Default None to disable overriding
                 post_processor (str, optional):  override the post_processor specified in the model
                     Default None to disable overriding
-                saved_pt (str, optional): if given, will try to load encoded tensors and skip text encoding
                 batch_size (int, optional): per device batch size for transformer evaluation. Default 8
                 batch_gen_workers (int, optional): number of CPUs to use for batch generation. Default 4
                 use_gpu (bool, optional): use GPU if available. Default True
@@ -580,7 +544,6 @@ class XTransformer(pecos.BaseClass):
         if not isinstance(self.concat_model, XLinearModel):
             raise TypeError("concat_model is not present in current XTransformer model!")
 
-        saved_pt = kwargs.get("saved_pt", None)
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
         use_gpu = kwargs.get("use_gpu", True)
@@ -603,20 +566,10 @@ class XTransformer(pecos.BaseClass):
             encoder_pred_params = pred_params.matcher_params_chain
 
         # generate instance-to-cluster prediction
-        if saved_pt and os.path.isfile(saved_pt):
-            text_tensors = torch.load(saved_pt)
-            LOGGER.info("Text tensors loaded_from {}".format(saved_pt))
-        else:
-            text_tensors = self.text_encoder.text_to_tensor(
-                X_text,
-                num_workers=batch_gen_workers,
-                max_length=encoder_pred_params.truncate_length,
-            )
-
         pred_csr = None
         self.text_encoder.to_device(device, n_gpu=n_gpu)
         _, embeddings = self.text_encoder.predict(
-            text_tensors,
+            X_text,
             pred_params=encoder_pred_params,
             batch_size=batch_size * max(1, n_gpu),
             batch_gen_workers=batch_gen_workers,
@@ -654,7 +607,6 @@ class XTransformer(pecos.BaseClass):
                 XTransformer.PredParams. Default None to use pred_params stored
                 during model training.
             kwargs:
-                saved_pt (str, optional): if given, will try to load encoded tensors and skip text encoding
                 batch_size (int, optional): per device batch size for transformer evaluation. Default 8
                 batch_gen_workers (int, optional): number of CPUs to use for batch generation. Default 4
                 use_gpu (bool, optional): use GPU if available. Default True
@@ -664,7 +616,6 @@ class XTransformer(pecos.BaseClass):
         Returns:
             embeddings (ndarray): instance embedding on training data, shape = (nr_inst, hidden_dim).
         """
-        saved_pt = kwargs.get("saved_pt", None)
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
         use_gpu = kwargs.get("use_gpu", True)
@@ -685,19 +636,9 @@ class XTransformer(pecos.BaseClass):
             encoder_pred_params = pred_params.matcher_params_chain
 
         # generate instance-to-cluster prediction
-        if saved_pt and os.path.isfile(saved_pt):
-            text_tensors = torch.load(saved_pt)
-            LOGGER.info("Text tensors loaded_from {}".format(saved_pt))
-        else:
-            text_tensors = self.text_encoder.text_to_tensor(
-                X_text,
-                num_workers=batch_gen_workers,
-                max_length=encoder_pred_params.truncate_length,
-            )
-
         self.text_encoder.to_device(device, n_gpu=n_gpu)
         _, embeddings = self.text_encoder.predict(
-            text_tensors,
+            X_text,
             pred_params=encoder_pred_params,
             batch_size=batch_size * max(1, n_gpu),
             batch_gen_workers=batch_gen_workers,
