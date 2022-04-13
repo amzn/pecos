@@ -222,7 +222,7 @@ def sorted_csc_from_coo(shape, row_idx, col_idx, val, only_topk=None):
     Returns:
         csc_matrix
     """
-    csr = sorted_csr_from_coo(shape[::-1], col_idx, row_idx, val, only_topk=None)
+    csr = sorted_csr_from_coo(shape[::-1], col_idx, row_idx, val, only_topk=only_topk)
     return transpose(csr)
 
 
@@ -287,7 +287,7 @@ def sorted_csc(csc, only_topk=None):
     if not isinstance(csc, smat.csc_matrix):
         raise ValueError("the input matrix must be a csc_matrix.")
 
-    return transpose(sorted_csr(transpose(csc)))
+    return transpose(sorted_csr(transpose(csc), only_topk=only_topk))
 
 
 def dense_to_csr(dense, topk=None, batch=None):
