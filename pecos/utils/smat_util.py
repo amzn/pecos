@@ -477,7 +477,9 @@ def block_diag_csr(matrices, dtype=None):
     for mat in matrices:
         data[cur_nnz : cur_nnz + mat.nnz] = mat.data
         indices[cur_nnz : cur_nnz + mat.nnz] = mat.indices + cur_col
-        indptr[1 + cur_row : 1 + cur_row + mat.shape[0]] = mat.indptr[1:] + indptr[cur_row]
+        indptr[1 + cur_row : 1 + cur_row + mat.shape[0]] = (
+            mat.indptr[1:].astype(indptr.dtype) + indptr[cur_row]
+        )
         cur_col += mat.shape[1]
         cur_row += mat.shape[0]
         cur_nnz += mat.nnz
