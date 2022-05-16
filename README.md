@@ -57,7 +57,7 @@ sudo apt-get update && sudo apt-get install -y build-essential git python3 pytho
 ```
 * For Amazon Linux 2 Image:
 ``` bash
-sudo yum -y install python3 python3-devel python3-distutils python3-venv && sudo yum -y install groupinstall 'Development Tools' 
+sudo yum -y install python3 python3-devel python3-distutils python3-venv && sudo yum -y groupinstall 'Development Tools' 
 ```
 One needs to install at least one BLAS library to compile PECOS, e.g. `OpenBLAS`:
 * For Ubuntu (18.04, 20.04):
