@@ -245,3 +245,43 @@ def test_csr_ensembler():
     X_rr = np.array([[1.16666667, 0, 0, 1.33333333], [0, 0.83333333, 1.16666667, 1.33333333]])
     X_rr_pred = smat_util.CsrEnsembler.round_robin(X0, X1).todense()
     assert X_rr_pred == approx(X_rr), X_rr_pred
+
+
+def test_sorted_csr():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    indptr = np.array([0, 2, 3, 6])
+    indices = np.array([0, 2, 2, 0, 1, 2])
+    data = np.array([1, 2, 3, 4, 5, 6])
+    X1 = smat.csr_matrix((data, indices, indptr), shape=(3, 3))
+
+    sorted_data = np.array([2, 1, 3, 6, 5, 4])
+    sorted_indices = np.array([2, 0, 2, 2, 1, 0], dtype=int)
+
+    sorted_X1 = smat_util.sorted_csr(X1)
+    assert isinstance(sorted_X1, smat.csr_matrix)
+    assert sorted_X1.todense() == approx(X1.todense())
+    assert sorted_X1.data == approx(sorted_data)
+    assert sorted_X1.indices == approx(sorted_indices)
+
+
+def test_sorted_csc():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    indptr = np.array([0, 2, 3, 6])
+    indices = np.array([0, 2, 2, 0, 1, 2])
+    data = np.array([1, 2, 3, 4, 5, 6])
+    X1 = smat.csc_matrix((data, indices, indptr), shape=(3, 3))
+
+    sorted_data = np.array([2, 1, 3, 6, 5, 4])
+    sorted_indices = np.array([2, 0, 2, 2, 1, 0], dtype=int)
+
+    sorted_X1 = smat_util.sorted_csc(X1)
+    assert isinstance(sorted_X1, smat.csc_matrix)
+    assert sorted_X1.todense() == approx(X1.todense())
+    assert sorted_X1.data == approx(sorted_data)
+    assert sorted_X1.indices == approx(sorted_indices)
