@@ -285,3 +285,22 @@ def test_sorted_csc():
     assert sorted_X1.todense() == approx(X1.todense())
     assert sorted_X1.data == approx(sorted_data)
     assert sorted_X1.indices == approx(sorted_indices)
+
+
+def test_csr_row_softmax():
+    from pecos.utils import smat_util
+    from scipy import sparse as smat
+    import numpy as np
+
+    indptr = np.array([0, 2, 3, 6])
+    indices = np.array([0, 2, 2, 0, 1, 2])
+    data = np.array([1, 2, 3, 4, 5, 6])
+    X0 = smat.csr_matrix((data, indices, indptr), shape=(3, 3))
+
+    softmaxed_X0 = smat_util.csr_row_softmax(X0).todense()
+
+    softmaxed_mat = np.array(
+        [[0.2689414214, 0, 0.7310585786], [0, 0, 1], [0.0900305732, 0.2447284711, 0.6652409558]]
+    )
+
+    assert softmaxed_X0 == approx(softmaxed_mat)
