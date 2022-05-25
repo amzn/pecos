@@ -785,12 +785,13 @@ def get_cocluster_spectral_embeddings(A, dim=24):
     return row_embedding, col_embedding
 
 
-def csr_row_softmax(mat, inplace=False):
+def csr_row_softmax(mat, inplace=False, dtype=np.float32):
     """Apply row-wise softmax transform to csr_matrix
 
     Args:
         mat (csr_matrix): input csr_matrix to transform
         inplace (bool, optional): if True do the transform in-place, else return a copy. Default False
+        dtype (type, optional): type of values in the returned matrix, default float32
 
     Returns:
         row-wise softmaxed mat
@@ -802,6 +803,7 @@ def csr_row_softmax(mat, inplace=False):
 
     if not inplace:
         mat = mat.copy()
+    mat = mat.astype(dtype)
 
     for i in range(mat.shape[0]):
         rng = slice(mat.indptr[i], mat.indptr[i + 1])
