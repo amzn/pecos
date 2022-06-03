@@ -329,8 +329,8 @@ def test_cli(tmpdir):
     true_Y_pred_file = "test/tst-data/xmc/xlinear/Yt_pred.npz"
     true_Y_pred_with_man_file = "test/tst-data/xmc/xlinear/Yt_pred_with_tfn+man.npz"
     true_Yt_pred_with_splits = {
-        2: "test/tst-data/xmc/xlinear/P:nr_splits=2.npz",
-        4: "test/tst-data/xmc/xlinear/P:nr_splits=4.npz",
+        2: "test/tst-data/xmc/xlinear/P_nr_splits=2.npz",
+        4: "test/tst-data/xmc/xlinear/P_nr_splits=4.npz",
     }
     test_Y_pred_file = str(tmpdir.join("Yt_pred_test.npz"))
     code_file = str(tmpdir.join("codes.npz"))
