@@ -28,7 +28,7 @@ from sklearn.preprocessing import normalize as sk_normalize
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers import AdamW, AutoConfig, get_scheduler, BatchEncoding
 
-from .module import XMCTensorDataset, XMCTextDataset
+from .module import XMCLabelTensorizer, XMCTextTensorizer, XMCTextDataset
 from .network import ENCODER_CLASSES, HingeLoss, TransformerLinearXMCHead
 
 logging.getLogger(transformers.__name__).setLevel(logging.WARNING)
@@ -131,7 +131,8 @@ class TransformerMatcher(pecos.BaseClass):
         save_steps: int = 100
 
         cost_sensitive_ranker: bool = False
-        pre_tokenize: bool = False
+        pre_tokenize: bool = True
+        pre_tensorize_labels: bool = True
         use_gpu: bool = True
         eval_by_true_shorlist: bool = False
 
@@ -188,7 +189,7 @@ class TransformerMatcher(pecos.BaseClass):
         self,
         text_encoder,
         text_tokenizer,
-        text_model,
+        text_model=None,
         C=None,
         concat_model=None,
         train_params=None,
@@ -214,7 +215,16 @@ class TransformerMatcher(pecos.BaseClass):
         self.text_tokenizer = text_tokenizer
         self.C = C
 
-        self.text_model = text_model
+        if text_model is None:
+            self.text_model = TransformerLinearXMCHead(
+                text_encoder.config.hidden_size, text_encoder.config.num_labels
+            )
+            LOGGER.warning(
+                f"XMC text_model of {text_encoder.__class__.__name__} not initialized from pre-trained model."
+            )
+        else:
+            self.text_model = text_model
+
         self.concat_model = concat_model
 
         self.train_params = self.TrainParams.from_dict(train_params)
@@ -246,6 +256,8 @@ class TransformerMatcher(pecos.BaseClass):
         """Clear CUDA memory"""
         if hasattr(self.text_encoder, "module"):
             self.text_encoder = self.text_encoder.module
+        if hasattr(self.text_model, "module"):
+            self.text_model = self.text_model.module
         self.text_encoder.to(torch.device("cpu"))
         self.text_model.to(torch.device("cpu"))
         torch.cuda.empty_cache()
@@ -288,7 +300,10 @@ class TransformerMatcher(pecos.BaseClass):
     @property
     def nr_labels(self):
         """Get the number of labels"""
-        return self.text_model.num_labels
+        if hasattr(self.text_model, "module"):
+            return self.text_model.module.num_labels
+        else:
+            return self.text_model.num_labels
 
     @property
     def model_type(self):
@@ -323,8 +338,6 @@ class TransformerMatcher(pecos.BaseClass):
         with open(os.path.join(save_dir, "param.json"), "w", encoding="utf-8") as f:
             f.write(json.dumps(param, indent=True))
 
-        smat_util.save_matrix(os.path.join(save_dir, "C.npz"), self.C)
-
         encoder_dir = os.path.join(save_dir, "text_encoder")
         os.makedirs(encoder_dir, exist_ok=True)
         # this creates config.json, pytorch_model.bin
@@ -334,12 +347,19 @@ class TransformerMatcher(pecos.BaseClass):
         os.makedirs(tokenizer_dir, exist_ok=True)
         self.text_tokenizer.save_pretrained(tokenizer_dir)
 
+        # this creates C.npz
+        if self.C is not None:
+            smat_util.save_matrix(os.path.join(save_dir, "C.npz"), self.C)
         # this creates text_model
         text_model_dir = os.path.join(save_dir, "text_model")
-        torch.save(self.text_model, text_model_dir)
+        if self.text_model is not None:
+            head_to_save = (
+                self.text_model.module if hasattr(self.text_model, "module") else self.text_model
+            )
+            torch.save(head_to_save, text_model_dir)
         # save the concat_model
         concat_model_dir = os.path.join(save_dir, "concat_model")
-        if self.concat_model:
+        if self.concat_model is not None:
             self.concat_model.save(concat_model_dir)
 
     @classmethod
@@ -390,18 +410,14 @@ class TransformerMatcher(pecos.BaseClass):
         if os.path.exists(text_model_dir):
             text_model = torch.load(text_model_dir)
         else:
-            text_model = TransformerLinearXMCHead(
-                encoder_config.hidden_size, encoder_config.num_labels
-            )
-            LOGGER.warning(
-                f"XMC text_model of {text_encoder.__class__.__name__} not initialized from pre-trained model."
-            )
+            text_model = None
 
         # load C
         C_path = os.path.join(load_dir, "C.npz")
         if not os.path.exists(C_path):
-            raise ValueError(f"Cluster code does not exist at {C_path}")
-        C = smat_util.load_matrix(C_path)
+            C = smat.csr_matrix(np.ones((encoder_config.num_labels, 1), dtype=np.float32))
+        else:
+            C = smat_util.load_matrix(C_path)
 
         # load concat_model
         concat_model_dir = os.path.join(load_dir, "concat_model")
@@ -412,7 +428,7 @@ class TransformerMatcher(pecos.BaseClass):
         return cls(
             text_encoder,
             text_tokenizer,
-            text_model,
+            text_model=text_model,
             C=C,
             concat_model=concat_model,
             train_params=train_params,
@@ -478,6 +494,12 @@ class TransformerMatcher(pecos.BaseClass):
         }
         return {**convert_kwargs, **kwargs}
 
+    def _tokenize(self, text):
+        return self.text_tokenizer(
+            text=text,
+            **self._get_tokenizer_config(max_length=self.pred_params.truncate_length),
+        )
+
     def text_to_tensor(self, corpus, max_length=None):
         """Convert input text corpus into padded tensors
 
@@ -508,95 +530,6 @@ class TransformerMatcher(pecos.BaseClass):
 
         LOGGER.info("***** Finished with time cost={} *****".format(time.time() - t_start))
         return feature_tensors
-
-    @staticmethod
-    def _get_label_tensors(M, Y, idx_padding=-1, max_labels=None):
-        """
-        Given matching matrix M and label matrix Y, construct label tensors for XMC training
-        The non-zero indices of Y are seen as positive labels and therefore all
-        included in the result.
-
-        Example:
-            M = smat.csr_matrix([[1, 1, 0, 0],
-                                 [0, 0, 1, 1]])
-            Y = smat.csr_matrix([[0, 1, 0, 2],
-                                 [0, 0, 0, 3]])
-            then the returned values will be:
-            label_indices = torch.IntTensor([[1, 3, 0], [3, 2, -1]])
-            label_values = torch.FloatTensor([[1., 2., 0.], [3., 0., 0.]])
-
-        Args:
-            M (csr_matrix or None): matching matrix, shape = (nr_inst, nr_labels)
-                It's indices are the candidate label indices to consider
-                It's values will not be used
-            Y (csr_matrix or None): label matrix, shape = (nr_inst, nr_labels)
-                It's non-zero indices are positive labels and will always be
-                included.
-            idx_padding (int, optional): the index used to pad all label_indices
-                to the same length. Default -1
-            max_labels (int, optional): max number of labels considered for each
-                instance, will subsample from existing label indices if need to.
-                Default None to use max row nnz of M.
-
-        Returns:
-            label_indices (torch.IntTensor or None): containing label indices with
-                shape = (nr_inst, max_labels). Return None if M is None
-            label_values (torch.FloatTensor or None): containing label values
-                with shape = (nr_inst, max_labels). If Y is None, return None
-        """
-        if M is None and Y is None:
-            return None, None
-        elif M is None and Y is not None:
-            # if M is None, taking all labels into account
-            return None, torch.FloatTensor(Y.toarray())
-
-        if Y is not None:
-            if Y.shape != M.shape:
-                raise ValueError("Y and M shape mismatch: {} and {}".format(Y.shape, M.shape))
-            label_lower_bound = max(Y.indptr[1:] - Y.indptr[:-1])
-            # make sure all positive labels are included
-            M1 = smat_util.binarized(M) + smat_util.binarized(Y)
-        else:
-            M1 = M
-            label_lower_bound = 0
-
-        label_upper_bound = max(M1.indptr[1:] - M1.indptr[:-1])
-        if max_labels is None:
-            max_labels = label_upper_bound
-        else:
-            max_labels = min(max_labels, label_upper_bound)
-            if max_labels < label_lower_bound:
-                max_labels = label_lower_bound
-                LOGGER.warning(
-                    f"Increasing max_labels to {label_lower_bound} to accommodate all positive labels."
-                )
-
-        nr_inst = M1.shape[0]
-        label_indices = np.zeros((nr_inst, max_labels), dtype=np.int64) + idx_padding
-        if Y is not None:
-            label_values = np.zeros((nr_inst, max_labels), dtype=np.float32)
-
-        for i in range(nr_inst):
-            offset = 0
-            neg_samples = M1.indices[M1.indptr[i] : M1.indptr[i + 1]]
-            # fill with positive samples first
-            if Y is not None:
-                y_nnz = Y.indptr[i + 1] - Y.indptr[i]
-                rng = slice(Y.indptr[i], Y.indptr[i + 1])
-                label_indices[i, :y_nnz] = Y.indices[rng]
-                label_values[i, :y_nnz] = Y.data[rng]
-                offset += y_nnz
-                neg_samples = neg_samples[np.invert(np.isin(neg_samples, Y.indices[rng]))]
-            # fill the rest slots with negative samples
-            if neg_samples.size > max_labels - offset:
-                # random sample negative labels
-                neg_samples = np.random.choice(neg_samples, max_labels - offset)
-
-            label_indices[i, offset : offset + neg_samples.size] = neg_samples
-
-        label_indices = torch.IntTensor(label_indices)
-
-        return label_indices, None if Y is None else torch.FloatTensor(label_values)
 
     @staticmethod
     def ensemble_prediction(transformer_pred_csr, concat_pred_csr, only_topk, ens_method):
@@ -779,6 +712,7 @@ class TransformerMatcher(pecos.BaseClass):
         """
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
         only_embeddings = kwargs.get("only_embeddings", False)
+        label_padding_idx = self.text_model.label_padding_idx
 
         if csr_codes is not None:
             # need to keep explicit zeros in csr_codes_next
@@ -800,19 +734,22 @@ class TransformerMatcher(pecos.BaseClass):
             )
         else:
             csr_codes_next = None
-            LOGGER.info("Predict on input text tensors({})".format(X_text["input_ids"].shape))
+            LOGGER.info(
+                "Predict on input text tensors({}) in OVA mode".format(X_text["input_ids"].shape)
+            )
 
-        label_indices_pt, label_values_pt = TransformerMatcher._get_label_tensors(
-            csr_codes_next, None, idx_padding=self.text_model.label_pad
+        input_tensorizer = XMCTextTensorizer(
+            X_text,
+            feature_keys=["input_ids", "attention_mask", "token_type_ids", "instance_number"],
         )
-        data = XMCTensorDataset(
-            X_text["input_ids"],
-            X_text["attention_mask"],
-            X_text["token_type_ids"],
-            X_text["instance_number"],
-            label_values=label_values_pt,
-            label_indices=label_indices_pt,
+        lbl_tensorizer = XMCLabelTensorizer(
+            Y=None,
+            M=csr_codes_next,
+            label_padding_idx=label_padding_idx,
+            pre_compute=True,
         )
+
+        data = XMCTextDataset(input_tensorizer, lbl_tensorizer)
 
         # since number of active labels may vary
         # using pinned memory will slow down data loading
@@ -881,7 +818,7 @@ class TransformerMatcher(pecos.BaseClass):
                         val = c_pred.cpu().numpy().flatten()
                         val = val[
                             np.argwhere(
-                                inputs["label_indices"].cpu().flatten() != self.text_model.label_pad
+                                inputs["label_indices"].cpu().flatten() != label_padding_idx
                             )
                         ].flatten()
                         val = PostProcessor.get(pred_params.post_processor).transform(
@@ -950,6 +887,56 @@ class TransformerMatcher(pecos.BaseClass):
             raise TypeError(f"Expected CSR or ndarray, got {type(X_feat)}")
         return X_cat
 
+    @staticmethod
+    def prepare_data(
+        prob, label_padding_idx=None, pre_tensorize_labels=False, input_transform=None
+    ):
+        """Prepare data for transformer encoder from given problem
+
+        Args:
+            prob (MLProblemWithText): problem to build data for
+            label_padding_idx (int, optional): padding index in label embeddings.
+                Default None to use the number of columns of prob.Y
+            pre_tensorize_labels (bool, optional): use pre-tensorize or realtime
+                tensorization of label tensors. Default False
+            input_transform (function, optional): transformation function for
+                input text tokenization.
+
+        Returns:
+            XMCTextDataset
+        """
+        if label_padding_idx is None:
+            label_padding_idx = prob.Y.shape[1]
+
+        if prob.M is not None:
+            # need to keep explicit zeros in csr_codes_next
+            # therefore do not pass it through constructor
+            if not isinstance(prob.M, smat.csr_matrix):
+                raise TypeError(f"Got type={type(prob.M)} for M!")
+            # getting the result in csr by computing csr * csr
+            M_next = clib.sparse_matmul(
+                prob.M,
+                prob.C.T,
+                eliminate_zeros=False,
+            )
+        else:
+            M_next = None
+
+        input_tensorizer = XMCTextTensorizer(
+            prob.X_text,
+            feature_keys=["input_ids", "attention_mask", "token_type_ids", "instance_number"],
+            input_transform=input_transform,
+        )
+        lbl_tensorizer = XMCLabelTensorizer(
+            Y=prob.Y,
+            M=M_next,
+            label_padding_idx=label_padding_idx,
+            pre_compute=pre_tensorize_labels,
+        )
+
+        train_data = XMCTextDataset(input_tensorizer, lbl_tensorizer)
+        return train_data
+
     def fine_tune_encoder(self, prob, val_prob=None, val_csr_codes=None):
         """Fine tune the transformer text_encoder
 
@@ -971,65 +958,20 @@ class TransformerMatcher(pecos.BaseClass):
             self.device
         )
 
-        max_act_labels = train_params.max_active_matching_labels
         logging_steps = train_params.logging_steps
         max_steps = train_params.max_steps
         max_no_improve_cnt = train_params.max_no_improve_cnt
-        if prob.M is not None:
-            # need to keep explicit zeros in csr_codes_next
-            # therefore do not pass it through constructor
-            if not isinstance(prob.M, smat.csr_matrix):
-                raise TypeError(f"Got type={type(prob.M)} for M!")
-            # getting the result in csr by computing csr * csr
-            M_next = clib.sparse_matmul(
-                prob.M,
-                self.C.T,
-                eliminate_zeros=False,
-                threads=train_params.batch_gen_workers,
-            )
-
-            do_resample = max_act_labels is not None and max_act_labels < max(
-                M_next.indptr[1:] - M_next.indptr[:-1]
-            )
-        else:
-            M_next = None
-            do_resample = False
 
         if prob.M is None or train_params.max_num_labels_in_gpu >= self.nr_labels:
             # put text_model to GPU
             self.text_model.to(self.device)
 
-        if prob.is_tokenized:
-            LOGGER.info("Using XMCTensorDataset for tokenized inputs!")
-            label_indices_pt, label_values_pt = TransformerMatcher._get_label_tensors(
-                M_next,
-                prob.Y,
-                idx_padding=self.text_model.label_pad,
-                max_labels=max_act_labels,
-            )
-            train_data = XMCTensorDataset(
-                prob.X_text["input_ids"],
-                prob.X_text["attention_mask"],
-                prob.X_text["token_type_ids"],
-                prob.X_text["instance_number"],
-                label_values=label_values_pt,
-                label_indices=label_indices_pt,
-            )
-        else:
-            LOGGER.info("Using XMCTextDataset for text inputs!")
-            os.environ["TOKENIZERS_PARALLELISM"] = "false"
-            train_data = XMCTextDataset(
-                prob.X_text,
-                lambda x: self.text_tokenizer(
-                    text=x,
-                    **self._get_tokenizer_config(max_length=pred_params.truncate_length),
-                ),
-                feature_keys=["input_ids", "attention_mask", "token_type_ids", "instance_number"],
-                Y=prob.Y,
-                M=M_next,
-                idx_padding=self.text_model.label_pad,
-                max_labels=max_act_labels,
-            )
+        train_data = self.prepare_data(
+            prob,
+            label_padding_idx=self.text_model.label_padding_idx,
+            pre_tensorize_labels=train_params.pre_tensorize_labels,
+            input_transform=None if prob.is_tokenized else self._tokenize,
+        )
 
         # since number of active labels may vary
         # using pinned memory will slow down data loading
@@ -1087,7 +1029,7 @@ class TransformerMatcher(pecos.BaseClass):
         )
 
         sparse_parameters = list(self.text_model.parameters())
-        if prob.M is not None:
+        if self.text_model.is_sparse:
             emb_optimizer = torch.optim.SparseAdam(
                 sparse_parameters,
                 lr=train_params.learning_rate,
@@ -1109,9 +1051,9 @@ class TransformerMatcher(pecos.BaseClass):
 
         # Start Batch Training
         LOGGER.info("***** Running training *****")
-        LOGGER.info("  Num examples = %d", prob.nr_inst)
+        LOGGER.info("  Num examples = %d", len(train_data))
         LOGGER.info("  Num labels = %d", self.nr_labels)
-        if prob.M is not None:
+        if train_data.has_ns:
             LOGGER.info("  Num active labels per instance = %d", train_data.num_active_labels)
         LOGGER.info("  Num Epochs = %d", train_params.num_train_epochs)
         LOGGER.info("  Learning Rate Schedule = %s", train_params.lr_schedule)
@@ -1130,19 +1072,6 @@ class TransformerMatcher(pecos.BaseClass):
         self.text_encoder.zero_grad()
         self.text_model.zero_grad()
         for epoch in range(1, int(train_params.num_train_epochs) + 1):
-            if (
-                isinstance(train_data, XMCTensorDataset) and do_resample and epoch > 1
-            ):  # redo subsample negative labels
-                label_indices_pt, label_values_pt = TransformerMatcher._get_label_tensors(
-                    M_next,
-                    prob.Y,
-                    idx_padding=self.text_model.label_pad,
-                    max_labels=train_params.max_active_matching_labels,
-                )
-                train_data.refresh_labels(
-                    label_values=label_values_pt,
-                    label_indices=label_indices_pt,
-                )
             for batch_cnt, batch in enumerate(train_dataloader):
                 self.text_encoder.train()
                 self.text_model.train()
@@ -1155,7 +1084,7 @@ class TransformerMatcher(pecos.BaseClass):
                     "token_type_ids": batch[2],
                     "instance_number": batch[3],
                     "label_values": batch[4],
-                    "label_indices": batch[-1] if prob.M is not None else None,
+                    "label_indices": batch[-1] if train_data.has_ns else None,
                 }
                 text_model_W_seq, text_model_b_seq = self.text_model(
                     output_indices=inputs["label_indices"],
@@ -1329,7 +1258,7 @@ class TransformerMatcher(pecos.BaseClass):
             kwargs:
                 saved_trn_pt (str): path to the tokenized trn text. If given, will skip tokenization
                 saved_val_pt (str): path to the tokenized val text. If given, will skip tokenization
-                bootstrapping (tuple): (init_encoder, init_embeddings) the
+                bootstrapping (tuple): (init_encoder, init_embeddings, prev_head) the
                     text_encoder and corresponding instance embeddings generated by it.
                     Used for bootstrap current text_encoder and text_model. Default None to
                     ignore
@@ -1431,13 +1360,13 @@ class TransformerMatcher(pecos.BaseClass):
                     M=prob.M,
                     R=prob.Y if "weighted" in train_params.bootstrap_method else None,
                 )
-                matcher.text_model.bootstrap(bootstrap_prob)
+                matcher.text_model.bootstrap(bootstrap_prob, sparse=True)
                 LOGGER.info("Initialized transformer text_model with xlinear!")
             elif train_params.bootstrap_method == "inherit":
-                matcher.text_model.inherit(prev_head, prob.C)
+                matcher.text_model.inherit(prev_head, prob.C, sparse=True)
                 LOGGER.info("Initialized transformer text_model form parent layer!")
             elif train_params.bootstrap_method == "no-bootstrap":
-                matcher.text_model.random_init()
+                matcher.text_model.random_init(sparse=True)
                 LOGGER.info("Randomly initialized transformer text_model!")
             else:
                 raise ValueError(f"Unknown bootstrap_method: {train_params.bootstrap_method}")
@@ -1548,9 +1477,9 @@ class TransformerMatcher(pecos.BaseClass):
         if return_dict:
             return {
                 "matcher": matcher,
-                "trn_pred": P_trn if return_pred_on_trn else None,
+                "trn_pred": P_trn,
                 "val_pred": P_val,
-                "trn_embeddings": inst_embeddings if return_embed_on_trn else None,
+                "trn_embeddings": inst_embeddings,
                 "val_embeddings": val_inst_embeddings,
             }
         else:

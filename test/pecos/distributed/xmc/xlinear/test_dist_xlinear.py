@@ -11,7 +11,7 @@
 import pytest  # noqa: F401; pylint: disable=unused-variable
 import scipy.sparse as smat
 import numpy as np
-from pecos.distributed.diagnostic_util.test_util import DummyComm
+from pecos.distributed.diagnostic_tools.test_util import DummyComm
 from pecos.utils.cluster_util import ClusterChain
 
 

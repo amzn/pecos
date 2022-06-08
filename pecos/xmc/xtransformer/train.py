@@ -527,8 +527,8 @@ def do_train(args):
     if os.path.exists(args.code_path):
         cluster_chain = ClusterChain.from_partial_chain(
             smat_util.load_matrix(args.code_path),
-            min_codes=args.min_codes,
-            nr_splits=args.nr_splits,
+            min_codes=train_params.preliminary_indexer_params.min_codes,
+            nr_splits=train_params.preliminary_indexer_params.nr_splits,
         )
         LOGGER.info("Loaded from code-path: {}".format(args.code_path))
     else:
@@ -548,6 +548,10 @@ def do_train(args):
         )
         del label_feat
         gc.collect()
+
+        if args.code_path:
+            smat_util.save_matrix(args.code_path, cluster_chain[-1])
+            LOGGER.info(f"Saved clusters {cluster_chain[-1].shape} to {args.code_path}")
 
     trn_prob = MLProblemWithText(trn_corpus, Y_trn, X_feat=X_trn)
     if all(v is not None for v in [tst_corpus, Y_tst]):
