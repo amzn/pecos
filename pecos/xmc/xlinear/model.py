@@ -133,6 +133,16 @@ class XLinearModel(pecos.BaseClass):
         )
         return cls(model)
 
+    @classmethod
+    def load_mmap(cls, model_folder, **kwargs):
+        """
+        Load model into memory map
+        """
+        model = HierarchicalMLModel.load_mmap(
+            path.join(model_folder, "ranker"), **kwargs
+        )
+        return cls(model)
+
     @property
     def is_predict_only(self):
         """

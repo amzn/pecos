@@ -731,6 +731,29 @@ class MLModel(pecos.BaseClass):
         return cls(W, C, param["bias"], pred_params)
 
     @classmethod
+    def load_mmap(cls, folder):
+        """Load MLModel in memory map from file
+
+        Args:
+            folder (str): dir from which the model is loaded.
+
+        Returns:
+            MLModel
+        """
+        from pecos.utils import smat_mmap_util
+
+        param = json.loads(open("{}/param.json".format(folder), "r").read())
+        assert param["model"] == cls.__name__
+        W = smat_mmap_util.load_matrix_mmap("{}/W.npz".format(folder))
+        C = smat_mmap_util.load_matrix_mmap("{}/C.npz".format(folder))
+        assert isinstance(W, smat.csc_matrix)
+        assert isinstance(C, smat.csc_matrix)
+
+        pred_params = cls.PredParams.from_dict(param["pred_kwargs"])
+
+        return cls(W, C, param["bias"], pred_params)
+
+    @classmethod
     def load_pred_params(cls, folder):
         """Load prediction parameter from file.
 
@@ -1265,6 +1288,24 @@ class HierarchicalMLModel(pecos.BaseClass):
             ],
         )
         return cls(model, pred_params=pred_params, is_predict_only=is_predict_only)
+
+    @classmethod
+    def load_mmap(cls, model_folder):
+        """
+        Load model into memory map.
+        """
+        param = json.loads(open(f"{model_folder}/param.json", "r", encoding="utf-8").read())
+        assert param["model"] == cls.__name__
+        depth = int(param.get("depth", len(glob("{}/*.model".format(model_folder)))))
+
+        model = [MLModel.load_mmap(f"{model_folder}/{d}.model") for d in range(depth)]
+
+        pred_params = cls.PredParams(
+            model_chain=[
+                MLModel.load_pred_params(f"{model_folder}/{d}.model") for d in range(depth)
+            ],
+        )
+        return cls(model, pred_params=pred_params)
 
     def save(self, folder):
         """Save HierarchicalMLModel to file
