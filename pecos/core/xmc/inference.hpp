@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <vector>
 #include "utils/matrix.hpp"
+#include "utils/mmap.hpp"
 #include "third_party/nlohmann_json/json.hpp"
 #include "third_party/robin_hood_hashing/robin_hood.h"
 
@@ -260,19 +261,26 @@ namespace pecos {
         mem_index_type* row_ptr; // Stores the pointer to data of each nnz row
         index_type nnz_rows;
         bool b_has_explicit_bias; // Whether or not this chunk has an explicit bias term
+        bool is_mmap; // Whether or not this chunk is memory-mapped
 
         bin_search_chunk_t() :
             row_idx(nullptr),
             row_ptr(nullptr),
-            b_has_explicit_bias(false) {
+            b_has_explicit_bias(false),
+            is_mmap(false) {
         }
 
         ~bin_search_chunk_t() {
+            // no need to free mmap arrays
             if (row_ptr) {
-                delete[] row_ptr;
+                if (!is_mmap) {
+                    delete[] row_ptr;
+                }
             }
             if (row_idx) {
-                delete[] row_idx;
+                if (!is_mmap) {
+                    delete[] row_idx;
+                }
             }
         }
 
@@ -325,6 +333,16 @@ namespace pecos {
         bool check_bias_explicit(const chunk_t& chunk) const {
             return chunk.row_hash.find(rows - 1) != chunk.row_hash.end();
         }
+
+        void save_mmap (const char * fn) const {
+            std::cerr << "Not implemented yet" << std::endl;
+            exit(1);
+        }
+
+        void load_mmap (const char * fn) {
+            std::cerr << "Not implemented yet" << std::endl;
+            exit(1);
+        }
     };
 
     struct bin_search_chunked_matrix_t {
@@ -341,10 +359,15 @@ namespace pecos {
         index_type chunk_count;
         index_type cols;
         index_type rows;
+        bool is_mmap; //Whether its arrays are memory-mapped
 
         uint64_t get_nnz() const {
             auto& lastChunk = chunks[chunk_count - 1];
             return lastChunk.row_ptr[lastChunk.nnz_rows];
+        }
+
+        bin_search_chunked_matrix_t() :
+            is_mmap(false) {
         }
 
         // Frees the underlying memory of the matrix (i.e., chunk and entry arrays)
@@ -352,11 +375,119 @@ namespace pecos {
         // therefore one should call this function to free that memory.
         void free_underlying_memory() {
             delete[] chunks;
-            delete[] entries;
+            if (!is_mmap) { // mmap no need to delete
+                delete[] entries;
+            }
         }
 
         bool check_bias_explicit(const chunk_t& chunk) const {
             return chunk.nnz_rows > 0 && chunk.row_idx[chunk.nnz_rows - 1] == rows - 1;
+        }
+
+        // Save mmap
+        void save_mmap (const char * fn) const {
+            // Open file
+            FILE * fp = fopen(fn, "wb");
+
+            // Write header to file
+            // chunk_count, cols, rows
+            fwrite(&(chunk_count), sizeof(chunk_count), 1, fp);
+            fwrite(&(cols), sizeof(cols), 1, fp);
+            fwrite(&(rows), sizeof(rows), 1, fp);
+
+            // Write chunk entries to file
+            // Write length first
+            auto nnz = get_nnz();
+            fwrite(&(nnz), sizeof(nnz), 1, fp);
+            save_arr_mmap<chunk_entry_t> (entries, nnz, fp);
+
+            // Write chunks mats to file
+            // length is chunk_count
+            save_arr_mmap<chunk_t> (chunks, chunk_count, fp);
+
+            // Write chunk mat's row_idx and row_ptr arrays to file
+            // Write row_idx together concatenated
+            for (index_type i=0; i < chunk_count; ++i) {
+                if (chunks[i].nnz_rows != 0) {
+                    save_arr_mmap<index_type> (chunks[i].row_idx, chunks[i].nnz_rows, fp);
+                }
+            }
+            // Write row_ptr together concatenated
+            for (index_type i=0; i < chunk_count; ++i) {
+                if (chunks[i].nnz_rows != 0) {
+                    save_arr_mmap<mem_index_type> (chunks[i].row_ptr, chunks[i].nnz_rows + 1, fp);
+                }
+            }
+
+            fclose(fp);
+        }
+
+        // Load mmap
+        void load_mmap (const char * fn) {
+            // Open file
+            const int fd = open64(fn, O_RDONLY);
+            off_t offset = 0;
+
+            // Read header into memory
+            pread(fd, &chunk_count, sizeof(chunk_count), offset);
+            offset += sizeof(chunk_count);
+            pread(fd, &cols, sizeof(cols), offset);
+            offset += sizeof(cols);
+            pread(fd, &rows, sizeof(rows), offset);
+            offset += sizeof(rows);
+
+            // Read chunk entries into memmap file
+            uint64_t nnz = 0;
+            pread(fd, &nnz, sizeof(nnz), offset);
+            offset += sizeof(nnz);
+            entries = load_arr_mmap<chunk_entry_t> (nnz, fd, offset);
+            offset += sizeof(chunk_entry_t) * nnz;
+
+            // Read chunk mats into memory
+            chunks = new bin_search_chunked_matrix_t::chunk_t[chunk_count];
+            off_t chunks_size = sizeof(bin_search_chunked_matrix_t::chunk_t) * chunk_count;
+            pread(fd, chunks, chunks_size, offset);
+            offset += chunks_size;
+
+            // Read concatenated row_idx and row_ptr arrays
+            // Calculate concatenated lengths
+            off_t row_idx_len = 0;
+            off_t row_ptr_len = 0;
+            for (bin_search_chunked_matrix_t::index_type i=0; i < chunk_count; ++i) {
+                if (chunks[i].nnz_rows != 0) {
+                    row_idx_len += chunks[i].nnz_rows;
+                    row_ptr_len += chunks[i].nnz_rows + 1;
+                }
+            }
+            // Load as mmap file
+            bin_search_chunked_matrix_t::index_type * all_row_idx = load_arr_mmap<bin_search_chunked_matrix_t::index_type> (row_idx_len, fd, offset);
+            offset += sizeof(bin_search_chunked_matrix_t::index_type) * row_idx_len;
+            bin_search_chunked_matrix_t::mem_index_type * all_row_ptr = load_arr_mmap<bin_search_chunked_matrix_t::mem_index_type> (row_ptr_len, fd, offset);
+            // Assign to chunk mat's row_idx and row_ptr
+            for (bin_search_chunked_matrix_t::index_type i=0; i < chunk_count; ++i) {
+                if (chunks[i].nnz_rows != 0) {
+                    chunks[i].row_idx = all_row_idx;
+                    chunks[i].row_ptr = all_row_ptr;
+                    // move forward pointers
+                    all_row_idx += chunks[i].nnz_rows;
+                    all_row_ptr += chunks[i].nnz_rows + 1;
+                }
+                else {
+                    chunks[i].set_empty();
+                }
+                chunks[i].is_mmap = true;
+            }
+
+            // Load finished
+            is_mmap = true;
+
+            // Check
+            if (nnz != get_nnz()) {
+                std::cerr << "Load data corrupted!" << std::endl;
+                std::cerr << "Should get nnz: " << nnz << ", but got: " << get_nnz() << " instead." << std::endl;
+                exit(1);
+            }
+            close(fd);
         }
     };
 
@@ -1322,11 +1453,24 @@ namespace pecos {
             bool b_assumes_ownership,
             MLModelMetadata& metadata
         ) = 0;
+        virtual void init_mmap(
+            const std::string W_mmap_fn,
+            csc_t& C,
+            uint32_t depth,
+            bool b_assumes_ownership,
+            MLModelMetadata& metadata
+        ) = 0;
         static IModelLayer<index_type, value_type>* instantiate(const layer_type_t layer_type);
         static void load(const std::string& folderpath, const uint32_t cur_depth,
             IModelLayer<index_type, value_type>* model);
+        static void load_mmap(const std::string& folderpath, const uint32_t cur_depth,
+            IModelLayer<index_type, value_type>* model);
 
     public:
+        virtual void save_mmap(
+            const std::string& folderpath,
+            const uint32_t cur_depth
+        ) const = 0;
         virtual void predict(
             const csr_t& X,
             const csr_t& prev_layer_pred,
@@ -1378,7 +1522,7 @@ namespace pecos {
         virtual value_type bias() const = 0;
 
         static IModelLayer<index_type, value_type>* instantiate(const std::string& folderpath,
-            const layer_type_t layer_type, const uint32_t cur_depth);
+            const layer_type_t layer_type, const uint32_t cur_depth, const bool is_mmap);
     };
 
     template <typename index_type, typename value_type>
@@ -1409,11 +1553,45 @@ namespace pecos {
     }
 
     template <typename index_type, typename value_type>
+    void IModelLayer<index_type, value_type>::load_mmap(const std::string& folderpath,
+        const uint32_t cur_depth,
+        IModelLayer<index_type, value_type>* model) {
+        MLModelMetadata metadata(folderpath + "/param.json");
+        std::string w_mmap_path = folderpath + "/W_mmap";
+        std::string c_npz_path = folderpath + "/C.npz";
+
+        ScipyCscF32Npz C;
+        csc_t py_matrix_csc_C;
+
+        if ((cur_depth == 0) && (access(c_npz_path.c_str(), F_OK) != 0)) {
+            // this is to handle the case where the root layer does not have code saved.
+            // C.fill_ones(W_mmap.cols, 1);
+            // raise error here
+            std::cerr << "Root layer does not have code saved!" << std::endl;
+            exit(1);
+        } else {
+            C.load(c_npz_path);
+        }
+
+        // We perform a deep copy because MLModel assumes ownership of the memory.
+        py_matrix_csc_C = csc_npz_to_csc_t_deep_copy(C);
+
+        model->init_mmap(w_mmap_path, py_matrix_csc_C, cur_depth, true, metadata);
+    }
+
+    template <typename index_type, typename value_type>
     IModelLayer<index_type, value_type>* IModelLayer<index_type, value_type>::instantiate(
         const std::string& folderpath,
-        const layer_type_t layer_type, const uint32_t cur_depth) {
+        const layer_type_t layer_type, const uint32_t cur_depth,
+        const bool is_mmap) {
         IModelLayer* result = IModelLayer::instantiate(layer_type);
-        IModelLayer::load(folderpath, cur_depth, result);
+
+        if (is_mmap) {
+            IModelLayer::load_mmap(folderpath, cur_depth, result);
+        }
+        else {
+            IModelLayer::load(folderpath, cur_depth, result);
+        }
         return result;
     }
 
@@ -1452,6 +1630,12 @@ namespace pecos {
             this->b_assumes_ownership = b_assumes_ownership;
             this->W = W;
             this->C = C;
+        }
+
+        // mmap
+        void init_mmap(matrix_t& _W_mmap, csc_t& _C, bool b_assumes_ownership, value_type bias) {
+            std::cerr << "Not implemented yet" << std::endl;
+            exit(1);
         }
 
         // Not necessary for unchuncked layer data
@@ -1590,6 +1774,35 @@ namespace pecos {
         // The bias for this layer if the model uses a bias
         value_type bias;
 
+        // Initializes mmap this layer data
+        // W is already chunktized and loaded from disk as mmap
+        void init_mmap(chunked_matrix_t& _W_mmap, csc_t& _C, bool b_assumes_ownership, value_type bias) {
+            bool b_has_bias = bias > 0.0;
+            this->bias = bias;
+            this->b_assumes_ownership = b_assumes_ownership;
+
+            if (!check_if_contiguously_ordered(_C)) {
+                // For chunked matrices to work, the children of a layer must be contiguously ordered
+                // If this is not the case, then we must compute a rearrangement to reorder them
+                // This rearrangement must then be undone during inference time.
+                children_rearrangement.initialize_from_codes(_C);
+
+                csc_t C_rearranged = children_rearrangement.get_rearranged_codes(_C);
+
+                if (b_assumes_ownership) {
+                    _C.free_underlying_memory();
+                }
+
+                this->b_children_reordered = true;
+                this->C = C_rearranged;
+            }
+            else {
+                this->b_children_reordered = false;
+                this->C = _C;
+            }
+            this->W = _W_mmap;
+        }
+
         // Initializes this layer data
         void init(csc_t& _W, csc_t& _C, bool b_assumes_ownership, value_type bias) {
             bool b_has_bias = bias > 0.0;
@@ -1683,6 +1896,25 @@ namespace pecos {
             only_topk = metadata.only_topk;
         }
 
+        void init_mmap(
+            const std::string W_mmap_fn,
+            csc_t& C,
+            uint32_t depth,
+            bool b_assumes_ownership,
+            MLModelMetadata& metadata
+        ) override {
+            w_matrix_t * W_mmap = new w_matrix_t();
+            W_mmap->load_mmap(W_mmap_fn.c_str());
+
+            // No statistics for mmap
+            // statistics = layer_statistics_t::compute(W, C);
+            layer_data.init_mmap(*W_mmap, C, b_assumes_ownership, metadata.bias);
+            cur_depth = depth;
+
+            post_processor = PostProcessor<value_type>::get(metadata.post_processor);
+            only_topk = metadata.only_topk;
+        }
+
     public:
         MLModel() {
         }
@@ -1705,6 +1937,16 @@ namespace pecos {
             MLModelMetadata& metadata
         ) {
             init(csc_t(&W),  csc_t(&C), cur_depth, b_assumes_ownership, metadata);
+        }
+
+        // Save mmap
+        void save_mmap(const std::string& folderpath, const uint32_t cur_depth) const {
+            MLModelMetadata metadata(folderpath + "/param.json");
+            std::string w_mmap_path = folderpath + "/W_mmap";
+            std::string c_npz_path = folderpath + "/C.npz";
+
+            // TODO: Save W only. In the same folder
+            layer_data.W.save_mmap(w_mmap_path.c_str());
         }
 
         // The internal prediction function for a layer, this method is templated to take any
@@ -2102,7 +2344,6 @@ namespace pecos {
             const int threads=-1,
             const uint32_t depth=0
         ) {
-
             uint32_t prediction_depth = (depth > 0) ?
                 std::min<uint32_t>(depth, model_layers.size()) : model_layers.size();
 
@@ -2219,19 +2460,37 @@ namespace pecos {
             }
         }
 
+        // Save mmap
+        // Currently only bin_search
+        void save_mmap(
+            const std::string& folderpath
+        ) const {
+            auto depth = model_layers.size();
+            for (std::size_t d = 0; d < depth; d++) {
+                std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
+                model_layers[d]->save_mmap(layer_path, d);
+            }
+        }
+
         static void load(
             const std::string& folderpath,
             HierarchicalMLModel* model,
-            layer_type_t layer_type = DEFAULT_LAYER_TYPE
+            layer_type_t layer_type = DEFAULT_LAYER_TYPE,
+            const bool is_mmap = false
         ) {
             HierarchicalMLModelMetadata xlinear_metadata(folderpath + "/param.json");
             auto depth = xlinear_metadata.depth;
             std::vector<ISpecializedModelLayer*> layers(depth);
 
+            if (is_mmap && (layer_type != DEFAULT_LAYER_TYPE)) {
+                std::cerr << "Only LAYER_TYPE_BINARY_SEARCH_CHUNKED implemented for mmap" << std::endl;
+                exit(1);
+            }
+
             // Abstractly instantiate every layer
             for (auto d = 0; d < depth; d++) {
                 std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
-                layers[d] = ISpecializedModelLayer::instantiate(layer_path, layer_type, d);
+                layers[d] = ISpecializedModelLayer::instantiate(layer_path, layer_type, d, is_mmap);
             }
 
             // Model chain assumes ownership of the memory associated with the matrices above
@@ -2240,9 +2499,10 @@ namespace pecos {
 
         HierarchicalMLModel(
             const std::string& folderpath,
-            layer_type_t layer_type = DEFAULT_LAYER_TYPE
+            layer_type_t layer_type = DEFAULT_LAYER_TYPE,
+            const bool is_mmap = false
         ) {
-            HierarchicalMLModel::load(folderpath, this, layer_type);
+            HierarchicalMLModel::load(folderpath, this, layer_type, is_mmap);
         }
     };
 } // end namespace pecos

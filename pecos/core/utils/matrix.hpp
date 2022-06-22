@@ -23,6 +23,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <vector>
+#include <iostream>
 
 #include "parallel.hpp"
 #include "scipy_loader.hpp"
@@ -281,6 +282,16 @@ namespace pecos {
             col_ptr(py->col_ptr),
             row_idx(py->row_idx),
             val(py->val) { }
+
+        void save_mmap (const char * fn) const {
+            std::cerr << "Not implemented yet" << std::endl;
+            exit(1);
+        }
+
+        void load_mmap (const char * fn) {
+            std::cerr << "Not implemented yet" << std::endl;
+            exit(1);
+        }
 
         bool is_empty() const {
             return val == nullptr;

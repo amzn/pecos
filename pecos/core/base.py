@@ -603,6 +603,10 @@ class corelib(object):
         corelib.fillprototype(self.clib_float32.c_xlinear_load_model_from_disk, res_list, arg_list)
 
         res_list = c_void_p
+        arg_list = [c_char_p]
+        corelib.fillprototype(self.clib_float32.c_xlinear_load_model_from_disk_mmap, res_list, arg_list)
+
+        res_list = c_void_p
         arg_list = [c_char_p, c_int]
         corelib.fillprototype(
             self.clib_float32.c_xlinear_load_model_from_disk_ext, res_list, arg_list
@@ -686,6 +690,7 @@ class corelib(object):
         self,
         folder,
         weight_matrix_type="BINARY_SEARCH_CHUNKED",
+        is_mmap=False,
     ):
         """
         Load xlinear model in predict only mode.
@@ -698,9 +703,16 @@ class corelib(object):
             cmodel (ptr): The pointer to xlinear model.
         """
         weight_matrix_type_id = XLINEAR_INFERENCE_MODEL_TYPES[weight_matrix_type]
-        cmodel = self.clib_float32.c_xlinear_load_model_from_disk_ext(
-            c_char_p(folder.encode("utf-8")), c_int(int(weight_matrix_type_id))
+        if is_mmap:
+            if weight_matrix_type != "BINARY_SEARCH_CHUNKED":
+                raise ValueError(f"Currently mmap only implemented for BINARY_SEARCH_CHUNKED, got: {weight_matrix_type}")
+            cmodel = self.clib_float32.c_xlinear_load_model_from_disk_mmap(
+                c_char_p(folder.encode("utf-8"))
         )
+        else:
+            cmodel = self.clib_float32.c_xlinear_load_model_from_disk_ext(
+                c_char_p(folder.encode("utf-8")), c_int(int(weight_matrix_type_id))
+            )
         return cmodel
 
     def xlinear_destruct_model(self, c_model):
