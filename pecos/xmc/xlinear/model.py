@@ -138,9 +138,7 @@ class XLinearModel(pecos.BaseClass):
         """
         Load model into memory map
         """
-        model = HierarchicalMLModel.load_mmap(
-            path.join(model_folder, "ranker"), **kwargs
-        )
+        model = HierarchicalMLModel.load_mmap(path.join(model_folder, "ranker"), **kwargs)
         return cls(model)
 
     @property

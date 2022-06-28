@@ -30,8 +30,8 @@ extern "C" {
         return static_cast<void*>(model);
     }
 
-    void* c_xlinear_load_model_from_disk_mmap(const char* model_path) {
-        auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED, true);
+    void* c_xlinear_load_model_from_disk_mmap(const char* model_path, const bool pre_load) {
+        auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED, true, pre_load);
         return static_cast<void*>(model);
     }
 

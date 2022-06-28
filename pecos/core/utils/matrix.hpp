@@ -284,13 +284,11 @@ namespace pecos {
             val(py->val) { }
 
         void save_mmap (const char * fn) const {
-            std::cerr << "Not implemented yet" << std::endl;
-            exit(1);
+            throw std::runtime_error("Not implemented yet.");
         }
 
-        void load_mmap (const char * fn) {
-            std::cerr << "Not implemented yet" << std::endl;
-            exit(1);
+        void load_mmap (const char * fn, const bool pre_load) {
+            throw std::runtime_error("Not implemented yet.");
         }
 
         bool is_empty() const {
