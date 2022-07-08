@@ -30,7 +30,6 @@ def test_hierarchicalkmeans():
         smat.csr_matrix([[1, 0], [0.95, 0.05], [0.9, 0.1], [0, 1]], dtype=np.float32)
     )
     target_balanced = [0, 0, 1, 1]
-    target_imbalanced = [0, 0, 0, 1]
 
     balanced_chain = Indexer.gen(feat_mat, max_leaf_size=3)
     balanced_assignments = (balanced_chain[-1].todense() == [0, 1]).all(axis=1).A1
