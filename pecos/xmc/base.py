@@ -30,7 +30,7 @@ from pecos.core import (
     XLINEAR_INFERENCE_MODEL_TYPES,
 )
 from pecos.utils import smat_util
-from pecos.utils.cluster_util import ClusterChain, hierarchical_kmeans
+from pecos.utils.cluster_util import ClusterChain
 from sklearn.preprocessing import normalize
 
 LOGGER = logging.getLogger(__name__)
@@ -86,11 +86,9 @@ class HierarchicalKMeans(Indexer):
     class TrainParams(pecos.BaseParams):  # type: ignore
         """Training Parameters of Hierarchical K-means.
 
-        nr_splits (int, optional): The out-degree of each internal node of the tree. Ignored if `imbalanced_ratio != 0` because imbalanced clustering supports only 2-means. Default is `16`.
+        nr_splits (int, optional): The out-degree of each internal node of the tree. Default is `16`.
         min_codes (int): The number of direct child nodes that the top level of the hierarchy should have.
         max_leaf_size (int, optional): The maximum size of each leaf node of the tree. Default is `100`.
-        imbalanced_ratio (float, optional): Value between `0.0` and `0.5` (inclusive). Indicates how relaxed the balancedness constraint of 2-means can be. Specifically, if an iteration of 2-means is clustering `L` labels, the size of the output 2 clusters will be within approx `imbalanced_ratio * 2 * L` of each other. Default is `0.0`.
-        imbalanced_depth (int, optional): Maximum depth of imbalanced clustering. After depth `imbalanced_depth` is reached, balanced clustering will be used. Default is `100`.
         spherical (bool, optional): True will l2-normalize the centroids of k-means after each iteration. Default is `True`.
         seed (int, optional): Random seed. Default is `0`.
         kmeans_max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
@@ -100,8 +98,6 @@ class HierarchicalKMeans(Indexer):
         nr_splits: int = 16
         min_codes: int = None  # type: ignore
         max_leaf_size: int = 100
-        imbalanced_ratio: float = 0.0
-        imbalanced_depth: int = 100
         spherical: bool = True
         seed: int = 0
         kmeans_max_iter: int = 20
@@ -138,59 +134,45 @@ class HierarchicalKMeans(Indexer):
             f"HierarchicalKMeans train_params: {json.dumps(train_params.to_dict(), indent=True)}"
         )
 
-        # use optimized c++ clustering code if doing balanced clustering
-        if train_params.imbalanced_ratio == 0:
-            nr_instances = feat_mat.shape[0]
-            if train_params.max_leaf_size >= nr_instances:
-                # no-need to do clustering
-                return ClusterChain.from_partial_chain(
-                    smat.csc_matrix(np.ones((nr_instances, 1), dtype=np.float32))
-                )
-
-            depth = max(1, int(math.ceil(math.log2(nr_instances / train_params.max_leaf_size))))
-            if (2**depth) > nr_instances:
-                raise ValueError(
-                    f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {nr_instances} to avoid empty clusters"
-                )
-
-            algo = cls.SKMEANS if train_params.spherical else cls.KMEANS
-
-            assert feat_mat.dtype == np.float32
-            if isinstance(feat_mat, (smat.csr_matrix, ScipyCsrF32)):
-                py_feat_mat = ScipyCsrF32.init_from(feat_mat)
-            elif isinstance(feat_mat, (np.ndarray, ScipyDrmF32)):
-                py_feat_mat = ScipyDrmF32.init_from(feat_mat)
-            else:
-                raise NotImplementedError(
-                    "type(feat_mat) = {} is not supported.".format(type(feat_mat))
-                )
-
-            codes = np.zeros(py_feat_mat.rows, dtype=np.uint32)
-            codes = clib.run_clustering(
-                py_feat_mat,
-                depth,
-                algo,
-                train_params.seed,
-                codes=codes,
-                kmeans_max_iter=train_params.kmeans_max_iter,
-                threads=train_params.threads,
+        nr_instances = feat_mat.shape[0]
+        if train_params.max_leaf_size >= nr_instances:
+            # no-need to do clustering
+            return ClusterChain.from_partial_chain(
+                smat.csc_matrix(np.ones((nr_instances, 1), dtype=np.float32))
             )
-            C = cls.convert_codes_to_csc_matrix(codes, depth)
-            cluster_chain = ClusterChain.from_partial_chain(
-                C, min_codes=train_params.min_codes, nr_splits=train_params.nr_splits
+
+        depth = max(1, int(math.ceil(math.log2(nr_instances / train_params.max_leaf_size))))
+        if (2**depth) > nr_instances:
+            raise ValueError(
+                f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {nr_instances} to avoid empty clusters"
             )
+
+        algo = cls.SKMEANS if train_params.spherical else cls.KMEANS
+
+        assert feat_mat.dtype == np.float32
+        if isinstance(feat_mat, (smat.csr_matrix, ScipyCsrF32)):
+            py_feat_mat = ScipyCsrF32.init_from(feat_mat)
+        elif isinstance(feat_mat, (np.ndarray, ScipyDrmF32)):
+            py_feat_mat = ScipyDrmF32.init_from(feat_mat)
         else:
-            cluster_chain = hierarchical_kmeans(
-                feat_mat,
-                max_leaf_size=train_params.max_leaf_size,
-                imbalanced_ratio=train_params.imbalanced_ratio,
-                imbalanced_depth=train_params.imbalanced_depth,
-                spherical=train_params.spherical,
-                seed=train_params.seed,
-                kmeans_max_iter=train_params.kmeans_max_iter,
-                threads=train_params.threads,
+            raise NotImplementedError(
+                "type(feat_mat) = {} is not supported.".format(type(feat_mat))
             )
-            cluster_chain = ClusterChain(cluster_chain)
+
+        codes = np.zeros(py_feat_mat.rows, dtype=np.uint32)
+        codes = clib.run_clustering(
+            py_feat_mat,
+            depth,
+            algo,
+            train_params.seed,
+            codes=codes,
+            kmeans_max_iter=train_params.kmeans_max_iter,
+            threads=train_params.threads,
+        )
+        C = cls.convert_codes_to_csc_matrix(codes, depth)
+        cluster_chain = ClusterChain.from_partial_chain(
+            C, min_codes=train_params.min_codes, nr_splits=train_params.nr_splits
+        )
         return cluster_chain
 
     @staticmethod

@@ -38,12 +38,6 @@ def test_hierarchicalkmeans():
         ~balanced_assignments, target_balanced
     )
 
-    imbalanced_chain = Indexer.gen(feat_mat, imbalanced_ratio=0.4, max_leaf_size=3)
-    imbalanced_assignments = (imbalanced_chain[-1].todense() == [0, 1]).all(axis=1).A1
-    assert np.array_equal(imbalanced_assignments, target_imbalanced) or np.array_equal(
-        ~imbalanced_assignments, target_imbalanced
-    )
-
     chain2 = Indexer.gen(feat_mat, max_leaf_size=1, nr_splits=2)
     chain4 = Indexer.gen(feat_mat, max_leaf_size=1, nr_splits=4)
 
