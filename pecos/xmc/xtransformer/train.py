@@ -511,11 +511,7 @@ def do_train(args):
 
     # load cluster chain
     if os.path.exists(args.code_path):
-        cluster_chain = ClusterChain.from_partial_chain(
-            smat_util.load_matrix(args.code_path),
-            min_codes=args.min_codes,
-            nr_splits=args.nr_splits,
-        )
+        cluster_chain = ClusterChain.load(args.code_path)
         LOGGER.info("Loaded from code-path: {}".format(args.code_path))
     else:
         if os.path.isfile(args.label_feat_path):
