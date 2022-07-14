@@ -28,11 +28,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
-#include <string>
 #include <fstream>
 #include <functional>
 #include <inttypes.h>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <unistd.h>
 #include <vector>
@@ -61,6 +61,8 @@ namespace pecos {
     struct HierarchicalMLModelMetadata {
         int depth;
 
+        HierarchicalMLModelMetadata(const int d) : depth(d) {}
+
         HierarchicalMLModelMetadata(const std::string& params_filepath) {
             std::ifstream ifs(params_filepath);
             if (!ifs.is_open()) {
@@ -80,12 +82,27 @@ namespace pecos {
                 throw std::runtime_error("model corrupted, depth is 0 or negative");
             }
         }
+
+        void dump_json(const std::string& params_filepath) const {
+            std::ofstream ofs(params_filepath);
+            if (!ofs.is_open()) {
+                throw std::runtime_error("could not open " + params_filepath);
+            }
+
+            ofs << "{\n";
+            ofs << "\"model\": \"HierarchicalMLModel\",\n";
+            ofs << "\"depth\": " << depth << "\n";
+            ofs << "}\n";
+
+            ofs.close();
+        }
     };
 
     struct MLModelMetadata {
         float bias;
         int only_topk;
         std::string post_processor;
+
 
         MLModelMetadata(
             float bias=1.0,
@@ -134,6 +151,24 @@ namespace pecos {
 
             only_topk = pred_kwargs["only_topk"];
             post_processor = pred_kwargs["post_processor"];
+        }
+
+        void dump_json(const std::string& params_filepath) const {
+            std::ofstream ofs(params_filepath);
+            if (!ofs.is_open()) {
+                throw std::runtime_error("could not open " + params_filepath);
+            }
+
+            ofs << "{\n";
+            ofs << "\"model\": \"MLModel\",\n";
+            ofs << "\"bias\": " << bias << ",\n";
+            ofs << "\"pred_kwargs\": {\n";
+            ofs << "\t\"only_topk\": " << only_topk << ",\n";
+            ofs << "\t\"post_processor\": \"" << post_processor << "\"\n";
+            ofs << "\t}\n";
+            ofs << "}\n";
+
+            ofs.close();
         }
     };
 
@@ -302,22 +337,22 @@ namespace pecos {
             off64_t cur_offset = offset;
             // load col_begin
             if (pread(fd, &col_begin, sizeof(col_begin), cur_offset) < 0) {
-                exit(1);
+                throw std::runtime_error("Read col_begin failed.");
             }
             cur_offset += sizeof(col_begin);
             // load col_end
             if (pread(fd, &col_end, sizeof(col_end), cur_offset) < 0) {
-                exit(1);
+                throw std::runtime_error("Read col_end failed.");
             }
             cur_offset += sizeof(col_end);
             // load nnz_rows
             if (pread(fd, &nnz_rows, sizeof(nnz_rows), cur_offset) < 0) {
-                exit(1);
+                throw std::runtime_error("Read nnz_rows failed.");
             }
             cur_offset += sizeof(nnz_rows);
             // load b_has_explicit_bias
             if (pread(fd, &b_has_explicit_bias, sizeof(b_has_explicit_bias), cur_offset) < 0) {
-                exit(1);
+                throw std::runtime_error("Read b_has_explicit_bias failed.");
             }
             cur_offset += sizeof(b_has_explicit_bias);
 
@@ -379,11 +414,11 @@ namespace pecos {
             return chunk.row_hash.find(rows - 1) != chunk.row_hash.end();
         }
 
-        void save_mmap (const char * fn) const {
+        void save_mmap (const std::string& fn) const {
             throw std::runtime_error("Not implemented yet.");
         }
 
-        void load_mmap (const char * fn, const bool pre_load) {
+        void load_mmap (const std::string& fn, const bool pre_load) {
             throw std::runtime_error("Not implemented yet.");
         }
     };
@@ -458,9 +493,9 @@ namespace pecos {
         }
 
         // Save mmap
-        void save_mmap (const char * fn) const {
+        void save_mmap (const std::string& fn) const {
             // Open file
-            FILE * fp = fopen(fn, "wb");
+            FILE * fp = fopen(fn.c_str(), "wb");
 
             // Dump endian type
             mmap::dump_endian_type(fp);
@@ -502,14 +537,14 @@ namespace pecos {
         }
 
         // Load mmap
-        void load_mmap (const char * fn, const bool pre_load) {
+        void load_mmap (const std::string& fn, const bool pre_load) {
             // Open file
-            FILE * fp = fopen(fn, "rb");
+            FILE * fp = fopen(fn.c_str(), "rb");
 
             // Check endian type
             mmap::check_endian_type(fp);
 
-            // Get file descriptor and offset
+            // Get file descriptor and offset for mmap
             const int fd = fileno(fp);
             off64_t offset = ftell(fp);
 
@@ -1544,10 +1579,8 @@ namespace pecos {
             MLModelMetadata& metadata
         ) = 0;
         virtual void init_mmap(
-            const std::string W_mmap_fn,
-            csc_t& C,
+            const std::string foldername,
             uint32_t depth,
-            bool b_assumes_ownership,
             MLModelMetadata& metadata,
             const bool pre_load
         ) = 0;
@@ -1559,8 +1592,7 @@ namespace pecos {
 
     public:
         virtual void save_mmap(
-            const std::string& folderpath,
-            const uint32_t cur_depth
+            const std::string& folderpath
         ) const = 0;
         virtual void predict(
             const csr_t& X,
@@ -1650,18 +1682,8 @@ namespace pecos {
         const bool pre_load,
         IModelLayer<index_type, value_type>* model) {
         MLModelMetadata metadata(folderpath + "/param.json");
-        std::string w_mmap_path = folderpath + "/W_mmap";
-        std::string c_npz_path = folderpath + "/C.npz";
 
-        ScipyCscF32Npz C;
-        csc_t py_matrix_csc_C;
-
-        C.load(c_npz_path);
-
-        // We perform a deep copy because MLModel assumes ownership of the memory.
-        py_matrix_csc_C = csc_npz_to_csc_t_deep_copy(C);
-
-        model->init_mmap(w_mmap_path, py_matrix_csc_C, cur_depth, true, metadata, pre_load);
+        model->init_mmap(folderpath, cur_depth, metadata, pre_load);
     }
 
     template <typename index_type, typename value_type>
@@ -1720,7 +1742,12 @@ namespace pecos {
         }
 
         // mmap
-        void init_mmap(matrix_t& _W_mmap, csc_t& _C, bool b_assumes_ownership, value_type bias) {
+        void init_mmap(const std::string& foldername, bool pre_load, value_type bias) {
+            throw std::runtime_error("Not implemented yet.");
+        }
+
+        // Save layer data to mmap format
+        void save_mmap(const std::string& foldername) const {
             throw std::runtime_error("Not implemented yet.");
         }
 
@@ -1746,12 +1773,77 @@ namespace pecos {
 
         template <typename index_type=uint32_t>
         struct rearrangement_t {
-            std::vector<index_type> perm; // The rearrangement, stored as a std::vector
-            std::vector<index_type> perm_inv; // The inverse of the rearrangement
+            // For accessing the permutation arrays, to accommondate both mmap and memory case
+            index_type * perm;
+            index_type * perm_inv;
+            size_t perm_size;
+            size_t perm_inv_size;
+
+            // permutation data memory store
+            // empty in mmap case
+            std::vector<index_type> _perm; // The rearrangement, stored as a std::vector
+            std::vector<index_type> _perm_inv; // The inverse of the rearrangement
+
+            // permutation data mmap store
+            // empty in memory case
+            mmap::MemoryMappedArray<index_type> _mmap_perm;
+            mmap::MemoryMappedArray<index_type> _mmap_perm_inv;
 
             ~rearrangement_t() {
-                perm.clear();
-                perm_inv.clear();
+                _perm.clear();
+                _perm_inv.clear();
+            }
+
+            // Save mmap to disk file
+            void save_mmap(const std::string& fn) const {
+                // Open file
+                FILE * fp = fopen(fn.c_str(), "wb");
+
+                // Dump endian type
+                mmap::dump_endian_type(fp);
+
+                // Write perm
+                fwrite(&(perm_size), sizeof(perm_size), 1, fp);
+                mmap::MemoryMappedArray<index_type>::dump_to_file(perm, perm_size, fp);
+
+                // Write perm_inv
+                fwrite(&(perm_inv_size), sizeof(perm_inv_size), 1, fp);
+                mmap::MemoryMappedArray<index_type>::dump_to_file(perm_inv, perm_inv_size, fp);
+
+                // Close file
+                fclose(fp);
+            }
+
+            // Load mmap of rearrangements from disk file
+            void load_mmap(const std::string& fn, const bool pre_load) {
+                // Open file
+                FILE * fp = fopen(fn.c_str(), "rb");
+
+                // Check endian type
+                mmap::check_endian_type(fp);
+
+                // Get file descriptor and offset
+                const int fd = fileno(fp);
+                off64_t offset = ftell(fp);
+
+                // Load perm
+                if (pread(fd, &perm_size, sizeof(perm_size), offset) < 0) {
+                    exit(1);
+                }
+                offset += sizeof(perm_size);
+                offset += _mmap_perm.load(perm_size, fd, offset, pre_load);
+                perm = _mmap_perm.data();
+
+                // Load perm_inv
+                if (pread(fd, &perm_inv_size, sizeof(perm_inv_size), offset) < 0) {
+                    exit(1);
+                }
+                offset += sizeof(perm_inv_size);
+                offset += _mmap_perm_inv.load(perm_inv_size, fd, offset, pre_load);
+                perm_inv = _mmap_perm_inv.data();
+
+                // Close file
+                fclose(fp);
             }
 
             // Creates rearrangement to reorder the rows of C so that they are in correct contiguous order
@@ -1761,18 +1853,24 @@ namespace pecos {
 
                 typedef typename csc_t::mem_index_type mem_index_type;
 
-                perm.resize(C.rows);
+                _perm.resize(C.rows);
                 mem_index_type new_size = C.get_nnz();
                 for (mem_index_type i=0; i < C.rows; ++i){
-                    perm[i] = new_size;
+                    _perm[i] = new_size;
                 }
 
-                perm_inv.resize(new_size);
+                _perm_inv.resize(new_size);
                 for (mem_index_type i = 0; i < new_size; ++i) {
-                    perm[C.row_idx[i]] = i;
-                    perm_inv[i] = C.row_idx[i];
+                    _perm[C.row_idx[i]] = i;
+                    _perm_inv[i] = C.row_idx[i];
                 }
 
+                // assign pointers and sizes
+                perm = _perm.data();
+                perm_inv = _perm_inv.data();
+
+                perm_size = _perm.size();
+                perm_inv_size = _perm_inv.size();
             }
 
             // Creates a rearranged C (contiguously arranged)from existing C.
@@ -1781,7 +1879,7 @@ namespace pecos {
 
                 typedef typename csc_t::mem_index_type mem_index_type;
                 csc_t C_rearranged = C.deep_copy();
-                C_rearranged.rows = perm_inv.size();
+                C_rearranged.rows = perm_inv_size;
                 for (mem_index_type i = 0; i < C_rearranged.rows; ++i) {
                     C_rearranged.row_idx[i] = perm[C_rearranged.row_idx[i]];
                 }
@@ -1789,13 +1887,12 @@ namespace pecos {
             }
 
             void rearrange_prediction_result_back(csr_t& mat){
-
                 typedef typename csr_t::mem_index_type mem_index_type;
 
                 mem_index_type nnz = mat.get_nnz();
                 for (mem_index_type i = 0; i < nnz; ++i)
                     mat.col_idx[i] = perm_inv[mat.col_idx[i]];
-                mat.cols = perm.size();
+                mat.cols = perm_size;
             }
 
 
@@ -1806,10 +1903,10 @@ namespace pecos {
 
                 csc_t result;
                 result.rows = mat.rows;
-                result.cols = perm_inv.size();
+                result.cols = perm_inv_size;
                 mem_index_type new_nnz = 0;
                 for (index_type col = 0; col < mat.cols; ++col){
-                    if (perm[col] < perm_inv.size()) {
+                    if (perm[col] < perm_inv_size) {
                         new_nnz += mat.nnz_of_col(col);
                     }
                 }
@@ -1860,46 +1957,37 @@ namespace pecos {
         // The bias for this layer if the model uses a bias
         value_type bias;
 
-        // Initializes mmap this layer data
-        // W is already chunktized and loaded from disk as mmap
-        void init_mmap(chunked_matrix_t& _W_mmap, csc_t& _C, bool b_assumes_ownership, value_type bias) {
-            // bool b_has_bias = bias > 0.0;
+        // Save layer data to mmap format
+        void save_mmap(const std::string& foldername) const {
+            W.save_mmap(_mmap_W_fn(foldername));
+            C.save_mmap(_mmap_C_fn(foldername));
+            if (b_children_reordered) {
+                children_rearrangement.save_mmap(_mmap_perm_fn(foldername));
+            }
+        }
+
+        // Initializes mmap for layer data
+        void init_mmap(const std::string& foldername, const bool pre_load, value_type bias) {
             this->bias = bias;
-            this->b_assumes_ownership = b_assumes_ownership;
+            this->b_assumes_ownership = true; // Always true for mmap
 
-            // // Re-assign to loaded _W_mmap whether each chunk actually has a bias term.
-            // if (b_has_bias) {
-            //     for (index_type i_chunk = 0; i_chunk < _W_mmap.chunk_count; ++i_chunk) {
-            //         auto& chunk = _W_mmap.chunks[i_chunk];
-            //         chunk.b_has_explicit_bias = _W_mmap.check_bias_explicit(chunk);
-            //     }
-            // } else {
-            //     for (index_type i_chunk = 0; i_chunk < _W_mmap.chunk_count; ++i_chunk) {
-            //         auto& chunk = _W_mmap.chunks[i_chunk];
-            //         chunk.b_has_explicit_bias = false;
-            //     }
-            // }
+            // load W
+            // W is already chunktized and loaded from disk as mmap, therefore bias term is ignored for assign W chunks
+            this->W.load_mmap(_mmap_W_fn(foldername), pre_load);
 
-            if (!check_if_contiguously_ordered(_C)) {
-                // For chunked matrices to work, the children of a layer must be contiguously ordered
-                // If this is not the case, then we must compute a rearrangement to reorder them
-                // This rearrangement must then be undone during inference time.
-                children_rearrangement.initialize_from_codes(_C);
+            // load C
+            // C is already permuted
+            this->C.load_mmap(_mmap_C_fn(foldername), pre_load);
 
-                csc_t C_rearranged = children_rearrangement.get_rearranged_codes(_C);
-
-                if (b_assumes_ownership) {
-                    _C.free_underlying_memory();
-                }
-
+            // load rearrangement if exists
+            std::string perm_mmap_fn = _mmap_perm_fn(foldername);
+            if (access(perm_mmap_fn.c_str(), F_OK) == 0) { // Rearrangement mmap file exist
                 this->b_children_reordered = true;
-                this->C = C_rearranged;
+                this->children_rearrangement.load_mmap(perm_mmap_fn, pre_load);
             }
             else {
                 this->b_children_reordered = false;
-                this->C = _C;
             }
-            this->W = _W_mmap;
         }
 
         // Initializes this layer data
@@ -1952,6 +2040,11 @@ namespace pecos {
             C.free_underlying_memory();
         }
 
+        private:
+            // mmap file names
+            inline std::string _mmap_W_fn(const std::string& foldername) const {return foldername + "/W_mmap";}
+            inline std::string _mmap_C_fn(const std::string& foldername) const {return foldername + "/C_mmap";}
+            inline std::string _mmap_perm_fn(const std::string& foldername) const {return foldername + "/perm_mmap";}
     };
 
     template <typename w_matrix_t>
@@ -1965,6 +2058,9 @@ namespace pecos {
         typedef IModelLayer<index_type, value_type> ISpecializedModelLayer;
 
     private:
+        // Metadata
+        MLModelMetadata metadata;
+
         // The matrix data for this layer
         LayerData<w_matrix_t> layer_data;
 
@@ -1986,6 +2082,8 @@ namespace pecos {
             bool b_assumes_ownership,
             MLModelMetadata& metadata
         ) override {
+            this->metadata = metadata;
+
             statistics = layer_statistics_t::compute(W, C);
             layer_data.init(W, C, b_assumes_ownership, metadata.bias);
             cur_depth = depth;
@@ -1995,19 +2093,15 @@ namespace pecos {
         }
 
         void init_mmap(
-            const std::string W_mmap_fn,
-            csc_t& C,
+            const std::string foldername,
             const uint32_t depth,
-            const bool b_assumes_ownership,
             MLModelMetadata& metadata,
             const bool pre_load
         ) override {
-            w_matrix_t * W_mmap = new w_matrix_t();
-            W_mmap->load_mmap(W_mmap_fn.c_str(), pre_load);
+            this->metadata = metadata;
 
-            // No statistics for mmap
-            // statistics = layer_statistics_t::compute(W, C);
-            layer_data.init_mmap(*W_mmap, C, b_assumes_ownership, metadata.bias);
+            // No statistics to init for mmap
+            layer_data.init_mmap(foldername, pre_load, metadata.bias);
             cur_depth = depth;
 
             post_processor = PostProcessor<value_type>::get(metadata.post_processor);
@@ -2039,13 +2133,11 @@ namespace pecos {
         }
 
         // Save mmap
-        void save_mmap(const std::string& folderpath, const uint32_t cur_depth) const {
-            // MLModelMetadata metadata(folderpath + "/param.json");
-            std::string w_mmap_path = folderpath + "/W_mmap";
-            // std::string c_npz_path = folderpath + "/C.npz";
+        void save_mmap(const std::string& folderpath) const {
+            const std::string metadata_path = folderpath + "/param.json";
+            metadata.dump_json(metadata_path);
 
-            // TODO: Save W only. In the same folder
-            layer_data.W.save_mmap(w_mmap_path.c_str());
+            layer_data.save_mmap(folderpath);
         }
 
         // The internal prediction function for a layer, this method is templated to take any
@@ -2564,10 +2656,21 @@ namespace pecos {
         void save_mmap(
             const std::string& folderpath
         ) const {
+            // Create folder
+            system(("mkdir -p " + folderpath).c_str());
+
+            // Dump metadata
             auto depth = model_layers.size();
+            std::string metadata_path = folderpath + "/param.json";
+            HierarchicalMLModelMetadata metadata(depth);
+            metadata.dump_json(metadata_path);
+
+            // Save each layer
             for (std::size_t d = 0; d < depth; d++) {
                 std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
-                model_layers[d]->save_mmap(layer_path, d);
+                // Create folder for layer
+                system(("mkdir -p " + layer_path).c_str());
+                model_layers[d]->save_mmap(layer_path);
             }
         }
 
@@ -2578,13 +2681,13 @@ namespace pecos {
             const bool is_mmap = false,
             const bool pre_load = false
         ) {
-            HierarchicalMLModelMetadata xlinear_metadata(folderpath + "/param.json");
-            auto depth = xlinear_metadata.depth;
-            std::vector<ISpecializedModelLayer*> layers(depth);
-
             if (is_mmap && (layer_type != DEFAULT_LAYER_TYPE)) {
                 throw std::runtime_error("Only LAYER_TYPE_BINARY_SEARCH_CHUNKED implemented for mmap.");
             }
+
+            HierarchicalMLModelMetadata xlinear_metadata(folderpath + "/param.json");
+            auto depth = xlinear_metadata.depth;
+            std::vector<ISpecializedModelLayer*> layers(depth);
 
             // Abstractly instantiate every layer
             for (auto d = 0; d < depth; d++) {

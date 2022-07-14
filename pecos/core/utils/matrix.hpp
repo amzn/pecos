@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <inttypes.h>
 #include <iterator>
 #include <limits>
 #include <numeric>
@@ -27,6 +28,7 @@
 
 #include "parallel.hpp"
 #include "scipy_loader.hpp"
+#include "mmap.hpp"
 
 typedef float float32_t;
 typedef double float64_t;
@@ -269,26 +271,104 @@ namespace pecos {
             value_type *data;
         };
 
+        // For mmap. Empty for memory instances
+        // mmap instance is readonly
+        bool is_mmap;
+        mmap::MemoryMappedArray<mem_index_type> _mmap_col_ptr;
+        mmap::MemoryMappedArray<index_type> _mmap_row_idx;
+        mmap::MemoryMappedArray<value_type> _mmap_val;
+
         csc_t() :
             rows(0),
             cols(0),
             col_ptr(nullptr),
             row_idx(nullptr),
-            val(nullptr) { }
+            val(nullptr),
+            is_mmap(false) { }
 
         csc_t(const ScipyCscF32* py) :
             rows(py->rows),
             cols(py->cols),
             col_ptr(py->col_ptr),
             row_idx(py->row_idx),
-            val(py->val) { }
+            val(py->val),
+            is_mmap(false) { }
 
-        void save_mmap (const char * fn) const {
-            throw std::runtime_error("Not implemented yet.");
+        void save_mmap (const std::string& fn) const {
+            // Open file
+            FILE * fp = fopen(fn.c_str(), "wb");
+
+            // Dump endian type
+            mmap::dump_endian_type(fp);
+
+            // Write header to file
+            // rows, cols, nnz
+            fwrite(&(rows), sizeof(rows), 1, fp);
+            fwrite(&(cols), sizeof(cols), 1, fp);
+            mem_index_type nnz = get_nnz();
+            fwrite(&(nnz), sizeof(nnz), 1, fp);
+
+            // Write col_ptr
+            mmap::MemoryMappedArray<mem_index_type>::dump_to_file(col_ptr, cols + 1, fp);
+
+            // Write row_idx
+            mmap::MemoryMappedArray<index_type>::dump_to_file(row_idx, nnz, fp);
+
+            // Write val
+            mmap::MemoryMappedArray<value_type>::dump_to_file(val, nnz, fp);
+
+            // Close file
+            fclose(fp);
         }
 
-        void load_mmap (const char * fn, const bool pre_load) {
-            throw std::runtime_error("Not implemented yet.");
+        void load_mmap (const std::string& fn, const bool pre_load) {
+            // Open file
+            FILE * fp = fopen(fn.c_str(), "rb");
+
+            // Check endian type
+            mmap::check_endian_type(fp);
+
+            // Read header into memory
+            // rows, cols, nnz
+            if (fread(&(rows), sizeof(rows), 1, fp) != 1) {
+                throw std::runtime_error("Read rows failed.");
+            }
+            if (fread(&(cols), sizeof(cols), 1, fp) != 1) {
+                throw std::runtime_error("Read cols failed.");
+            }
+            mem_index_type nnz = 0;
+            if (fread(&(nnz), sizeof(nnz), 1, fp) != 1) {
+                throw std::runtime_error("Read nnz failed.");
+            }
+
+            // Get file descriptor and offset for mmap
+            const int fd = fileno(fp);
+            off64_t offset = ftell(fp);
+
+            // Load col_ptr
+            offset += _mmap_col_ptr.load(cols + 1, fd, offset, pre_load);
+            col_ptr = _mmap_col_ptr.data();
+
+            // Load row_idx
+            offset += _mmap_row_idx.load(nnz, fd, offset, pre_load);
+            row_idx = _mmap_row_idx.data();
+
+            // Load val
+            offset += _mmap_val.load(nnz, fd, offset, pre_load);
+            val = _mmap_val.data();
+
+            // Load finished
+            is_mmap = true;
+
+            // Check
+            if (nnz != get_nnz()) {
+                fprintf(stderr, "Load data corrupted!\n");
+                fprintf(stderr, "Should get nnz: %" PRIu64 ", but got: %" PRIu64 " instead.\n", nnz, get_nnz());
+                exit(1);
+            }
+
+            // Close file
+            fclose(fp);
         }
 
         bool is_empty() const {
@@ -312,6 +392,10 @@ namespace pecos {
         // Every function in the inference code that returns a matrix has allocated memory, and
         // therefore one should call this function to free that memory.
         void free_underlying_memory() {
+            if (is_mmap) {
+                return; // No need to free here, MemoryMappedArray destructor takes care
+            }
+
             if (col_ptr) {
                 delete[] col_ptr;
                 col_ptr = nullptr;
@@ -343,6 +427,9 @@ namespace pecos {
         }
 
         void allocate(index_type rows, index_type cols, mem_index_type nnz) {
+            if (is_mmap) {
+                throw std::runtime_error("Cannot allocate for mmap instance.");
+            }
             this->rows = rows;
             this->cols = cols;
             col_ptr = new mem_index_type[cols + 1];
@@ -352,6 +439,9 @@ namespace pecos {
 
         // Construct a csc_t object with shape _rows x _cols filled by 1.
         void fill_ones(index_type _rows, index_type _cols) {
+            if (is_mmap) {
+                throw std::runtime_error("Cannot fill ones for mmap instance.");
+            }
             mem_index_type nnz = (mem_index_type) _rows * _cols;
             this->free_underlying_memory();
             this->allocate(_rows, _cols, nnz);

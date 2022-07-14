@@ -14,6 +14,8 @@
 #ifndef __MMAP_H__
 #define __MMAP_H__
 
+#define __ALIGN_BYTES 4
+
 #include <fcntl.h>
 #include <stdexcept>
 #include <stdio.h>
@@ -28,15 +30,21 @@ namespace mmap {
 // Dump machine endian type to file
 static void dump_endian_type(FILE *fp) {
     char endian_type = file_util::runtime();
-    fwrite(&(endian_type), sizeof(endian_type), 1, fp);
+    // For GCC vectorization optimization
+    // Repeat bytes to align file pointers when loaded into memory
+    for (size_t ii=0; ii<__ALIGN_BYTES; ++ii) {
+        fwrite(&(endian_type), sizeof(endian_type), 1, fp);
+    }
 }
 
 // Check whether the dumped endian type (read at FILE pointer) is the same with machine endian type
 // Should be used pairly with `dump_endian_type`
 static void check_endian_type(FILE *fp) {
-    char endian_type;
-    fread(&(endian_type), sizeof(endian_type), 1, fp);
-    if (file_util::different_from_runtime(endian_type)) {
+    char endian_type[__ALIGN_BYTES];
+    if (fread(&(endian_type), sizeof(endian_type[0]), __ALIGN_BYTES, fp) != __ALIGN_BYTES) {
+        throw std::runtime_error("Read endian type failed.");
+    }
+    if (file_util::different_from_runtime(endian_type[0])) {
         throw std::runtime_error("Machine endian type is different from saved data, cannot memory-map load.");
     }
 }
@@ -69,7 +77,7 @@ class MemoryMappedArray {
         // due to data struct padding, and user should be aware of it.
         static void dump_to_file(const T * arr, const size_t arr_len, FILE * fp) {
             if (arr_len <= 0) {
-                throw std::runtime_error("Memory mapped array length should be positive.");
+                throw std::runtime_error("Memory mapped array length should be positive, got: " + std::to_string(arr_len));
             }
             fwrite(arr, sizeof(T) * arr_len, 1, fp);
         }
@@ -79,7 +87,7 @@ class MemoryMappedArray {
         // Return read bytes that should be advanced in offset
         off64_t load(const size_t arr_len, const int fd, const off64_t offset, const bool pre_load) {
             if (arr_len <= 0) {
-                throw std::runtime_error("Memory mapped array length should be positive.");
+                throw std::runtime_error("Memory mapped array length should be positive, got: " + std::to_string(arr_len));
             }
 
             // Runtime get system pagesize
@@ -126,12 +134,12 @@ class MemoryMappedArray {
 
         // Unmap the region
         void _free() {
-            if (_mmap_ptr) {
-                auto res = munmap(_mmap_ptr, _mmap_bytes);
-                if (res == EINVAL) {
-                    throw std::runtime_error("Free memory map failed.");
-                }
-            }
+            // if (_mmap_ptr) {
+            //     auto res = munmap(_mmap_ptr, _mmap_bytes);
+            //     if (res == EINVAL) {
+            //         throw std::runtime_error("Free memory map failed.");
+            //     }
+            // }
         }
 };
 
