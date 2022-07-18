@@ -5,7 +5,7 @@ By way of real-world examples, the attendees will learn how to efficiently train
 We will also show the flexibility of dealing with diverse machine learning problems and data formats with assorted built-in utilities in PECOS.
 By the end of the tutorial, we believe that attendees will be easily capable of adopting certain concepts to their own projects and address different machine learning problems with enormous output spaces.
 
-* Presenters: Hsiang-Fu Yu (Amazon Search), Jiong Zhang (Amazon Search), Wei-Cheng Chang (Amazon Search) (Amazon Search), Jyun-Yu Jiang (Amazon Search), and Cho-Jui Hsieh (UCLA)
+* Presenters: Hsiang-Fu Yu (Amazon Search), Jiong Zhang (Amazon Search), Wei-Cheng Chang (Amazon Search), Jyun-Yu Jiang (Amazon Search), and Cho-Jui Hsieh (UCLA)
 
 * Contributer: Wei Li (Amazon Search)
 
