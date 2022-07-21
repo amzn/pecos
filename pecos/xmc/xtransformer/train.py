@@ -147,20 +147,6 @@ def parse_arguments():
         metavar="INT",
         help="The max size of the leaf nodes of hierarchical clustering. If larger than the number of labels, OVA model will be trained. Default 100.",
     )
-    parser.add_argument(
-        "--imbalanced-ratio",
-        type=float,
-        default=0.0,
-        metavar="FLOAT",
-        help="Value between 0.0 and 0.5 (inclusive). Indicates how relaxed the balancedness constraint of 2-means can be. Specifically, if an iteration of 2-means is clustering L labels, the size of the output 2 clusters will be within approx imbalanced_ratio * 2 * L of each other. (default 0.0)",
-    )
-    parser.add_argument(
-        "--imbalanced-depth",
-        type=int,
-        default=100,
-        metavar="INT",
-        help="After hierarchical 2-means clustering has reached this depth, it will continue clustering as if --imbalanced-ratio is set to 0.0. (default 100)",
-    )
     # ========= matcher parameters ============
     parser.add_argument(
         "--max-match-clusters",
