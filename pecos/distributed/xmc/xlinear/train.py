@@ -63,7 +63,7 @@ def parse_arguments():
     parser.add_argument(
         "--nr-splits",
         type=int,
-        default=2,
+        default=16,
         metavar="INT",
         help="number of splits used to construct hierarchy (a power of 2 is recommended)",
     )
@@ -86,7 +86,7 @@ def parse_arguments():
         "-k",
         "--only-topk",
         type=int,
-        default=20,
+        default=None,
         metavar="INT",
         help="the default number of top labels used in the prediction",
     )
@@ -94,7 +94,7 @@ def parse_arguments():
         "-b",
         "--beam-size",
         type=int,
-        default=10,
+        default=None,
         metavar="INT",
         help="the default size of beam search used in the prediction",
     )
@@ -110,7 +110,7 @@ def parse_arguments():
         "--post-processor",
         type=str,
         choices=PostProcessor.valid_list(),
-        default="l3-hinge",
+        default=None,
         metavar="STR",
         help="the default post processor used in the prediction",
     )
@@ -170,7 +170,7 @@ def do_train(args):
     mpi_comm = MPIComm()
 
     # Parse args
-    args_dict = vars(args)
+    args_dict = {k: v for k, v in vars(args).items() if v is not None}
     train_params = DistributedCPUXLinearModel.TrainParams.from_dict(args_dict, recursive=True)
     cluster_params = DistClustering.ClusterParams(
         indexer_params=HierarchicalKMeans.TrainParams.from_dict(args_dict),

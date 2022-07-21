@@ -101,7 +101,10 @@ class XTransformer(pecos.BaseClass):
                 overridden_beam_size = pred_kwargs.get("beam_size", None)
                 overridden_only_topk = pred_kwargs.get("only_topk", None)
                 overridden_post_processor = pred_kwargs.get("post_processor", None)
-                depth = len(self.matcher_params_chain)
+                if isinstance(self.matcher_params_chain, list):
+                    depth = len(self.matcher_params_chain)
+                else:
+                    depth = 1
                 for d in range(depth):
                     if overridden_beam_size:
                         if d == depth - 1:
@@ -178,11 +181,12 @@ class XTransformer(pecos.BaseClass):
         LOGGER.info("Model saved to {}".format(save_dir))
 
     @classmethod
-    def load(cls, load_dir):
+    def load(cls, load_dir, **xrl_kwargs):
         """Load X-Transformer model from file
 
         Args:
             load_dir (str): dir to load the model
+            xrl_kwargs: kwargs to pass to XLinearModel.load to load concat_model
 
         Returns:
             XTransformer
@@ -191,7 +195,10 @@ class XTransformer(pecos.BaseClass):
             raise ValueError(f"load dir does not exist at: {load_dir}")
         text_encoder = TransformerMatcher.load(os.path.join(load_dir, "text_encoder"))
         try:
-            concat_model = XLinearModel.load(os.path.join(load_dir, "concat_model"))
+            concat_model = XLinearModel.load(
+                os.path.join(load_dir, "concat_model"),
+                **xrl_kwargs,
+            )
             LOGGER.info("Full model loaded from {}".format(load_dir))
         except FileNotFoundError:
             concat_model = None
@@ -263,19 +270,19 @@ class XTransformer(pecos.BaseClass):
 
         if not train_params.do_fine_tune:
             if isinstance(train_params.matcher_params_chain, list):
-                matcher_train_params = train_params.matcher_params_chain[-1]
+                matcher_train_params = train_params.matcher_params_chain[0]
             else:
                 matcher_train_params = train_params.matcher_params_chain
 
             if isinstance(train_params.matcher_params_chain, list):
-                matcher_pred_params = pred_params.matcher_params_chain[-1]
+                matcher_pred_params = pred_params.matcher_params_chain[0]
             else:
                 matcher_pred_params = pred_params.matcher_params_chain
 
             device, n_gpu = torch_util.setup_device(matcher_train_params.use_gpu)
 
             if matcher_train_params.init_model_dir:
-                parent_model = cls.load(train_params.init_model_dir)
+                parent_model = TransformerMatcher.load(matcher_train_params.init_model_dir)
                 LOGGER.info("Loaded encoder from {}.".format(matcher_train_params.init_model_dir))
             else:
                 parent_model = TransformerMatcher.download_model(
@@ -536,6 +543,7 @@ class XTransformer(pecos.BaseClass):
                 use_gpu (bool, optional): use GPU if available. Default True
                 max_pred_chunk (int, optional): max number of instances to predict at once.
                     Set to None to ignore. Default 10^7
+                device_id (int, optional): GPU id to use. Default -1 to use all
                 threads (int, optional): the number of threads to use for linear model prediction.
 
         Returns:
@@ -546,9 +554,11 @@ class XTransformer(pecos.BaseClass):
 
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
-        use_gpu = kwargs.get("use_gpu", True)
         max_pred_chunk = kwargs.get("max_pred_chunk", 10**7)
-        device, n_gpu = torch_util.setup_device(use_gpu)
+        device, n_gpu = torch_util.setup_device(
+            use_gpu_if_available=kwargs.get("use_gpu", True),
+            device_id=kwargs.get("device_id", -1),
+        )
 
         # get the override pred_params
         if pred_params is None:
@@ -612,15 +622,18 @@ class XTransformer(pecos.BaseClass):
                 use_gpu (bool, optional): use GPU if available. Default True
                 max_pred_chunk (int, optional): max number of instances to predict at once.
                     Set to None to ignore. Default 10^7
+                device_id (int, optional): GPU id to use. Default -1 to use all
 
         Returns:
             embeddings (ndarray): instance embedding on training data, shape = (nr_inst, hidden_dim).
         """
         batch_size = kwargs.get("batch_size", 8)
         batch_gen_workers = kwargs.get("batch_gen_workers", 4)
-        use_gpu = kwargs.get("use_gpu", True)
         max_pred_chunk = kwargs.get("max_pred_chunk", 10**7)
-        device, n_gpu = torch_util.setup_device(use_gpu)
+        device, n_gpu = torch_util.setup_device(
+            use_gpu_if_available=kwargs.get("use_gpu", True),
+            device_id=kwargs.get("device_id", -1),
+        )
 
         # get the override pred_params
         if pred_params is None:

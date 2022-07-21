@@ -16,27 +16,34 @@ import torch
 LOGGER = logging.getLogger(__name__)
 
 
-def setup_device(use_gpu_if_available=True):
+def setup_device(use_gpu_if_available=True, device_id=-1):
     """Setup device for pytorch.
 
     Args:
         use_gpu_if_available (bool, optional): whether to use GPU if available. Default True
+        device_id (int, optional): GPU id to use. Default -1 to use all
 
     Returns:
         device (torch.device): torch device
         n_active_gpu (int): number of GPUs available for torch.cuda
     """
-    if use_gpu_if_available:  # use all that available
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        n_active_gpu = torch.cuda.device_count()
-        if not torch.cuda.is_available():
-            LOGGER.warning("CUDA is not available, will fall back to CPU.")
+    if use_gpu_if_available and torch.cuda.is_available():
+        if device_id >= 0:
+            # use specified device
+            device = torch.device("cuda", device_id)
+            n_active_gpu = 1
+        else:
+            # regular dataparallel
+            device = torch.device("cuda")
+            n_active_gpu = torch.cuda.device_count()
     else:
-        device = torch.device("cpu")
+        if use_gpu_if_available:
+            LOGGER.warning("CUDA is not available, will fall back to CPU.")
         if torch.cuda.is_available():
             LOGGER.warning("CUDA is available but disabled, will only use CPU.")
+        device = torch.device("cpu")
         n_active_gpu = 0
-    LOGGER.info("Setting device to {}, number of active GPUs: {}".format(device, n_active_gpu))
+    LOGGER.info(f"Setting device to {device}, number of active GPUs: {n_active_gpu}")
     return device, n_active_gpu
 
 

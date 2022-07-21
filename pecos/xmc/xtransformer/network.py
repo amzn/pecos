@@ -103,30 +103,38 @@ class TransformerLinearXMCHead(nn.Module):
     Containing label weight embeddings and label bias embeddings
     """
 
-    def __init__(self, hidden_size, num_labels):
+    def __init__(self, hidden_size, num_labels, sparse=False):
         super().__init__()
-        self.label_pad = num_labels
+        padding_idx = num_labels
         self.num_labels = num_labels
-        self.W = nn.Embedding(num_labels + 1, hidden_size, padding_idx=self.label_pad)
-        self.b = nn.Embedding(num_labels + 1, 1, padding_idx=self.label_pad)
+        self.W = nn.Embedding(num_labels + 1, hidden_size, padding_idx=padding_idx)
+        self.b = nn.Embedding(num_labels + 1, 1, padding_idx=padding_idx)
 
-        self.random_init()
+        self.random_init(sparse=sparse)
+
+    @property
+    def label_padding_idx(self):
+        return self.W.padding_idx
+
+    @property
+    def is_sparse(self):
+        return self.W.sparse
 
     @property
     def device(self):
         return self.W.weight.device
 
-    def random_init(self):
+    def random_init(self, sparse=False):
         """Initialize the weight and bias embeddings
 
         Initialize label weight embedding with N(0, 0.02) while keeping PAD
         column to be 0. Initialize label bias embedding with 0.
         """
-        mat = 0.02 * np.random.randn(self.label_pad, self.W.weight.shape[1])
+        mat = 0.02 * np.random.randn(self.label_padding_idx, self.W.weight.shape[1])
         mat = np.hstack([mat, np.zeros([mat.shape[0], 1])])
-        self.init_from(mat)
+        self.init_from(mat, sparse=sparse)
 
-    def inherit(self, prev_head, C):
+    def inherit(self, prev_head, C, sparse=False):
         prev_W = prev_head.W.weight[:-1, :].detach().numpy()
         prev_b = prev_head.b.weight[:-1, :].detach().numpy()
 
@@ -135,7 +143,7 @@ class TransformerLinearXMCHead(nn.Module):
 
         mat = np.hstack([cur_W, cur_b])
 
-        self.init_from(mat)
+        self.init_from(mat, sparse=sparse)
 
     def bootstrap(self, prob, **kwargs):
         """Initialize head with weights learned from linear model using transformer embeddings
@@ -154,9 +162,9 @@ class TransformerLinearXMCHead(nn.Module):
         threshold = kwargs.get("threshold", 0)
         mat = MLModel.train(prob, threshold=threshold, Cp=Cp, Cn=Cn)
         mat = mat.W.toarray().T
-        self.init_from(mat)
+        self.init_from(mat, sparse=kwargs.get("sparse", False))
 
-    def init_from(self, mat):
+    def init_from(self, mat, sparse=False):
         """Initialize the weight and bias embeddings with given matrix
 
         Args:
@@ -164,7 +172,7 @@ class TransformerLinearXMCHead(nn.Module):
         """
         if not isinstance(mat, np.ndarray):
             raise ValueError("Expect ndarray to initialize label embedding")
-        if mat.shape[0] != self.label_pad:
+        if mat.shape[0] != self.label_padding_idx:
             raise ValueError("nr_labels mismatch!")
 
         # add padding index by appending an all-zero row
@@ -173,14 +181,14 @@ class TransformerLinearXMCHead(nn.Module):
         self.W = nn.Embedding.from_pretrained(
             torch.FloatTensor(mat[:, :-1]),
             freeze=False,
-            sparse=True,
-            padding_idx=self.label_pad,
+            sparse=sparse,
+            padding_idx=self.label_padding_idx,
         )
         self.b = nn.Embedding.from_pretrained(
-            torch.FloatTensor(mat[:, -1]).view((self.label_pad + 1, 1)),
+            torch.FloatTensor(mat[:, -1]).view((self.label_padding_idx + 1, 1)),
             freeze=False,
-            sparse=True,
-            padding_idx=self.label_pad,
+            sparse=sparse,
+            padding_idx=self.label_padding_idx,
         )
 
     def forward(self, pooled_output=None, output_indices=None, num_device=1):

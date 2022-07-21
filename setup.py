@@ -119,7 +119,7 @@ install_requires = numpy_requires + [
     'torch>=1.8.0',
     'sentencepiece>=0.1.86,!=0.1.92', # 0.1.92 results in error for transformers
     'transformers>=4.1.1; python_version<"3.9"',
-    'transformers==4.4.2; python_version>="3.9"' # Python 3.9 only support transformer 4.4.2
+    'transformers>=4.4.2; python_version>="3.9"'
 ]
 
 # Fetch Numpy before building Numpy-dependent extension, if Numpy required version was not installed

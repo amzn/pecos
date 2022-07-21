@@ -5,7 +5,7 @@ if [ ${data} == "eurlex-4k" ]; then
 	models=(bert roberta xlnet)
 	ens_method=softmax_average
 elif [ ${data} == "wiki10-31k" ]; then
-	models=(bert roberta xlnet)
+	models=(bert)
 	ens_method=rank_average
 elif [ ${data} == "amazoncat-13k" ]; then
 	models=(bert roberta xlnet)
