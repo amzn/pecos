@@ -134,12 +134,12 @@ class MemoryMappedArray {
 
         // Unmap the region
         void _free() {
-            // if (_mmap_ptr) {
-            //     auto res = munmap(_mmap_ptr, _mmap_bytes);
-            //     if (res == EINVAL) {
-            //         throw std::runtime_error("Free memory map failed.");
-            //     }
-            // }
+            if (_mmap_ptr) {
+                auto res = munmap(_mmap_ptr, _mmap_bytes);
+                if (res == EINVAL) {
+                    throw std::runtime_error("Free memory map failed.");
+                }
+            }
         }
 };
 

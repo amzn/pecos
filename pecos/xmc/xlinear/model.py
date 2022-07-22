@@ -141,6 +141,24 @@ class XLinearModel(pecos.BaseClass):
         model = HierarchicalMLModel.load_mmap(path.join(model_folder, "ranker"), **kwargs)
         return cls(model)
 
+    @classmethod
+    def dump_npz_to_mmap(cls, npz_folder, mmap_folder):
+        """
+        Dump xlinear model from npz format to memory-mapped format
+        for faster loading and referencing.
+
+        Args:
+            npz_folder (str): The source folder path for xlinear npz model.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        import shutil
+
+        shutil.copyfile(path.join(npz_folder, "param.json"), path.join(mmap_folder, "param.json"))
+
+        HierarchicalMLModel.dump_npz_to_mmap(
+            path.join(npz_folder, "ranker"), path.join(mmap_folder, "ranker")
+        )
+
     @property
     def is_predict_only(self):
         """

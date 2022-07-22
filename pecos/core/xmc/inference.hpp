@@ -2657,7 +2657,9 @@ namespace pecos {
             const std::string& folderpath
         ) const {
             // Create folder
-            system(("mkdir -p " + folderpath).c_str());
+            if (system(("mkdir -p " + folderpath).c_str()) == -1) {
+                throw std::runtime_error("Cannot create folder: " + folderpath);
+            }
 
             // Dump metadata
             auto depth = model_layers.size();
@@ -2669,7 +2671,9 @@ namespace pecos {
             for (std::size_t d = 0; d < depth; d++) {
                 std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
                 // Create folder for layer
-                system(("mkdir -p " + layer_path).c_str());
+                if (system(("mkdir -p " + layer_path).c_str()) == -1) {
+                    throw std::runtime_error("Cannot create layer folder: " + layer_path);
+                }
                 model_layers[d]->save_mmap(layer_path);
             }
         }

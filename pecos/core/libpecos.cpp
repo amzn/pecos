@@ -30,16 +30,23 @@ extern "C" {
         return static_cast<void*>(model);
     }
 
-    void* c_xlinear_load_model_from_disk_mmap(const char* model_path, const bool pre_load) {
-        auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED, true, pre_load);
-        return static_cast<void*>(model);
-    }
-
     void* c_xlinear_load_model_from_disk_ext(const char* model_path,
         int weight_matrix_type) {
         pecos::layer_type_t type = static_cast<pecos::layer_type_t>(weight_matrix_type);
         auto model = new pecos::HierarchicalMLModel(model_path, type);
         return static_cast<void*>(model);
+    }
+
+    void* c_xlinear_load_model_from_disk_mmap(const char* model_path, const bool pre_load) {
+        // Only implemented for bin_search_chunked
+        auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED, true, pre_load);
+        return static_cast<void*>(model);
+    }
+
+    void c_xlinear_dump_mmap_model_from_disk(const char* model_path, const char* mmap_model_path) {
+        // Only implemented for bin_search_chunked
+        auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED);
+        model->save_mmap(mmap_model_path);
     }
 
     void c_xlinear_destruct_model(void* ptr) {
