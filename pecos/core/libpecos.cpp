@@ -453,8 +453,9 @@ extern "C" {
             int thread_id = omp_get_thread_num(); \
             auto& ret_pairs = searchers[thread_id].predict_single(feat_mat.get_row(qid), efS, topk); \
             for (uint32_t k=0; k < ret_pairs.size(); k++) { \
-                ret_val[qid * topk + k] = ret_pairs[k].dist; \
-                ret_idx[qid * topk + k] = ret_pairs[k].node_id; \
+                uint64_t offset = static_cast<uint64_t>(qid) * topk; \
+                ret_val[offset + k] = ret_pairs[k].dist; \
+                ret_idx[offset + k] = ret_pairs[k].node_id; \
             } \
         } \
     }
