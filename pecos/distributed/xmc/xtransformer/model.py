@@ -255,16 +255,17 @@ class XTransformerDistTrainer(XTransformer):
             parent_model.C = cur_prob.C
             parent_model.train_params = cur_train_params
             parent_model.pred_params = cur_pred_params
-            if cur_train_params.bootstrap_method == "inherit" and i > 0:
-                parent_model.text_model.inherit(prev_head, cur_prob.C, sparse=False)
-                LOGGER.info("Initialized transformer text_model from parent layer!")
-            elif cur_train_params.bootstrap_method == "no-bootstrap" or i == 0:
+
+            if cur_train_params.bootstrap_method == "no-bootstrap" or i == 0:
                 parent_model.text_model.random_init(sparse=False)
                 LOGGER.info("Randomly initialized transformer text_model!")
             else:
-                raise ValueError(
-                    f"bootstrap_method={cur_train_params.bootstrap_method} not supported in distributed training!"
-                )
+                if cur_train_params.bootstrap_method != "inherit":
+                    LOGGER.warning(
+                        f"bootstrap_method={cur_train_params.bootstrap_method} not supported in distributed training. Fall back to inherit"
+                    )
+                parent_model.text_model.inherit(prev_head, cur_prob.C, sparse=False)
+                LOGGER.info("Initialized transformer text_model from parent layer!")
 
             if cur_train_params.pre_tokenize:
                 if not prob.is_tokenized:
