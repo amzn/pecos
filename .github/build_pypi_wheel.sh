@@ -4,7 +4,9 @@ set -e
 # Git requires repository folder to be owned and accessed by the same user, or add the folder to safe directory
 # Otherwise, git commands cannot be successfully executed and thus correct PECOS version could not be retrieved
 # See: https://github.blog/2022-04-12-git-security-vulnerability-announced/
-git config --global --add safe.directory $DOCKER_MNT
+git config --global --add safe.directory /$DOCKER_MNT
+PECOS_TAG=$(cd $DOCKER_MNT && git describe  --tags --abbrev=0)
+echo "Building wheel for PECOS $PECOS_TAG..."
 
 # Get pip
 echo "Build wheel using Python version $PIP_VER..."
