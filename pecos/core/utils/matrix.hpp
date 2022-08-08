@@ -195,7 +195,7 @@ namespace pecos {
             csr_t res;
             res.allocate(rows, cols, nnz);
             std::memcpy(res.col_idx, col_idx, sizeof(index_type) * nnz);
-            std::memcpy(res.val, val, sizeof(float) * nnz);
+            std::memcpy(res.val, val, sizeof(value_type) * nnz);
             std::memcpy(res.row_ptr, row_ptr, sizeof(mem_index_type) * (rows + 1));
             return res;
         }
@@ -328,7 +328,7 @@ namespace pecos {
             csc_t res;
             res.allocate(rows, cols, nnz);
             std::memcpy(res.row_idx, row_idx, sizeof(index_type) * nnz);
-            std::memcpy(res.val, val, sizeof(float) * nnz);
+            std::memcpy(res.val, val, sizeof(value_type) * nnz);
             std::memcpy(res.col_ptr, col_ptr, sizeof(mem_index_type) * (cols + 1));
             return res;
         }
