@@ -124,6 +124,12 @@ If you find PECOS useful, please consider citing the following paper:
 
 Some papers from our group using PECOS:
 
+* [FINGER: Fast Inference for Graph-based Approximate Nearest Neighbor Search (Chen et al., ArXiv 2022)](https://arxiv.org/pdf/2206.11408.pdf) [[bib]](./bibtex/)
+
+* [Relevance under the Iceberg: Reasonable Prediction for Extreme Multi-label Classification (Jiang et al., SIGIR 2022)](https://dl.acm.org/doi/abs/10.1145/3477495.3531767) [[bib]](./bibtex/)
+
+* [Extreme Zero-Shot Learning for Extreme Text Classification (Xiong et al., NAACL 2022)](https://aclanthology.org/2022.naacl-main.399.pdf) [[bib]](./bibtex/)
+
 * [Node Feature Extraction by Self-Supervised Multi-scale Neighborhood Prediction (Chien et al., ICLR 2022)](https://arxiv.org/pdf/2111.00064.pdf) [[bib]](./bibtex/chien2021node.bib)
 
 * [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., WWW 2022)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
