@@ -11,17 +11,17 @@ By the end of the tutorial, we believe that attendees will be easily capable of 
 
 ## Agenda
 
-| Time | Session | Material |
-|---|---|---|
-| 9:00 AM - 9:20 AM | Session 1: Introduction to PECOS | |
-| 9:20 AM - 10:00 AM | Environment Setup | |
-| 9:30 AM - 10:00 AM | Coffee Break | | 
-| 10:00 AM - 10:30 AM  | Session 2: eXtreme Multi-label Classification (XMC) with PECOS | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%202%20Extreme%20Multi-label%20Classification%20with%20PECOS.ipynb) |
-| 10:30 AM - 11:00 AM | Session 3: Approximate Nearest Neighbor (ANN) Search in PECOS | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%203%20Approximate%20Nearest%20Neighbor%20Search%20in%20PECOS.ipynb) |
-| 11:00 AM - 11:20 AM | Session 4: Utilities in PECOS | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%204%20Utilities%20in%20PECOS.ipynb) |
-| 11:20 AM - 11:50 AM | Session 5: eXtreme Multi-label Classification (XMC) with XR-Transformer | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%205%20eXtreme%20Multi-label%20Classification%20with%20XR-Transformer.ipynb) |
-| 11:50 AM - 12:00 AM | Session 6: Research with PECOS | |
-| 12:00 PM - 12:10 PM | Closing Remarks | |
+| Time | Session | Presenter | Material |
+|---|---|---|---|
+| 9:00 AM - 9:20 AM | Session 1: Introduction to PECOS | Dr. Hsiang-Fu Yu (Amazon) | |
+| 9:20 AM - 10:00 AM | Environment Setup | | |
+| 9:30 AM - 10:00 AM | Coffee Break | | |
+| 10:00 AM - 10:30 AM  | Session 2: How to Apply PECOS to Extreme Multi-label Classification | Dr. Jyun-Yu Jiang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%202%20Extreme%20Multi-label%20Classification%20with%20PECOS.ipynb) |
+| 10:30 AM - 11:00 AM | Session 3: How to Perform Approximate Nearest Neighbor Search in PECOS | Dr. Wei-Cheng Chang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%203%20Approximate%20Nearest%20Neighbor%20Search%20in%20PECOS.ipynb) |
+| 11:00 AM - 11:20 AM | Session 4: Useful Utilities in PECOS | Dr. Jyun-Yu Jiang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%204%20Utilities%20in%20PECOS.ipynb) |
+| 11:20 AM - 11:40 AM | Session 5: How to Leverage Transformers in PECOS | Dr. Jiong Zhang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%205%20eXtreme%20Multi-label%20Classification%20with%20XR-Transformer.ipynb) |
+| 11:40 AM - 12:00 PM | Session 6: Research with PECOS | Prof. Cho-Jui Hsieh (UCLA & Amazon) | |
+
 
 ## Tutorial Instructions
 
@@ -35,7 +35,7 @@ rm -rf ~/miniconda3/miniconda.sh
 ~/miniconda3/bin/conda init zsh
 ```
 
-### Tutorial Mateiral Execution
+### Tutorial Material Execution
 ```bash
 conda create -n tutorial_env python=3.9 -y
 conda activate tutorial_env
