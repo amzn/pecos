@@ -13,14 +13,14 @@ By the end of the tutorial, we believe that attendees will be easily capable of 
 
 | Time | Session | Presenter | Material |
 |---|---|---|---|
-| 9:00 AM - 9:20 AM | Session 1: Introduction to PECOS | Dr. Hsiang-Fu Yu (Amazon) | |
+| 9:00 AM - 9:20 AM | Session 1: Introduction to PECOS | Dr. Hsiang-Fu Yu (Amazon) | [Slides](https://www.cs.utexas.edu/~rofuyu/talks/pecos-tutorial-kdd22-opening.pdf) |
 | 9:20 AM - 10:00 AM | Environment Setup | | |
 | 9:30 AM - 10:00 AM | Coffee Break | | |
 | 10:00 AM - 10:30 AM  | Session 2: How to Apply PECOS to Extreme Multi-label Classification | Dr. Jyun-Yu Jiang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%202%20Extreme%20Multi-label%20Classification%20with%20PECOS.ipynb) |
 | 10:30 AM - 11:00 AM | Session 3: How to Perform Approximate Nearest Neighbor Search in PECOS | Dr. Wei-Cheng Chang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%203%20Approximate%20Nearest%20Neighbor%20Search%20in%20PECOS.ipynb) |
 | 11:00 AM - 11:20 AM | Session 4: Useful Utilities in PECOS | Dr. Jyun-Yu Jiang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%204%20Utilities%20in%20PECOS.ipynb) |
 | 11:20 AM - 11:40 AM | Session 5: How to Leverage Transformers in PECOS | Dr. Jiong Zhang (Amazon) | [Notebook](https://github.com/amzn/pecos/blob/mainline/tutorials/kdd22/Session%205%20eXtreme%20Multi-label%20Classification%20with%20XR-Transformer.ipynb) |
-| 11:40 AM - 12:00 PM | Session 6: Research with PECOS | Prof. Cho-Jui Hsieh (UCLA & Amazon) | |
+| 11:40 AM - 12:00 PM | Session 6: Research with PECOS | Prof. Cho-Jui Hsieh (UCLA & Amazon) | [Slides](http://web.cs.ucla.edu/~chohsieh/pecos_research.pdf) |
 
 
 ## Tutorial Instructions
