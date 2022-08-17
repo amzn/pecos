@@ -3,7 +3,6 @@
 
 This AWS CDK code deploys stack containing AWS batch constructs to your AWS account's CloudFormation. After you deploy this CDK on your account, you should have all the batch constructs needed to run a multi-node batch job in AWS for PECOS training. 
 
-The development and deployment are performed on your AWS account's **EC2 instances with necessary permission**, please double-check your EC2 instance role policies if any permission issues occur.
 
 ## Prerequisites
 
@@ -34,10 +33,17 @@ npm install -g aws-cdk
 cdk --version
 ```
 
-Bootstrapping(Please make sure that your IAM user has CloudFormation full access):
+Bootstrapping(Please make sure that your IAM user has CloudFormation full access):  
+Click here for info in detail https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html#bootstrapping-contract-roles
 ```
 # Replace contents in <> with your AWS account number and region
 cdk bootstrap aws://<ACCOUNT_NUMBER>/<REGION>
+```
+
+Clone code:
+```
+git clone https://github.com/amzn/pecos/examples/pecos-multi-node-AWS-batch-CDK
+
 ```
 
 ## Build your own Docker image
@@ -50,6 +56,7 @@ aws ecr get-login-password --region <Your region> | docker login --username AWS 
 Build your Docker image using the following command.  
 Docker file could be found within the DockerFile folder. You can skip this step if your image is already built:
 ```
+cd pecos-multi-node-AWS-batch-CDK/pecos-multi-node-batch-job/DockerFiles
 docker build -t core-pecos-build-release-multi-node-test .
 ```
 
@@ -65,14 +72,11 @@ docker push <Your Accunt Id>.dkr.ecr.<Your region>.amazonaws.com/core-pecos-buil
 
 
 ## Usage
-Clone code:
+Open the workspace(Redirect to directory pecos-multi-node-batch-job):
 ```
-#Will avaliable soon 
-#git clone https://github.com/amzn/pecos/examples
-
-
-#Open the workspace 
-cd pecos-multi-node-batch-job
+cd ..
+# Check to make sure your current work directory is pecos-multi-node-batch-job, if not, please redirect to directory pecos-multi-node-batch-job
+pwd 
 ```
 
 
@@ -92,33 +96,19 @@ Input your customize parameters:
 python3 ./pecos_batch_job_multi_node/get_parameter.py
 ```
 
-CDK synthesize(Synthesize an AWS CloudFormation template for the app):
-```
-cdk synth
-```
-
-CDK diff (To see the changes):
-```
-cdk diff
-```
-
 
 CDK deploy all stacks(To deploy the stack using AWS CloudFormation):
 ```
-cdk deploy --all
+cdk deploy --require-approval never
 ```
 
-CDK destroy all stacks:
-```
-cdk destroy --all
-```
-
-Check if the deployed components works(optional):  
+## Example
+(optional)Check if the deployed components works:  
 
 Please make sure that you already build and upload Docker image to your repository under the name of "core-pecos-build-release-multi-node-test".  
 You can either go to AWS Batch console to submit job with those constructs you just generated via CDK directly or you can use provided job command assembler to genereate your command first: 
 ```
-# This command will ask for commands to prepare, train, predict and save data. 
+# This command will ask for commands to prepare, train, predict and save data.
 python3 ./pecos_batch_job_multi_node/job_command_assembler.py
 ```
 
@@ -141,7 +131,7 @@ python3 -m pecos.xmc.xlinear.predict -x ./xmc-base/eurlex-4k/tfidf-attnxml/X.tst
 
 Command to save:
 ```
-S3 output location to save data. 
+#S3 output location to save data(Please make sure you use the CDK generated S3 bucket). 
 <Your account number>-<Your identifier>-core-pecos-a2q-test-bucket
 ```
 
@@ -160,6 +150,21 @@ Job Command for reference for the above example:
 
 
 
+## Optional CDK commands  
+CDK synthesize(Synthesize an AWS CloudFormation template for the app):
+```
+cdk synth
+```
+
+CDK diff (To see the changes):
+```
+cdk diff
+```
+
+CDK destroy (If you want to destroy all the AWS Batch constructs genersted via CDK):
+```
+cdk destroy --all
+```
 
 
 
@@ -168,4 +173,6 @@ Job Command for reference for the above example:
 
 * Developer Guide: https://docs.aws.amazon.com/cdk/v2/guide/home.html
 * Python API Reference: https://docs.aws.amazon.com/cdk/api/v2/python/index.html
+
+
 
