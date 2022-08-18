@@ -33,11 +33,10 @@ npm install -g aws-cdk
 cdk --version
 ```
 
-Bootstrapping(Please make sure that your IAM user has CloudFormation full access):  
+Bootstrapping(Please make sure that your IAM role has CloudFormation full access):  
 Click here for info in detail https://docs.aws.amazon.com/cdk/v2/guide/bootstrapping.html#bootstrapping-contract-roles
 ```
-# Replace contents in <> with your AWS account number and region
-cdk bootstrap aws://<ACCOUNT_NUMBER>/<REGION>
+cdk bootstrap aws://<Your account ID>/<Your region>
 ```
 
 Clone code:
@@ -92,7 +91,7 @@ python3 -m pip install boto3
 
 Input your customize parameters:
 ```
-#This step will ask for your choices of memory, disk, vCPUS, number of nodes. 
+#This step will ask for your choices of memory, disk, vCPUS, number of nodes. You can press return for default choice.  
 python3 ./pecos_batch_job_multi_node/get_parameter.py
 ```
 
@@ -106,7 +105,8 @@ cdk deploy --require-approval never
 (optional)Check if the deployed components works:  
 
 Please make sure that you already build and upload Docker image to your repository under the name of "core-pecos-build-release-multi-node-test".  
-You can either go to AWS Batch console to submit job with those constructs you just generated via CDK directly or you can use provided job command assembler to genereate your command first: 
+
+You can either go to AWS Batch console to submit job with those constructs CDK generated directly or you can use provided job command assembler to genereate your command first: 
 ```
 # This command will ask for commands to prepare, train, predict and save data.
 python3 ./pecos_batch_job_multi_node/job_command_assembler.py
@@ -114,7 +114,7 @@ python3 ./pecos_batch_job_multi_node/job_command_assembler.py
 
 Example:  
 Distributed XLinear Model Training on eurlex-4k Data:
-Check here for detail: https://github.com/amzn/pecos/tree/mainline/pecos/distributed/xmc/xlinear  
+Check here for info in detail: https://github.com/amzn/pecos/tree/mainline/pecos/distributed/xmc/xlinear  
 Command to prepare eurlex-4k data:
 ```
 wget https://archive.org/download/pecos-dataset/xmc-base/eurlex-4k.tar.gz && tar -zxvf eurlex-4k.tar.gz
@@ -132,7 +132,7 @@ python3 -m pecos.xmc.xlinear.predict -x ./xmc-base/eurlex-4k/tfidf-attnxml/X.tst
 Command to save:
 ```
 #S3 output location to save data(Please make sure you use the CDK generated S3 bucket). 
-<Your account number>-<Your identifier>-core-pecos-a2q-test-bucket
+<Your account ID>-<Your identifier>-core-pecos-multi-node-bucket
 ```
 
 
@@ -151,19 +151,20 @@ Job Command for reference for the above example:
 
 
 ## Optional CDK commands  
-CDK synthesize(Synthesize an AWS CloudFormation template for the app):
+CDK synthesize(Synthesizes and prints the CloudFormation template for this stack):
 ```
 cdk synth
 ```
 
-CDK diff (To see the changes):
+CDK diff (Compares the specified stack with the deployed stack or a local template file,
+and returns with status 1 if any difference is found):
 ```
 cdk diff
 ```
 
 CDK destroy (If you want to destroy all the AWS Batch constructs genersted via CDK):
 ```
-cdk destroy --all
+cdk destroy
 ```
 
 

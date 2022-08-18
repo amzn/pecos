@@ -39,7 +39,7 @@ class PecosBatchJobMultiNodeStack(Stack):
         accountID = str(os.environ.get('CDK_DEFAULT_ACCOUNT'))
         # TODO: Change bucket name if necessary 
         custom_bucket_name = str(accountID) + \
-             "-"+user_input_identifier+"-core-pecos-a2q-test-bucket"
+             "-"+user_input_identifier+"-core-pecos-multi-node-bucket"
 #       check if need to create a S3 bucket, if yes, create one for users
         if self.check_bucket_existence(custom_bucket_name) == False:
             bucket = s3.Bucket(self, "Pecos-Bucket",
@@ -227,3 +227,4 @@ class PecosBatchJobMultiNodeStack(Stack):
                                                        )
                                                        )
         return cfn_job_definition
+

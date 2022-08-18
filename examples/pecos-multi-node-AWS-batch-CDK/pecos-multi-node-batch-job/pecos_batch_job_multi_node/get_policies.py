@@ -41,8 +41,8 @@ def get_policies(accountID):
                 ],
                 "Effect": "Allow",
                 "Resource": [
-                    "arn:aws:s3:::"+accountID+"-"+user_input_identifier+"-core-pecos-a2q-test-bucket",
-                    "arn:aws:s3:::"+accountID+"-"+user_input_identifier+"-core-pecos-a2q-test-bucket/*"
+                    "arn:aws:s3:::"+accountID+"-"+user_input_identifier+"-core-pecos-multi-node-bucket",
+                    "arn:aws:s3:::"+accountID+"-"+user_input_identifier+"-core-pecos-multi-node-bucket/*"
                 ]
             }
         ]
@@ -50,5 +50,4 @@ def get_policies(accountID):
 
     parse_json = iam.PolicyDocument.from_json
     return [parse_json(policy_statement_1), parse_json(policy_statement_2)]
-
 
