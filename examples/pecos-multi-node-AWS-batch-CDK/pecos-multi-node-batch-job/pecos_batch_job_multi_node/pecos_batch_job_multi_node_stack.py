@@ -59,18 +59,18 @@ class PecosBatchJobMultiNodeStack(Stack):
             iam.ManagedPolicy.from_aws_managed_policy_name("CloudWatchLogsFullAccess"))
 
 #       prepare policy documents and attach to the role
-        my_custom_policy_1, my_custom_policy_2 = get_policies(accountID)
-        new_managed_policy_1 = iam.CfnManagedPolicy(self, "PECOS-ECR-Image",
-                                                    policy_document=my_custom_policy_1,
+        custom_policy_1, custom_policy_2 = get_policies(accountID)
+        ecr_image_policy = iam.CfnManagedPolicy(self, "PECOS-ECR-Image",
+                                                    policy_document=custom_policy_1,
                                                     roles=["PECOS-Batch-Role-Multi-Node-"+user_input_identifier],
                                                     )
-        new_managed_policy_1.node.add_dependency(batch_role)
-        new_managed_policy_2 = iam.CfnManagedPolicy(self, "Input-Output-S3-bucket",
-                                                    policy_document=my_custom_policy_2,
+        ecr_image_policy.node.add_dependency(batch_role)
+        input_output_s3_policy = iam.CfnManagedPolicy(self, "Input-Output-S3-bucket",
+                                                    policy_document=custom_policy_2,
                                                     roles=["PECOS-Batch-Role-Multi-Node-"+user_input_identifier],
                                                     )
                                 
-        new_managed_policy_2.node.add_dependency(batch_role)
+        input_output_s3_policy.node.add_dependency(batch_role)
         batch_role.apply_removal_policy(RemovalPolicy.DESTROY)
 #       Create VPC for this CDK
         vpc = self.custom_vpc()
