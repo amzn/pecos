@@ -20,7 +20,10 @@ echo "pip: $($PIP --version)"
 
 # Install dependencies
 echo "Install dependencies..."
-$PIP install setuptools wheel twine auditwheel
+# Temporarily pin setuptools version due to a recent bug, which will be fix in their later updates
+# See: https://github.com/pypa/setuptools/issues/3532
+# https://github.com/numpy/numpy/issues/22135
+$PIP install 'setuptools<=60.0.*' wheel twine auditwheel
 
 # Install OpenBLAS
 # Using Numpy pre-build OpenBLAS lib v0.3.19 hosted on Anaconda
