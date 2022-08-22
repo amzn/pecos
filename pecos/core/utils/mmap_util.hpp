@@ -16,8 +16,8 @@
 
 #define __PTR_ALIGN_BYTES 8 // Bytes to align all pointers to in a mmap file
 
+#include <cmath>
 #include <fcntl.h>
-#include <math.h>
 #include <stdexcept>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -32,8 +32,11 @@ namespace mmap_util {
 
 // Pad file with 0
 void _pad_file(FILE * fp, const size_t n_padded_bytes) {
-    char dummy = '\0';
-    fwrite(&dummy, sizeof(char), n_padded_bytes, fp);
+    if (n_padded_bytes <= 0) {
+        return;
+    }
+    const char dummy = '\0';
+    fwrite(&dummy, sizeof(dummy), n_padded_bytes, fp);
 }
 
 /*
@@ -66,7 +69,7 @@ class MmapFileMetadata {
             if (_n_arr != 0) {
                 file_end = _arr_offset.back() + _arr_elem_size.back() * _arr_len.back();
             }
-            uint64_t aligned_offset = ceil(static_cast<double>(file_end) / __PTR_ALIGN_BYTES) * __PTR_ALIGN_BYTES;
+            uint64_t aligned_offset = std::ceil(static_cast<double>(file_end) / __PTR_ALIGN_BYTES) * __PTR_ALIGN_BYTES;
 
             _n_arr++;
             _arr_elem_size.push_back(elem_size);
@@ -86,6 +89,9 @@ class MmapFileMetadata {
                 throw std::runtime_error("Load metadata: Open file failed.");
             }
             fseek(fp, -_MAX_METADATA_SIZE, SEEK_END);
+
+            // check signature
+            _check_signature(fp);
 
             // check endian
             _check_endian_type(fp);
@@ -107,6 +113,14 @@ class MmapFileMetadata {
 
         // Dump metadata into file
         void dump(FILE * fp) {
+            // check for empty case
+            if (_n_arr == 0) {
+                throw std::runtime_error("Cannot dump empty MmapFileMetadata.");
+            }
+
+            // dump signature
+            _dump_signature(fp);
+
             // dump endian
             _dump_endian_type(fp);
 
@@ -118,21 +132,43 @@ class MmapFileMetadata {
 
             // Pad metadata to _MAX_METADATA_SIZE
             size_t n_padded_bytes = _MAX_METADATA_SIZE - _get_metadata_size(_n_arr);
+            if (n_padded_bytes < 0) {
+                throw std::runtime_error("Written Metadata size: " + std::to_string(_get_metadata_size(_n_arr)) + " exceeds MAX_METADATA_SIZE, please check.");
+            }
             _pad_file(fp, n_padded_bytes);
         }
 
     private:
-        // Max number of arrays in mmap file
-        const size_t _MAX_N_ARR = 256;
+        // Signature: "MMAP"
+        static constexpr const char * _SIGNATURE = "MMAP";
+        static const size_t _SIGN_LEN = 4;
 
-        // Preset metadata size, containing information of all arrays, written at end of file
-        const size_t _MAX_METADATA_SIZE = _get_metadata_size(_MAX_N_ARR);
+        // Max number of arrays in mmap file
+        static const size_t _MAX_N_ARR = 128;
+
+        // Preset metadata size>=_get_metadata_size(_MAX_N_ARR), containing information of all arrays, written at end of file
+        static const size_t _MAX_METADATA_SIZE = 4096;
 
         // Metadata
         size_t _n_arr;
         std::vector<uint64_t> _arr_elem_size;
         std::vector<uint64_t> _arr_len;
         std::vector<uint64_t> _arr_offset;
+
+
+        void _dump_signature(FILE * fp) {
+            fwrite(_SIGNATURE, sizeof(char), _SIGN_LEN, fp);
+        }
+
+        void _check_signature(FILE * fp) {
+            std::string loaded_sign(_SIGN_LEN, '\0');
+            if (fread(&(loaded_sign[0]), sizeof(char), _SIGN_LEN, fp) != _SIGN_LEN) {
+                throw std::runtime_error("Read metadata signature failed.");
+            }
+            if (loaded_sign != std::string(_SIGNATURE)) {
+                throw std::runtime_error("File is not in mmap format. Got signature: " + loaded_sign);
+            }
+        }
 
         // Dump machine endian type to file
         void _dump_endian_type(FILE * fp) {
@@ -162,11 +198,12 @@ class MmapFileMetadata {
             fwrite(vec.data(), sizeof(vec[0]), vec.size(), fp);
         }
 
-        inline size_t _get_metadata_size(const size_t n_arr) {
-            // endian type (char) + n_arr (size_t) + arr infos (3 * n_arr * (uint64_t))
-            return sizeof(char) + sizeof(size_t) + 3 * n_arr * sizeof(uint64_t);
+        size_t _get_metadata_size(const size_t n_arr) const {
+            // signature (4 * char) + endian type (char) + n_arr (size_t) + arr infos (3 * n_arr * (uint64_t))
+            return sizeof(char) * _SIGN_LEN + sizeof(char) + sizeof(size_t) + 3 * n_arr * sizeof(uint64_t);
         }
 }; // end class MmapFileMetadata
+
 
 /*
  * Class to load a file in memory-mapped format.
@@ -185,6 +222,9 @@ class MemoryMappedFile {
 
         // load an instance from a file
         void load(const std::string & file_name, const bool pre_load) {
+            // Free previous mmap
+            _free_mmap();
+
             _metadata.load(file_name);
             _load_mmap(file_name, pre_load);
             _assign_mmap_arr_ptrs();
@@ -216,6 +256,13 @@ class MemoryMappedFile {
             _iter++;
 
             return cur_arr_ptr;
+        }
+
+        // Check if all arrays have been retrieved
+        void check_all_arrs_retrieved() {
+            if (_iter != _metadata.n_arr()) {
+                throw std::runtime_error("Didn't retrieve all arrays. Number of arrays: " + std::to_string(_metadata.n_arr()) + ", retrieved: " + std::to_string(_iter));
+            }
         }
 
     private:
@@ -279,6 +326,9 @@ class MemoryMappedFile {
                 if (res == EINVAL) {
                     throw std::runtime_error("Free memory map failed.");
                 }
+                _mmap_size = 0;
+                _mmap_arr_ptr.clear();
+                _iter = 0;
             }
         }
 }; // end class MemoryMappedFile
@@ -332,8 +382,13 @@ class DumpToMmapFile {
             _check_fp_open();
             // Dump metadata
             _metadata.dump(_fp);
-            fclose(_fp);
-            _fp = NULL;
+
+            fflush(_fp);
+            fsync(fileno(_fp));
+            if (fclose(_fp) != 0) {
+                throw std::runtime_error("DumpToMmapFile finalize close file failed.");
+            }
+            _fp = nullptr;
         }
 
     private:
@@ -341,7 +396,7 @@ class DumpToMmapFile {
         FILE * _fp;
 
         void _check_fp_open() {
-            if (_fp == NULL) {
+            if (_fp == nullptr) {
                 throw std::runtime_error("File is not opened, cannot dump mmap file.");
             }
         }

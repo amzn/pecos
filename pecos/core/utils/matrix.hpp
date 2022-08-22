@@ -24,6 +24,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "mmap_util.hpp"
 #include "parallel.hpp"
 #include "scipy_loader.hpp"
 
@@ -268,19 +269,68 @@ namespace pecos {
             value_type *data;
         };
 
+        // For mmap. Empty for memory instances
+        // mmap instance is readonly
+        bool is_mmap;
+        mmap_util::MemoryMappedFile _mmap_f;
+
         csc_t() :
             rows(0),
             cols(0),
             col_ptr(nullptr),
             row_idx(nullptr),
-            val(nullptr) { }
+            val(nullptr),
+            is_mmap(false) { }
 
         csc_t(const ScipyCscF32* py) :
             rows(py->rows),
             cols(py->cols),
             col_ptr(py->col_ptr),
             row_idx(py->row_idx),
-            val(py->val) { }
+            val(py->val),
+            is_mmap(false) { }
+
+        void save_mmap (const std::string& fn) const {
+            if (is_mmap) {
+                throw std::runtime_error("CSC matrix is already loaded in memory-mapped format, cannot save to mmap.");
+            }
+
+            auto nnz = get_nnz();
+
+            mmap_util::DumpToMmapFile dump_mmap_f(fn);
+
+            // scalars
+            dump_mmap_f.dump_arr(&(rows), 1);
+            dump_mmap_f.dump_arr(&(cols), 1);
+            dump_mmap_f.dump_arr(&(nnz), 1);
+
+            // arrays
+            dump_mmap_f.dump_arr(col_ptr, cols + 1);
+            dump_mmap_f.dump_arr(row_idx, nnz);
+            dump_mmap_f.dump_arr(val, nnz);
+
+            dump_mmap_f.finalize();
+        }
+
+        void load_mmap (const std::string& fn, const bool pre_load) {
+            free_underlying_memory();
+
+            is_mmap = true;
+
+            _mmap_f.load(fn, pre_load);
+
+            // scalars
+            rows = *(_mmap_f.get_arr<index_type>(1));
+            cols = *(_mmap_f.get_arr<index_type>(1));
+            auto nnz = *(_mmap_f.get_arr<mem_index_type>(1));
+
+            // arrays
+            col_ptr = _mmap_f.get_arr<mem_index_type>(cols + 1);
+            row_idx = _mmap_f.get_arr<index_type>(nnz);
+            val = _mmap_f.get_arr<value_type>(nnz);
+
+            _mmap_f.check_all_arrs_retrieved();
+        }
 
         bool is_empty() const {
             return val == nullptr;
@@ -303,6 +353,13 @@ namespace pecos {
         // Every function in the inference code that returns a matrix has allocated memory, and
         // therefore one should call this function to free that memory.
         void free_underlying_memory() {
+            if (is_mmap) { // No need to free here, MemoryMappedFile destructor takes care
+                col_ptr = nullptr;
+                row_idx = nullptr;
+                val = nullptr;
+                return;
+            }
+
             if (col_ptr) {
                 delete[] col_ptr;
                 col_ptr = nullptr;
@@ -324,6 +381,9 @@ namespace pecos {
         // This allocates memory, so one should call free_underlying_memory on the copy when
         // one is finished using it.
         csc_t deep_copy() const {
+            if (is_mmap) {
+                throw std::runtime_error("Cannot deep copy for mmap instance.");
+            }
             mem_index_type nnz = col_ptr[cols];
             csc_t res;
             res.allocate(rows, cols, nnz);
@@ -334,6 +394,9 @@ namespace pecos {
         }
 
         void allocate(index_type rows, index_type cols, mem_index_type nnz) {
+            if (is_mmap) {
+                throw std::runtime_error("Cannot allocate for mmap instance.");
+            }
             this->rows = rows;
             this->cols = cols;
             col_ptr = new mem_index_type[cols + 1];
@@ -343,6 +406,9 @@ namespace pecos {
 
         // Construct a csc_t object with shape _rows x _cols filled by 1.
         void fill_ones(index_type _rows, index_type _cols) {
+            if (is_mmap) {
+                throw std::runtime_error("Cannot fill ones for mmap instance.");
+            }
             mem_index_type nnz = (mem_index_type) _rows * _cols;
             this->free_underlying_memory();
             this->allocate(_rows, _cols, nnz);

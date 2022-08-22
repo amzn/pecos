@@ -608,6 +608,15 @@ class corelib(object):
             self.clib_float32.c_xlinear_load_model_from_disk_ext, res_list, arg_list
         )
 
+        res_list = c_void_p
+        arg_list = [c_char_p, c_bool]
+        corelib.fillprototype(
+            self.clib_float32.c_xlinear_load_mmap_model_from_disk, res_list, arg_list
+        )
+
+        arg_list = [c_char_p, c_char_p]
+        corelib.fillprototype(self.clib_float32.c_xlinear_compile_mmap_model, None, arg_list)
+
         # c interface for per-layer prediction
         arg_list = [
             POINTER(ScipyCsrF32),
@@ -682,10 +691,24 @@ class corelib(object):
         arg_list = [c_void_p, c_int]
         corelib.fillprototype(self.clib_float32.c_xlinear_get_layer_type, res_list, arg_list)
 
+    def xlinear_compile_mmap_model(self, npz_folder, mmap_folder):
+        """
+        Compile xlinear model from npz format to memory-mapped format
+        for faster loading and referencing.
+        Args:
+            npz_folder (str): The source folder path for xlinear npz model.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        self.clib_float32.c_xlinear_compile_mmap_model(
+            c_char_p(npz_folder.encode("utf-8")), c_char_p(mmap_folder.encode("utf-8"))
+        )
+
     def xlinear_load_predict_only(
         self,
         folder,
         weight_matrix_type="BINARY_SEARCH_CHUNKED",
+        is_mmap=False,
+        pre_load=False,
     ):
         """
         Load xlinear model in predict only mode.
@@ -698,9 +721,18 @@ class corelib(object):
             cmodel (ptr): The pointer to xlinear model.
         """
         weight_matrix_type_id = XLINEAR_INFERENCE_MODEL_TYPES[weight_matrix_type]
-        cmodel = self.clib_float32.c_xlinear_load_model_from_disk_ext(
-            c_char_p(folder.encode("utf-8")), c_int(int(weight_matrix_type_id))
-        )
+        if is_mmap:
+            if weight_matrix_type != "BINARY_SEARCH_CHUNKED":
+                raise NotImplementedError(
+                    f"Currently mmap only implemented for BINARY_SEARCH_CHUNKED, got: {weight_matrix_type}"
+                )
+            cmodel = self.clib_float32.c_xlinear_load_mmap_model_from_disk(
+                c_char_p(folder.encode("utf-8")), c_bool(pre_load)
+            )
+        else:
+            cmodel = self.clib_float32.c_xlinear_load_model_from_disk_ext(
+                c_char_p(folder.encode("utf-8")), c_int(int(weight_matrix_type_id))
+            )
         return cmodel
 
     def xlinear_destruct_model(self, c_model):

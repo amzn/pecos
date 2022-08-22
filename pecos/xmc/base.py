@@ -726,6 +726,20 @@ class MLModel(pecos.BaseClass):
             param = json.loads(fin.read())
         return cls.PredParams.from_dict(param["pred_kwargs"])
 
+    @classmethod
+    def compile_mmap_model(cls, npz_folder, mmap_folder):
+        """
+        Compile model from npz format to memory-mapped format
+        for faster loading and referencing.
+        Args:
+            npz_folder (str): The source folder path for xlinear npz model.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        param = json.loads(open(f"{npz_folder}/param.json", "r", encoding="utf-8").read())
+        assert param["model"] == cls.__name__
+
+        clib.xlinear_compile_mmap_model(npz_folder, mmap_folder)
+
     def save(self, folder):
         """Save MLModel to file
 
