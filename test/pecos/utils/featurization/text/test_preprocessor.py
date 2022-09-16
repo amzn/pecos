@@ -26,8 +26,6 @@ sklearn_tfidf_vectorizer_config_path = (
 sklearn_tfidf_tgt_input_file = "test/tst-data/utils/data/train.sklearn_tfidf.tgt.npz"
 hashing_vectorizer_config_path = "test/tst-data/utils/data/hashing_vectorizer_config.json"
 hashing_tgt_input_file = "test/tst-data/utils/data/train.hashing.tgt.npz"
-transformer_vectorizer_config_path = "test/tst-data/utils/data/transformer_vectorizer_config.json"
-transformer_tgt_input_file = "test/tst-data/utils/data/train.transformer.tgt.npy"
 
 
 def assert_matrix_equal(Xtgt, X, tolerance=1e-6):
@@ -153,7 +151,3 @@ def test_sklearn_tfidf_vectorizer(tmpdir):
 
 def test_hashing_vectorizer(tmpdir):
     preprocessor_cli(tmpdir, hashing_vectorizer_config_path, hashing_tgt_input_file)
-
-
-def test_transformer_vectorizer(tmpdir):
-    preprocessor_cli(tmpdir, transformer_vectorizer_config_path, transformer_tgt_input_file)
