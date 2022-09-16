@@ -29,7 +29,7 @@ def get_parameters():
 
     param_dict["user_name"] = input_with_default(
         input(
-            f"Please enter your name for tagging AWS stacks. Recommand to use your Amazon ID. "
+            f"Please enter your name for tagging AWS stacks. "
             f"The default is current OS user: "
         ),
         os.getlogin()
@@ -38,7 +38,7 @@ def get_parameters():
     param_dict["user_disk_gb_req"] = int_input_value_check(
         input(
             f"Please enter disk size requirement(GB) for each node. Range 1GB ~ 15TB.\n"
-            f"PECOS inference recommendations: >=1000GB(1TB).\n"
+            f"PECOS training recommendations: >=1000GB(1TB).\n"
             f"The default is 1000: "
         ),
         default_val=1000,
