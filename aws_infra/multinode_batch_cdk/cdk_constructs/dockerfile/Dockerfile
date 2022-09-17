@@ -4,6 +4,9 @@ FROM amazonlinux:2
 ENV PYTHONUNBUFFERED=TRUE
 ENV PYTHONDONTWRITEBYTECODE=TRUE
 
+# Fix vulnerability
+RUN yum update -y gnupg2
+
 # Install dependencies
 RUN yum install -y awscli sudo
 RUN yum install -y openssl openssh-client openssh-server iproute2
