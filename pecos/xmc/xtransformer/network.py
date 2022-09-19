@@ -12,7 +12,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pecos.utils.featurization.text.vectorizers import TransformerModelClass
 from pecos.xmc import MLModel
 from transformers import (
     BertConfig,
@@ -51,6 +50,22 @@ from transformers.models.distilbert.modeling_distilbert import (
     DISTILBERT_INPUTS_DOCSTRING,
     DISTILBERT_START_DOCSTRING,
 )
+
+
+class TransformerModelClass(object):
+    """Utility class for representing a Transformer and tokenizer."""
+
+    def __init__(self, config_class, model_class, tokenizer_class):
+        """Initialization
+
+        Args:
+            config_class (transformers.configuration_utils.PretrainedConfig)
+            model_class (transformers.modeling_utils.PreTrainedModel)
+            tokenizer_class (transformers.tokenization_utils.PreTrainedTokenizer)
+        """
+        self.config_class = config_class
+        self.model_class = model_class
+        self.tokenizer_class = tokenizer_class
 
 
 class HingeLoss(nn.Module):
