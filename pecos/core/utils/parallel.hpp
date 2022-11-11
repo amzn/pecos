@@ -18,6 +18,8 @@
 #include <iterator>
 #include <numeric>
 #include <omp.h>
+// for __gnu_parallel
+#include <parallel/algorithm>
 
 namespace pecos {
 
@@ -68,6 +70,19 @@ namespace pecos {
                     );
                 }
             }
+        }
+    }
+
+    template<class InputIt, class Compare>
+    void parallel_sort(InputIt first, InputIt last, Compare comp, int threads=-1) {
+        threads = set_threads(threads);
+        typedef typename std::iterator_traits<InputIt>::difference_type difference_type;
+        difference_type len = last - first;
+        if(threads == 1 || len < threads) {
+            std::sort(first, last, comp);
+        } else {
+            __gnu_parallel::multiway_mergesort_tag parallelism(threads);
+            __gnu_parallel::sort(first, last, comp, parallelism);
         }
     }
 } // end namespace pecos

@@ -38,7 +38,7 @@ class BaseClass(metaclass=MetaClass):
         return MetaClass.class_fullname(cls)
 
     @classmethod
-    def append_meta(cls, d: dict = None):
+    def append_meta(cls, d=None):
         meta = {"__meta__": {"class_fullname": cls.class_fullname()}}
         if d is not None:
             meta.update(d)

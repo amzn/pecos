@@ -25,8 +25,6 @@
 #include <string>
 #include <sys/stat.h>
 #include <vector>
-// for __gnu_parallel
-#include <parallel/algorithm>
 
 // string_view available since c++17
 // only in experimental/string_view in c++14
@@ -295,18 +293,6 @@ void append_lines_to_string_view(char* buffer, size_t buffer_size, sv_vec_t& lin
     }
 }
 
-template<class InputIt, class Compare>
-void parallel_sort(InputIt first, InputIt last, Compare comp, int threads=-1) {
-    threads = set_threads(threads);
-    typedef typename std::iterator_traits<InputIt>::difference_type difference_type;
-    difference_type len = last - first;
-    if(threads == 1 || len < threads) {
-        std::sort(first, last, comp);
-    } else {
-        __gnu_parallel::multiway_mergesort_tag parallelism(threads);
-        __gnu_parallel::sort(first, last, comp, parallelism);
-    }
-}
 
 class Tokenizer {
 public:
