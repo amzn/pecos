@@ -72,6 +72,64 @@ extern "C" {
 } // end of extern C
 
 namespace pecos {
+    // ===== Container for sparse-dense vectors =====
+    // For sparse vectors computational acceleration
+    template<class IDX_T=uint32_t, class VAL_T=float32_t>    
+    struct sdvec_t {
+        typedef IDX_T index_type;
+        typedef VAL_T value_type;
+
+        index_type len;
+        index_type nr_touch;
+
+        struct entry_t {
+            value_type val;
+            bool touched;
+            entry_t(value_type val=0, bool touched=0): val(val), touched(touched) {}
+        };
+
+        std::vector<entry_t> entries;
+        std::vector<index_type> touched_indices;
+
+        sdvec_t(index_type len=0) : len(len), nr_touch(0) {
+            entries.resize(len);
+            touched_indices.resize(len);
+        }
+
+
+        void resize(index_type len_) {
+            len = len_;
+            nr_touch = 0;
+            entries.resize(len);
+            touched_indices.resize(len);
+        }
+
+        value_type& add_nonzero_at(index_type idx, value_type v) {
+            entries[idx].val += static_cast<value_type>(v);
+            if(!entries[idx].touched) {
+                entries[idx].touched = 1;
+                touched_indices[nr_touch++] = static_cast<index_type>(idx);
+            }
+            return entries[idx].val;
+        }
+
+        void sort_nz_indices() {
+            std::sort(touched_indices.data(), touched_indices.data() + nr_touch);
+        }
+
+        void fill_zeros() {
+            if(nr_touch < (len >> 1)) {
+                for(size_t t = 0; t < nr_touch; t++) {
+                    entries[touched_indices[t]].val = 0;
+                    entries[touched_indices[t]].touched = 0;
+                }
+            } else {
+                memset(static_cast<void*>(entries.data()), 0, sizeof(entry_t) * len);
+            }
+            nr_touch = 0;
+        }
+    };
+
 
     // ===== Wrapper for sparse/dense vectors =====
     template<class IDX_T=uint32_t, class VAL_T=float32_t>
@@ -607,6 +665,23 @@ namespace pecos {
     template<> inline float copy(ptrdiff_t *len, float *x, ptrdiff_t *xinc, float *y, ptrdiff_t *yinc) { return scopy_(len,x,xinc,y,yinc); }
 
     // ===== do_dot_product =====
+    template<class IX, class VX, class IY, class VY>
+    float32_t do_dot_product(const sparse_vec_t<IX, VX>& x, const sdvec_t<IY, VY>& y) {
+        float32_t ret = 0;
+        for(size_t s = 0; s < x.nnz; s++) {
+            auto &idx = x.idx[s];
+            if(y.entries[idx].touched) 
+                ret += y.entries[idx].val * x.val[s];
+        }
+        return ret;
+    }
+
+    template<class IX, class VX, class IY, class VY>
+    float32_t do_dot_product(const sdvec_t<IX, VX>& x, const sparse_vec_t<IY, VY>& y) {
+        return do_dot_product(y, x);
+    }
+
+
     template<typename val_type>
     val_type do_dot_product(const val_type *x, const val_type *y, size_t size) {
         // This uses a BLAS implementation
@@ -662,6 +737,43 @@ namespace pecos {
 
     template<class IX, class VX, class VY>
     float32_t do_dot_product(const sparse_vec_t<IX, VX>& x, const dense_vec_t<VY>& y) {
+        return do_dot_product(y, x);
+    }
+
+
+    template<class IX, class VX, class IY, class VY>
+    float32_t do_dot_product(const sdvec_t<IX, VX>& x, const sdvec_t<IY, VY>& y) {
+        if(x.nr_touch > y.nr_touch) {
+            return do_dot_product(y, x);
+        }
+        float32_t ret = 0;
+        for(size_t s = 0; s < x.nr_touch; s++) {
+            auto &idx = x.touched_indices[s];
+            if(y.entries[idx].touched) 
+                ret += y.entries[idx].val * x.entries[idx].val;
+        }
+        return static_cast<float32_t>(ret);
+    }
+
+    template<class IX, class VX, class VY>
+    float32_t do_dot_product(const sdvec_t<IX, VX>& x, const dense_vec_t<VY>& y) {
+        float32_t ret = 0;
+        if(x.nr_touch > (x.len >> 1) ) {
+            for(size_t i = 0; i < y.len; i++) {
+                ret += x.entries[i].val * y[i];
+            }
+        }
+        else {
+            for(size_t s = 0; s < x.nr_touch; s++) {
+                auto &idx = x.touched_indices[s];
+                ret += x.entries[idx].val * y[idx];
+            }
+        }
+        return static_cast<float32_t>(ret);
+    }
+
+    template<class VX, class IY, class VY>
+    float32_t do_dot_product(const dense_vec_t<VX>& x, const sdvec_t<IY, VY>& y) {
         return do_dot_product(y, x);
     }
 
@@ -727,6 +839,36 @@ namespace pecos {
         return do_axpy(alpha, x, dense_vec_t<VY>(y));
     }
 
+    template<class IX, class VX, class IY, class VY, typename T>
+    void do_axpy(T alpha, const sparse_vec_t<IX, VX>& x, sdvec_t<IY, VY>& y) {
+        for(size_t s = 0; s < x.nnz; s++) {
+            y.add_nonzero_at(x.idx[s], x.val[s] * alpha);
+        }
+    }
+
+
+    template<class IX, class VX, class IY, class VY, typename T>
+    void do_axpy(T alpha, const sdvec_t<IX, VX>& x, sdvec_t<IY, VY>& y) {
+        for(size_t s = 0; s < x.nr_touch; s++) {
+            auto &idx = x.touched_indices[s];
+            y.add_nonzero_at(idx, x.entries[idx].val * alpha);
+        }
+    }
+
+
+    template<class VX, class IY, class VY, typename T>
+    void do_axpy(T alpha, const dense_vec_t<VX>& x, sdvec_t<IY, VY>& y) {
+        if(y.nr_touch == x.len)
+            for(size_t i = 0; i < x.len; i++) {
+                y.entries[i].val += alpha * x[i];
+            }
+        else {
+            for(size_t i = 0; i < x.len; i++) {
+                y.add_nonzero_at(i, alpha * x[i]);
+            }
+        }
+    }
+
     // ===== do_scale =====
     template<class val_type, class T>
     void do_scale(T alpha, val_type *x, size_t size) {
@@ -752,6 +894,14 @@ namespace pecos {
     void do_scale(T alpha, sparse_vec_t<VX>& x) {
         for(size_t s = 0; s < x.nnz; s++) {
             x.val[s] *= alpha;
+        }
+    }
+
+    template<class IX, class VX, typename T>
+    void do_scale(T alpha, sdvec_t<IX, VX>& x) {
+        for(size_t s = 0; s < x.nr_touch; s++) {
+            auto &idx = x.touched_indices[s];
+            x.entries[idx].val = x.entries[idx].val * alpha;
         }
     }
 
