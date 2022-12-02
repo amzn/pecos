@@ -31,6 +31,57 @@ enum {
     SKMEANS=5,
 }; /* partition_algo */
 
+enum {
+    CONSTANT=0,
+    LINEAR=1,
+    POLYNOMIAL=2,
+}; /* sample strategies */
+
+extern "C" {
+    struct SampleSchedulerParam {
+        int strategy = CONSTANT;
+        int total_layers;
+        float sample_rate = 1.0;
+        float warmup_sample_rate, warmup_layer_rate;
+
+        SampleSchedulerParam(
+            int strategy,
+            int total_layers,
+            float sample_rate,
+            float warmup_sample_rate,
+            float warmup_layer_rate
+        ): strategy(strategy),
+        total_layers(total_layers),
+        sample_rate(sample_rate),
+        warmup_sample_rate(warmup_sample_rate),
+        warmup_layer_rate(warmup_layer_rate) {}
+
+        SampleSchedulerParam() {}
+    };
+} // end of extern C
+
+struct SampleScheduler {
+    // parent constant sample scheduler
+    SampleSchedulerParam param;
+    int warmup_layers;
+
+    SampleScheduler(SampleSchedulerParam param): param(param) {
+        warmup_layers = int(param.total_layers * param.warmup_layer_rate);
+    }
+
+    SampleScheduler() {}
+
+    float get_sample_rate(size_t layer) {
+        if(param.strategy == CONSTANT) { return param.sample_rate; }
+        else if(param.strategy == LINEAR) { return _get_linear_sample_rate(layer); }
+    }
+
+    float _get_linear_sample_rate(size_t layer) {
+        if(layer < warmup_layers) { return param.warmup_sample_rate; }
+        return param.warmup_sample_rate + (param.sample_rate - param.warmup_sample_rate) * (layer + 1 - warmup_layers) / (param.total_layers - warmup_layers);
+    }
+};
+
 struct Node {
     size_t start;
     size_t end;
@@ -96,10 +147,18 @@ struct Tree {
     Node& left_of(size_t nid) { return nodes[nid << 1]; }
     Node& right_of(size_t nid) { return nodes[(nid << 1) + 1]; }
 
-    void partition_elements(Node& root, Node& left, Node& right) {
-        size_t middle = (root.start + root.end) >> 1;
-        left.set(root.start, middle);
-        right.set(middle, root.end);
+    void partition_elements(Node& root, Node& left, Node& right, size_t n_sp_elements=0) {
+        if(n_sp_elements == 0) {
+            size_t middle = (root.start + root.end) >> 1;
+            left.set(root.start, middle);
+            right.set(middle, root.end);
+        }
+        else {
+            size_t sample_middle = root.start + (n_sp_elements >> 1);
+            left.set(root.start, sample_middle);
+            right.set(sample_middle, root.start + n_sp_elements);
+            root.set(root.start, root.start + n_sp_elements);
+        }
     }
 
     // Sort elements by scores on node and return if this function changes the assignment
@@ -155,13 +214,44 @@ struct Tree {
     }
 
     template<typename MAT>
-    void partition_kmeans(size_t nid, size_t depth, const MAT& feat_mat, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0) {
-        Node& root = root_of(nid);
-        Node& left = left_of(nid);
-        Node& right = right_of(nid);
-        partition_elements(root, left, right);
+    void partition_kmeans(size_t nid, size_t depth, const MAT& feat_mat, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0, float cur_sample_rate=1.0) {
+        // copy nodes rather than reference 
+        Node root = root_of(nid);
+        Node left = left_of(nid);
+        Node right = right_of(nid);
+
+        // modify nodes' start and end based on cur_sample_rate 
+        size_t n_sp_elements = 0;
+        if(cur_sample_rate < 1.0) {
+            rng.shuffle(elements.begin() + root.start, elements.begin() + root.end);
+            n_sp_elements = int(cur_sample_rate * (root.end - root.start));
+        }
+        partition_elements(root, left, right, n_sp_elements);
 
         f32_sdvec_t& cur_center = center1[thread_id];
+
+        auto do_assignment = [&] (Node& root) {
+            u64_dvec_t *elements_ptr = &elements;
+            auto *scores_ptr = &scores;
+            auto *center_ptr = &cur_center;
+            const MAT* feat_mat_ptr = &feat_mat;
+            if(threads == 1) {
+                for(size_t i = root.start; i < root.end; i++) {
+                    size_t eid = elements_ptr->at(i);
+                    const auto& feat = feat_mat_ptr->get_row(eid);
+                    scores_ptr->at(eid) = do_dot_product(*center_ptr, feat);
+                }
+            } else {
+#pragma omp parallel for shared(elements_ptr, scores_ptr, center_ptr, feat_mat_ptr)
+                for(size_t i = root.start; i < root.end; i++) {
+                    size_t eid = elements_ptr->at(i);
+                    const auto& feat = feat_mat_ptr->get_row(eid);
+                    scores_ptr->at(eid) = do_dot_product(*center_ptr, feat);
+                }
+            }
+            bool assignment_changed = sort_elements_by_scores_on_node(root, threads);
+            return assignment_changed;
+        };
 
         // perform the clustering and sorting
         for(size_t iter = 0; iter < max_iter; iter++) {
@@ -186,9 +276,46 @@ struct Tree {
                 alpha = -1.0 / left.size();
                 update_center(feat_mat, left, cur_center, alpha, threads);
             }
+            bool assignment_changed = do_assignment(root);
+            if(!assignment_changed) {
+                break;
+            }
+        }
+
+        // set indices for reference nodes
+        Node& ref_root = root_of(nid);
+        Node& ref_left = left_of(nid);
+        Node& ref_right = right_of(nid);
+        partition_elements(ref_root, ref_left, ref_right);
+
+        // perform inference on whole elements
+        if(n_sp_elements != 0) {
+            do_assignment(ref_root);
+        }
+    }
+
+    template<typename MAT>
+    void partition_skmeans(size_t nid, size_t depth, const MAT& feat_mat, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0, float cur_sample_rate=1.0) {
+        // copy nodes rather than reference 
+        Node root = root_of(nid);
+        Node left = left_of(nid);
+        Node right = right_of(nid);
+
+        // modify nodes' start and end based on cur_sample_rate 
+        size_t n_sp_elements = 0;
+        if(cur_sample_rate < 1.0) {
+            rng.shuffle(elements.begin() + root.start, elements.begin() + root.end);
+            n_sp_elements = int(cur_sample_rate * (root.end - root.start));
+        }
+        partition_elements(root, left, right, n_sp_elements);
+
+        f32_sdvec_t& cur_center1 = center1[thread_id];
+        f32_sdvec_t& cur_center2 = center2[thread_id];
+
+        auto do_assignment = [&] (Node& root) {
             u64_dvec_t *elements_ptr = &elements;
             auto *scores_ptr = &scores;
-            auto *center_ptr = &cur_center;
+            auto *center_ptr = &cur_center1;
             const MAT* feat_mat_ptr = &feat_mat;
             if(threads == 1) {
                 for(size_t i = root.start; i < root.end; i++) {
@@ -205,21 +332,8 @@ struct Tree {
                 }
             }
             bool assignment_changed = sort_elements_by_scores_on_node(root, threads);
-            if(!assignment_changed) {
-                break;
-            }
-        }
-    }
-
-    template<typename MAT>
-    void partition_skmeans(size_t nid, size_t depth, const MAT& feat_mat, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0) {
-        Node& root = root_of(nid);
-        Node& left = left_of(nid);
-        Node& right = right_of(nid);
-        partition_elements(root, left, right);
-
-        f32_sdvec_t& cur_center1 = center1[thread_id];
-        f32_sdvec_t& cur_center2 = center2[thread_id];
+            return assignment_changed;
+        };
 
         // perform the clustering and sorting
         for(size_t iter = 0; iter < max_iter; iter++) {
@@ -253,35 +367,26 @@ struct Tree {
 
                 do_axpy(-1.0, cur_center2, cur_center1);
             }
-
-
-            u64_dvec_t *elements_ptr = &elements;
-            auto *scores_ptr = &scores;
-            auto *center_ptr = &cur_center1;
-            const MAT* feat_mat_ptr = &feat_mat;
-            if(threads == 1) {
-                for(size_t i = root.start; i < root.end; i++) {
-                    size_t eid = elements_ptr->at(i);
-                    const auto& feat = feat_mat_ptr->get_row(eid);
-                    scores_ptr->at(eid) = do_dot_product(*center_ptr, feat);
-                }
-            } else {
-#pragma omp parallel for shared(elements_ptr, scores_ptr, center_ptr, feat_mat_ptr)
-                for(size_t i = root.start; i < root.end; i++) {
-                    size_t eid = elements_ptr->at(i);
-                    const auto& feat = feat_mat_ptr->get_row(eid);
-                    scores_ptr->at(eid) = do_dot_product(*center_ptr, feat);
-                }
-            }
-            bool assignment_changed = sort_elements_by_scores_on_node(root, threads);
+            bool assignment_changed = do_assignment(root);
             if(!assignment_changed) {
                 break;
             }
         }
+
+        // set indices for reference nodes
+        Node& ref_root = root_of(nid);
+        Node& ref_left = left_of(nid);
+        Node& ref_right = right_of(nid);
+        partition_elements(ref_root, ref_left, ref_right);
+
+        // perform inference on whole elements
+        if(n_sp_elements != 0) {
+            do_assignment(ref_root);
+        }
     }
 
     template<typename MAT, typename IND=unsigned>
-    void run_clustering(const MAT& feat_mat, int partition_algo, int seed=0, IND *label_codes=NULL, size_t max_iter=10, int threads=1) {
+    void run_clustering(const MAT& feat_mat, int partition_algo, int seed=0, IND *label_codes=NULL, size_t max_iter=10, int threads=1, float sample_rate=1.0, SampleSchedulerParam sample_param = SampleSchedulerParam()) {
         size_t nr_elements = feat_mat.rows;
         elements.resize(nr_elements);
         previous_elements.resize(nr_elements);
@@ -303,11 +408,13 @@ struct Tree {
         // Allocate tmp arrays for parallel update center
         center_tmp_thread.resize(threads, f32_sdvec_t(feat_mat.cols));
 
+        SampleScheduler sample_scheduler(sample_param);
 
         // let's do it layer by layer so we can parallelize it
         for(size_t d = 0; d < depth; d++) {
             size_t layer_start = 1U << d;
             size_t layer_end = 1U << (d + 1);
+            float cur_sample_rate = sample_scheduler.get_sample_rate(d);
             if((layer_end - layer_start) >= (size_t) threads) {
 #pragma omp parallel for schedule(dynamic)
                 for(size_t nid = layer_start; nid < layer_end; nid++) {
@@ -315,9 +422,9 @@ struct Tree {
                     int local_threads = 1;
                     int thread_id = omp_get_thread_num();
                     if(partition_algo == KMEANS) {
-                        partition_kmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id);
+                        partition_kmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
                     } else if(partition_algo == SKMEANS) {
-                        partition_skmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id);
+                        partition_skmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
                     }
                 }
             } else {
@@ -326,9 +433,9 @@ struct Tree {
                     int local_threads = threads;
                     int thread_id = 0;
                     if(partition_algo == KMEANS) {
-                        partition_kmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id);
+                        partition_kmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
                     } else if(partition_algo == SKMEANS) {
-                        partition_skmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id);
+                        partition_skmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
                     }
                 }
             }
