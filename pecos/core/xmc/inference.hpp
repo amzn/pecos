@@ -473,9 +473,8 @@ namespace pecos {
         }
         chunk_ptr[chunk_count] = mat.col_ptr[mat.cols];
 
-        // Collect chunks nnz_rows
+        // Collect chunks nnz_rows for allocating
         std::vector<index_type> chunk_nnz_rows(chunk_count);
-        std::vector<chunk_entry_t::index_type> nnz_rows;
         for (chunk_index_type i_chunk = 0; i_chunk < chunk_count; ++i_chunk) {
             auto chunk_nnz = chunk_ptr[i_chunk + 1] - chunk_ptr[i_chunk];
             // Empty chunk
@@ -483,21 +482,14 @@ namespace pecos {
                 chunk_nnz_rows[i_chunk] = 0;
                 continue;
             }
-            // Find chunk's all nonzeros row number
-            nnz_rows.resize(chunk_nnz);
-            mem_index_type i_nz = 0;
+            // Count chunk's unique nonzero rows with set
+            unordered_set<chunk_entry_t::index_type> nnz_rows;
             for (auto col = chunk_col_idx[i_chunk]; col < chunk_col_idx[i_chunk + 1]; ++col) {
                 for (auto m_col = mat.col_ptr[col]; m_col < mat.col_ptr[col + 1]; ++m_col) {
-                    nnz_rows[i_nz] = mat.row_idx[m_col];
-                    ++i_nz;
+                    nnz_rows.insert(mat.row_idx[m_col]);
                 }
             }
-            std::stable_sort(nnz_rows.begin(), nnz_rows.end());
-            // Count unique nonzero rows
-            chunk_nnz_rows[i_chunk] = 1; // at least 1
-            for (mem_index_type i_nz= 0; i_nz < chunk_nnz - 1; ++i_nz) {
-                chunk_nnz_rows[i_chunk] += (nnz_rows[i_nz] != nnz_rows[i_nz + 1]);
-            }
+            chunk_nnz_rows[i_chunk] = nnz_rows.size();
         }
 
         // Allocate
