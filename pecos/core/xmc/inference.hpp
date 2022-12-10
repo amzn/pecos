@@ -212,90 +212,83 @@ namespace pecos {
         value_type val;
     };
 
-    struct hash_chunk_t {
+    // View of a hash chunk, does not hold any memory
+    struct hash_chunk_view_t {
         typedef typename csc_t::index_type index_type;
         typedef typename csc_t::mem_index_type mem_index_type;
         typedef typename chunk_entry_t::value_type value_type;
 
-        // Maps a matrix row index into an index of the row_ptr array below
-        unordered_map<index_type, index_type> row_hash;
         index_type col_begin; // The column this chunk starts at (inclusive)
         index_type col_end; // The column this chunk ends at (exclusive)
+        index_type nnz_rows; // The number of non-zero rows in this chunk
+        // Using index_type instead of bool for struct padding, the value is still boolean
+        index_type b_has_explicit_bias; // Whether or not this chunk has an explicit bias term
+
+        // This struct does not hold memory, all pointers are only views
+        unordered_map<index_type, index_type> row_hash; // Maps a matrix row index into an index of the row_ptr array below
         mem_index_type* row_ptr; // An array of where rows begin in hash_chunked_matrix_t::entries
-        bool b_has_explicit_bias; // Whether or not this chunk has an explicit bias term
 
-        hash_chunk_t() :
-            row_ptr(nullptr),
-            b_has_explicit_bias(false) {
+
+        hash_chunk_view_t() :
+            col_begin(0),
+            col_end(0),
+            nnz_rows(0),
+            b_has_explicit_bias(false),
+            row_ptr(nullptr) {
         }
 
-        ~hash_chunk_t() {
-            if (row_ptr) {
-                delete[] row_ptr;
-            }
+        void set_row(index_type row, index_type i_row, mem_index_type i_entry) {
+            row_ptr[i_row] = i_entry;
+            row_hash[row] = i_row;
         }
 
-        void set_empty() {
-            row_ptr = nullptr;
-        }
-
-        void init(const index_type nnz_rows) {
-            row_ptr = new mem_index_type[nnz_rows + 1];
-        }
-
-        void set_row(index_type row, index_type row_indx, mem_index_type ptr) {
-            row_ptr[row_indx] = ptr;
-            row_hash[row] = row_indx;
+        index_type row_ptr_size() {
+            return nnz_rows == 0 ? (0) : (nnz_rows + 1);
         }
     };
 
-    struct bin_search_chunk_t {
+    // View of a binary search chunk, does not hold any memory
+    struct bin_search_chunk_view_t {
         typedef typename csc_t::index_type index_type;
         typedef typename csc_t::mem_index_type mem_index_type;
         typedef typename chunk_entry_t::value_type value_type;
 
         index_type col_begin; // The column this chunk starts at (inclusive)
         index_type col_end; // The column this chunk ends at (exclusive)
-        index_type* row_idx; // Stores the row id of each nnz row
-        mem_index_type* row_ptr; // Stores the pointer to data of each nnz row
-        index_type nnz_rows;
-        bool b_has_explicit_bias; // Whether or not this chunk has an explicit bias term
+        index_type nnz_rows; // The number of non-zero rows in this chunk
+        // Using index_type instead of bool for struct padding, the value is still boolean
+        index_type b_has_explicit_bias; // Whether or not this chunk has an explicit bias term, 0=false
 
-        bin_search_chunk_t() :
+        // This struct does not hold memory, all pointers are only views
+        index_type* row_idx; // Stores the row id of each nnz row, size nnz_rows
+        mem_index_type* row_ptr; // Stores the pointer to data of each nnz row, size nnz_rows+1
+
+
+        bin_search_chunk_view_t() :
+            col_begin(0),
+            col_end(0),
+            nnz_rows(0),
+            b_has_explicit_bias(false),
             row_idx(nullptr),
-            row_ptr(nullptr),
-            b_has_explicit_bias(false) {
+            row_ptr(nullptr) {
         }
 
-        ~bin_search_chunk_t() {
-            if (row_ptr) {
-                delete[] row_ptr;
-            }
-            if (row_idx) {
-                delete[] row_idx;
-            }
+        void set_row(index_type row, index_type i_row, mem_index_type i_entry) {
+            row_ptr[i_row] = i_entry;
+            row_idx[i_row] = row;
         }
 
-        void set_empty() {
-            row_idx = nullptr;
-            row_ptr = nullptr;
-            nnz_rows = 0;
+        index_type row_idx_size() {
+            return nnz_rows;
         }
 
-        void init(const index_type nnz_rows) {
-            row_idx = new index_type[nnz_rows];
-            row_ptr = new mem_index_type[nnz_rows + 1];
-            this->nnz_rows = nnz_rows;
-        }
-
-        void set_row(index_type row, index_type row_indx, mem_index_type ptr) {
-            row_ptr[row_indx] = ptr;
-            row_idx[row_indx] = row;
+        index_type row_ptr_size() {
+            return nnz_rows == 0 ? (0) : (nnz_rows + 1);
         }
     };
 
     struct hash_chunked_matrix_t {
-        typedef hash_chunk_t chunk_t;
+        typedef hash_chunk_view_t chunk_t;
         typedef typename chunk_t::index_type index_type;
         typedef typename chunk_t::mem_index_type mem_index_type;
         typedef typename chunk_t::value_type value_type;
@@ -309,17 +302,34 @@ namespace pecos {
         index_type cols;
         index_type rows;
 
+        // actual memory storage
+        std::vector<chunk_t> _chunks;
+        std::vector<mem_index_type> _chunks_row_ptr;
+        std::vector<chunk_entry_t> _entries;
+
+        // NOTE: Only use this function when metadata is assigned and chunks allocated
+        void _allocate_chunks_row_ptrs(const std::vector<index_type> &chunk_nnz_rows) {
+            mem_index_type chunks_row_ptr_size = 0;
+            for (chunk_index_type i=0; i < chunk_count; ++i) {
+                auto& chunk = chunks[i];
+                if (chunk.nnz_rows != 0) {
+                    chunks_row_ptr_size += chunk.row_ptr_size();
+                }
+            }
+            _chunks_row_ptr.resize(chunks_row_ptr_size);
+            mem_index_type * tmp_row_ptr_ptr = _chunks_row_ptr.data();
+            for (chunk_index_type i=0; i < chunk_count; ++i) {
+                auto& chunk = chunks[i];
+                if (chunk.nnz_rows != 0) {
+                    chunk.row_ptr = tmp_row_ptr_ptr;
+                    tmp_row_ptr_ptr += chunk.row_ptr_size();
+                }
+            }
+        }
+
         mem_index_type get_nnz() const {
             auto& lastChunk = chunks[chunk_count - 1];
             return lastChunk.row_ptr[lastChunk.row_hash.size()];
-        }
-
-        // Frees the underlying memory of the matrix (i.e., chunk and entry arrays)
-        // Every function in the inference code that returns a matrix has allocated memory, and
-        // therefore one should call this function to free that memory.
-        void free_underlying_memory() {
-            delete[] chunks;
-            delete[] entries;
         }
 
         bool check_bias_explicit(const chunk_t& chunk) const {
@@ -328,7 +338,7 @@ namespace pecos {
     };
 
     struct bin_search_chunked_matrix_t {
-        typedef bin_search_chunk_t chunk_t;
+        typedef bin_search_chunk_view_t chunk_t;
         typedef typename chunk_t::index_type index_type;
         typedef typename chunk_t::mem_index_type mem_index_type;
         typedef typename chunk_t::value_type value_type;
@@ -342,17 +352,41 @@ namespace pecos {
         index_type cols;
         index_type rows;
 
+        // actual memory storage
+        std::vector<chunk_t> _chunks;
+        std::vector<index_type> _chunks_row_idx;
+        std::vector<mem_index_type> _chunks_row_ptr;
+        std::vector<chunk_entry_t> _entries;
+
+        // NOTE: Only use this function when metadata is assigned and chunks allocated
+        void _allocate_chunks_row_ptrs(const std::vector<index_type> &chunk_nnz_rows) {
+            mem_index_type chunks_row_idx_size = 0;
+            mem_index_type chunks_row_ptr_size = 0;
+            for (chunk_index_type i=0; i < chunk_count; ++i) {
+                auto& chunk = chunks[i];
+                if (chunk.nnz_rows != 0) {
+                    chunks_row_idx_size += chunk.row_idx_size();
+                    chunks_row_ptr_size += chunk.row_ptr_size();
+                }
+            }
+            _chunks_row_idx.resize(chunks_row_idx_size);
+            _chunks_row_ptr.resize(chunks_row_ptr_size);
+            index_type * tmp_row_idx_ptr = _chunks_row_idx.data();
+            mem_index_type * tmp_row_ptr_ptr = _chunks_row_ptr.data();
+            for (chunk_index_type i=0; i < chunk_count; ++i) {
+                auto& chunk = chunks[i];
+                if (chunk.nnz_rows != 0) {
+                    chunk.row_idx = tmp_row_idx_ptr;
+                    tmp_row_idx_ptr += chunk.row_idx_size();
+                    chunk.row_ptr = tmp_row_ptr_ptr;
+                    tmp_row_ptr_ptr += chunk.row_ptr_size();
+                }
+            }
+        }
+
         uint64_t get_nnz() const {
             auto& lastChunk = chunks[chunk_count - 1];
             return lastChunk.row_ptr[lastChunk.nnz_rows];
-        }
-
-        // Frees the underlying memory of the matrix (i.e., chunk and entry arrays)
-        // Every function in the inference code that returns a matrix has allocated memory, and
-        // therefore one should call this function to free that memory.
-        void free_underlying_memory() {
-            delete[] chunks;
-            delete[] entries;
         }
 
         bool check_bias_explicit(const chunk_t& chunk) const {
@@ -377,14 +411,49 @@ namespace pecos {
 
     // Create a chunked matrix from a csc matrix. chunk_col_idx specifies the
     // column starts of each chunk.
-    template <typename matrix_type_t, typename chunk_col_array_index_t>
-    matrix_type_t make_chunked_from_csc(const csc_t& mat,
-        const chunk_col_array_index_t chunk_col_idx[],
-        const uint32_t chunk_count) {
+    template <typename matrix_type_t>
+    void _allocate_chunked_matrix(
+        const uint32_t chunk_count,
+        const csc_t::index_type cols,
+        const csc_t::index_type rows,
+        const csc_t::mem_index_type nnz,
+        const csc_t::mem_index_type chunk_col_idx[],
+        const std::vector<typename matrix_type_t::index_type>& chunk_nnz_rows,
+        matrix_type_t& chunked_mat
+    ) {
+        // Assign metadata
+        chunked_mat.chunk_count = chunk_count;
+        chunked_mat.cols = cols;
+        chunked_mat.rows = rows;
+
+        // Allocate entries
+        chunked_mat._entries.resize(nnz);
+        chunked_mat.entries = chunked_mat._entries.data();
+
+        // Allocate chunks
+        chunked_mat._chunks.resize(chunk_count);
+        chunked_mat.chunks = chunked_mat._chunks.data();
+
+        // Assign chunks col idx
+        for (uint32_t i=0; i < chunk_count; ++i) {
+            auto& chunk = chunked_mat.chunks[i];
+            chunk.col_begin = chunk_col_idx[i];
+            chunk.col_end = chunk_col_idx[i + 1];
+            chunk.nnz_rows = chunk_nnz_rows[i];
+        }
+
+        // Allocate chunks row ptrs
+        chunked_mat._allocate_chunks_row_ptrs(chunk_nnz_rows);
+    }
+
+    template <typename matrix_type_t>
+    void make_chunked_from_csc(const csc_t& mat,
+        const csc_t::mem_index_type chunk_col_idx[],
+        const uint32_t chunk_count,
+        matrix_type_t& chunked) {
 
         typedef typename matrix_type_t::index_type index_type;
         typedef typename matrix_type_t::mem_index_type mem_index_type;
-        typedef typename std::make_signed<index_type>::type signed_index_type;
         typedef typename matrix_type_t::chunk_index_type chunk_index_type;
 
         struct chunk_nz_entry_t {
@@ -397,82 +466,79 @@ namespace pecos {
             }
         };
 
-        matrix_type_t chunked;
-        chunked.chunks = new typename matrix_type_t::chunk_t[chunk_count];
-        chunked.entries = new chunk_entry_t[mat.col_ptr[mat.cols]];
-        chunked.chunk_count = chunk_count;
-        chunked.cols = mat.cols;
-        chunked.rows = mat.rows;
-
+        // Collect chunks cols ptr
         std::vector<mem_index_type> chunk_ptr(chunk_count + 1);
-
         for (chunk_index_type i = 0; i < chunk_count; ++i) {
-            chunked.chunks[i].col_begin = chunk_col_idx[i];
-            chunked.chunks[i].col_end = chunk_col_idx[i + 1];
-            chunked.chunks[i].row_ptr = nullptr;
             chunk_ptr[i] = mat.col_ptr[chunk_col_idx[i]];
         }
         chunk_ptr[chunk_count] = mat.col_ptr[mat.cols];
 
-        std::vector<chunk_nz_entry_t> nonzeros;
+        // Collect chunks nnz_rows for allocating
+        std::vector<index_type> chunk_nnz_rows(chunk_count);
+        for (chunk_index_type i_chunk = 0; i_chunk < chunk_count; ++i_chunk) {
+            auto chunk_nnz = chunk_ptr[i_chunk + 1] - chunk_ptr[i_chunk];
+            // Empty chunk
+            if (chunk_nnz == 0) {
+                chunk_nnz_rows[i_chunk] = 0;
+                continue;
+            }
+            // Count chunk's unique nonzero rows with set
+            unordered_set<chunk_entry_t::index_type> nnz_rows;
+            for (auto col = chunk_col_idx[i_chunk]; col < chunk_col_idx[i_chunk + 1]; ++col) {
+                for (auto m_col = mat.col_ptr[col]; m_col < mat.col_ptr[col + 1]; ++m_col) {
+                    nnz_rows.insert(mat.row_idx[m_col]);
+                }
+            }
+            chunk_nnz_rows[i_chunk] = nnz_rows.size();
+        }
 
+        // Allocate
+        _allocate_chunked_matrix<matrix_type_t>(
+            chunk_count, mat.cols, mat.rows, mat.col_ptr[mat.cols],
+            chunk_col_idx, chunk_nnz_rows, chunked);
+
+        // Assign chunks row idx & ptrs value
+        std::vector<chunk_nz_entry_t> nonzeros;
         for (chunk_index_type i_chunk = 0; i_chunk < chunk_count; ++i_chunk) {
             auto& chunk = chunked.chunks[i_chunk];
             mem_index_type chunk_nnz = chunk_ptr[i_chunk + 1] - chunk_ptr[i_chunk];
 
-            // No nonzeros, no problem!
-            if (chunk_nnz == 0) {
-                chunk.set_empty();
+            // Ignore empty chunks
+            if (chunk.nnz_rows == 0) {
                 continue;
             }
 
-            nonzeros.resize(chunk_nnz);
-
             // Collect nonzeros
+            nonzeros.resize(chunk_nnz);
             mem_index_type i_nz = 0;
-            for (index_type col = chunk.col_begin; col < chunk.col_end; ++col) {
-                mem_index_type col_begin = mat.col_ptr[col];
-                mem_index_type col_end = mat.col_ptr[col + 1];
-                for (mem_index_type i = col_begin; i < col_end; ++i) {
-                    auto& entry = nonzeros[i_nz++];
-                    entry.row = mat.row_idx[i];
-                    entry.col = col;
-                    entry.val = mat.val[i];
+            for (auto col = chunk.col_begin; col < chunk.col_end; ++col) {
+                for (auto m_col = mat.col_ptr[col]; m_col < mat.col_ptr[col + 1]; ++m_col) {
+                    auto& nz_entry = nonzeros[i_nz++];
+                    nz_entry.row = mat.row_idx[m_col];
+                    nz_entry.col = col;
+                    nz_entry.val = mat.val[m_col];
                 }
             }
-
             // Sort by row, remains sorted by columns
             std::stable_sort(nonzeros.begin(), nonzeros.end());
 
-            // Count the number of nz rows
-            index_type nz_rows = 1;
-            for (mem_index_type i = 0; i < chunk_nnz - 1; ++i) {
-                nz_rows += (nonzeros[i].row != nonzeros[i + 1].row);
-            }
-
-            // Allocate memory for chunk
-            chunk.init(nz_rows);
-
-            chunk.row_ptr[nz_rows] = mat.col_ptr[chunk.col_end];
-
-            mem_index_type chunk_offset = chunk_ptr[i_chunk];
-            signed_index_type last_row = -1;
+            // Assign all nonzero entries
+            chunk.row_ptr[chunk.nnz_rows] = mat.col_ptr[chunk.col_end];
+            index_type last_row = static_cast<index_type>(-1);
             index_type i_nz_row = 0;
-            for (mem_index_type i = 0, entry_location = chunk_offset; i < chunk_nnz; ++i, ++entry_location) {
-                auto& entry = nonzeros[i];
-
+            for (mem_index_type i_nz = 0, i_entry = chunk_ptr[i_chunk]; i_nz < nonzeros.size(); ++i_nz, ++i_entry) {
+                auto& nz_entry = nonzeros[i_nz];
+                // Assign the chunk's row
                 // The row has changed, save the row's metadata into the chunk
-                if ((signed_index_type) entry.row != last_row) {
-                    chunk.set_row(entry.row, i_nz_row, entry_location);
+                if (nz_entry.row != last_row) {
+                    chunk.set_row(nz_entry.row, i_nz_row, i_entry);
                     ++i_nz_row;
-                    last_row = entry.row;
+                    last_row = nz_entry.row;
                 }
-
-                chunked.entries[entry_location].col_offset = entry.col - chunk.col_begin;
-                chunked.entries[entry_location].val = entry.val;
+                chunked.entries[i_entry].col_offset = nz_entry.col - chunk.col_begin;
+                chunked.entries[i_entry].val = nz_entry.val;
             }
         }
-        return chunked;
     }
 
     // Checks if the rows of C (i.e., the children nodes) are contiguously ordered.
@@ -494,29 +560,26 @@ namespace pecos {
     }
 
     template <typename matrix_t>
-    matrix_t make_chunked_W_from_layer_matrices(const csc_t& W, const csc_t& C,
-        bool b_use_bias) {
+    void make_chunked_W_from_layer_matrices(const csc_t& W, const csc_t& C,
+        const bool b_use_bias, matrix_t& chunked_W) {
 
         typedef typename matrix_t::chunk_index_type chunk_index_t;
-        typedef typename csc_t::mem_index_type index_t;
 
         // Make sure that the rows of C are contiguous in order of parent node
-        matrix_t result = make_chunked_from_csc<matrix_t, index_t>(W, C.col_ptr, C.cols);
+        make_chunked_from_csc<matrix_t>(W, C.col_ptr, C.cols, chunked_W);
 
         // Precompute whether each chunk actually has a bias term.
         if (b_use_bias) {
-            for (chunk_index_t i_chunk = 0; i_chunk < result.chunk_count; ++i_chunk) {
-                auto& chunk = result.chunks[i_chunk];
-                chunk.b_has_explicit_bias = result.check_bias_explicit(chunk);
+            for (chunk_index_t i_chunk = 0; i_chunk < chunked_W.chunk_count; ++i_chunk) {
+                auto& chunk = chunked_W.chunks[i_chunk];
+                chunk.b_has_explicit_bias = chunked_W.check_bias_explicit(chunk);
             }
         } else {
-            for (chunk_index_t i_chunk = 0; i_chunk < result.chunk_count; ++i_chunk) {
-                auto& chunk = result.chunks[i_chunk];
+            for (chunk_index_t i_chunk = 0; i_chunk < chunked_W.chunk_count; ++i_chunk) {
+                auto& chunk = chunked_W.chunks[i_chunk];
                 chunk.b_has_explicit_bias = false;
             }
         }
-
-        return result;
     }
 
     // Defines templated operations for vector x chunk products
@@ -536,7 +599,7 @@ namespace pecos {
         // Compute the inner product of a vector and chunk in hash format.
         // Inner product is computed via hash table lookup.
         static void compute_chunk_inner_product_write_to_zeroed_block(
-            const csr_t::row_vec_t& v, const hash_chunk_t& chunk,
+            const csr_t::row_vec_t& v, const hash_chunk_view_t& chunk,
             const hash_chunked_matrix_t& chunk_matrix,
             typename hash_chunked_matrix_t::value_type* output_block,
             typename hash_chunked_matrix_t::value_type bias, bool b_use_bias) {
@@ -564,7 +627,7 @@ namespace pecos {
     template <>
     struct chunk_ops<typename drm_t::row_vec_t, hash_chunked_matrix_t> {
         static void compute_chunk_inner_product_write_to_zeroed_block(
-            const drm_t::row_vec_t& v, const hash_chunk_t& chunk,
+            const drm_t::row_vec_t& v, const hash_chunk_view_t& chunk,
             const hash_chunked_matrix_t& chunk_matrix,
             typename hash_chunked_matrix_t::value_type* output_block,
             typename hash_chunked_matrix_t::value_type bias, bool b_use_bias) {
@@ -601,7 +664,7 @@ namespace pecos {
         // Compute the inner product of a vector and chunk in binary search format.
         // Inner product is computed via binary search.
         static void compute_chunk_inner_product_write_to_zeroed_block(
-            const csr_t::row_vec_t& v, const bin_search_chunk_t& chunk,
+            const csr_t::row_vec_t& v, const bin_search_chunk_view_t& chunk,
             const bin_search_chunked_matrix_t& chunk_matrix,
             typename bin_search_chunked_matrix_t::value_type* output_block,
             typename bin_search_chunked_matrix_t::value_type bias, bool b_use_bias) {
@@ -644,7 +707,7 @@ namespace pecos {
     template <>
     struct chunk_ops<typename drm_t::row_vec_t, bin_search_chunked_matrix_t> {
         static void compute_chunk_inner_product_write_to_zeroed_block(
-            const typename drm_t::row_vec_t& v, const bin_search_chunk_t& chunk,
+            const typename drm_t::row_vec_t& v, const bin_search_chunk_view_t& chunk,
             const bin_search_chunked_matrix_t& chunk_matrix,
             typename bin_search_chunked_matrix_t::value_type* output_block,
             typename bin_search_chunked_matrix_t::value_type bias, bool b_use_bias) {
@@ -1386,26 +1449,30 @@ namespace pecos {
         const uint32_t cur_depth,
         IModelLayer<index_type, value_type>* model) {
         MLModelMetadata metadata(folderpath + "/param.json");
+
+        // Load npz matrices. These are large data struct contains multiple vectors
         std::string w_npz_path = folderpath + "/W.npz";
         std::string c_npz_path = folderpath + "/C.npz";
-        ScipyCscF32Npz W;
-        ScipyCscF32Npz C;
-        csc_t py_matrix_csc_C;
-        csc_t py_matrix_csc_W;
-
-        W.load(w_npz_path);
+        ScipyCscF32Npz * npz_W = new ScipyCscF32Npz;
+        ScipyCscF32Npz * npz_C = new ScipyCscF32Npz;
+        npz_W->load(w_npz_path);
         if ((cur_depth == 0) && (access(c_npz_path.c_str(), F_OK) != 0)) {
             // this is to handle the case where the root layer does not have code saved.
-            C.fill_ones(W.cols(), 1);
+            npz_C->fill_ones(npz_W->cols(), 1);
         } else {
-            C.load(c_npz_path);
+            npz_C->load(c_npz_path);
         }
 
         // We perform a deep copy because MLModel assumes ownership of the memory.
-        py_matrix_csc_C = csc_npz_to_csc_t_deep_copy(C);
-        py_matrix_csc_W = csc_npz_to_csc_t_deep_copy(W);
+        csc_t csc_C = csc_npz_to_csc_t_deep_copy(* npz_C);
+        csc_t csc_W = csc_npz_to_csc_t_deep_copy(* npz_W);
 
-        model->init(py_matrix_csc_W, py_matrix_csc_C, cur_depth, true, metadata);
+        // Free npz matrices to reduce memory footprint
+        delete npz_W;
+        delete npz_C;
+
+        // Init model
+        model->init(csc_W, csc_C, cur_depth, true, metadata);
     }
 
     template <typename index_type, typename value_type>
@@ -1612,13 +1679,13 @@ namespace pecos {
                 }
 
                 this->b_children_reordered = true;
-                this->W = make_chunked_W_from_layer_matrices<chunked_matrix_t>(W_rearranged, C_rearranged, b_has_bias);
+                make_chunked_W_from_layer_matrices<chunked_matrix_t>(W_rearranged, C_rearranged, b_has_bias, this->W);
                 this->C = C_rearranged;
                 W_rearranged.free_underlying_memory();
             }
             else {
                 this->b_children_reordered = false;
-                this->W = make_chunked_W_from_layer_matrices<chunked_matrix_t>(_W, _C, b_has_bias);
+                make_chunked_W_from_layer_matrices<chunked_matrix_t>(_W, _C, b_has_bias, this->W);
                 this->C = _C;
 
                 if (b_assumes_ownership) {
@@ -1636,11 +1703,8 @@ namespace pecos {
 
         // Frees all memory that is owned by this class
         ~LayerData() {
-            W.free_underlying_memory();
             C.free_underlying_memory();
         }
-
-
     };
 
     template <typename w_matrix_t>
@@ -2052,12 +2116,9 @@ namespace pecos {
     public:
         // Initialize this model by creating all layers
         void init(std::vector<ISpecializedModelLayer*>& layers) {
-
             // Destroy all memory associated with this layer
             destroy_layers();
-
             model_layers = layers;
-
         }
 
         HierarchicalMLModel() {}
