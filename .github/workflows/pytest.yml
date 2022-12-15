@@ -10,7 +10,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [3.6, 3.7, 3.8, 3.9]
-        platform: [ubuntu-18.04, ubuntu-20.04]
+        platform: [ubuntu-20.04]
 
     runs-on: ${{ matrix.platform }}
 
