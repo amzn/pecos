@@ -148,6 +148,28 @@ class TfidfVectorizerParam(ctypes.Structure):
         self.norm_p = c_int32(norm_p)
 
 
+class ClusteringParam(ctypes.Structure):
+    """
+    python class for handling struct ClusteringParam in clustering.hpp
+    """
+
+    _fields_ = [
+        ("partition_algo", c_uint64),
+        ("depth", c_uint64),
+        ("seed", c_int),
+        ("kmeans_max_iter", c_uint64),
+        ("threads", c_int),
+        ("max_sample_rate", c_float),
+        ("min_sample_rate", c_float),
+        ("warmup_ratio", c_float),
+    ]
+
+    def __init__(self, params):
+        name2type = dict(ClusteringParam._fields_)
+        for name in name2type:
+            setattr(self, name, name2type[name](getattr(params, name)))
+
+
 class ScipyCscF32(ctypes.Structure):
     """
     PyMatrix for scipy.sparse.csc_matrix
@@ -1250,11 +1272,7 @@ class corelib(object):
         """
         arg_list = [
             POINTER(ScipyCsrF32),
-            c_uint32,
-            c_uint32,
-            c_int,
-            c_uint32,
-            c_int,
+            POINTER(ClusteringParam),
             POINTER(c_uint32),
         ]
         corelib.fillprototype(
@@ -1267,24 +1285,16 @@ class corelib(object):
     def run_clustering(
         self,
         py_feat_mat,
-        depth,
-        algo,
-        seed,
+        train_params,
         codes=None,
-        kmeans_max_iter=20,
-        threads=-1,
     ):
         """
         Run clustering with given label embedding matrix and parameters in C++.
 
         Args:
             py_feat_mat (ScipyCsrF32, ScipyDrmF32): label embedding matrix. (num_labels x num_features).
-            depth (int): Depth of K-means clustering N-nary tree.
-            algo (str): The algorithm for clustering, either `KMEANS` or `SKMEANS`.
-            seed (int): Randoms seed.
+            train_params (HierarchicalKMeans.TrainParams): Parameter class defined in pecos.xmc.base.HierarchicalKMeans.TrainParams.
             codes (ndarray, optional): Label clustering results.
-            kmeans_max_iter (int, optional): Maximum number of iter for reordering each node based on score.
-            threads (int, optional): The number of threads. Default -1 to use all cores.
 
         Return:
             codes (ndarray): The clustering result.
@@ -1302,13 +1312,10 @@ class corelib(object):
 
         if codes is None or len(codes) != py_feat_mat.shape[0] or codes.dtype != np.uint32:
             codes = np.zeros(py_feat_mat.rows, dtype=np.uint32)
+        train_params = ClusteringParam(train_params)
         run_clustering(
             byref(py_feat_mat),
-            depth,
-            algo,
-            seed,
-            kmeans_max_iter,
-            threads,
+            train_params,
             codes.ctypes.data_as(POINTER(c_uint32)),
         )
         return codes

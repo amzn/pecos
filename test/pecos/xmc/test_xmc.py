@@ -45,6 +45,33 @@ def test_hierarchicalkmeans():
     assert (chain2.chain[1].dot(chain2.chain[0]) - chain4.chain[0]).nnz == 0
 
 
+def test_hierarchicalkmeans_sampling():
+    import numpy as np
+    import scipy.sparse as smat
+    from sklearn.preprocessing import normalize
+    from pecos.xmc import Indexer
+    from pecos.xmc.base import HierarchicalKMeans
+
+    # randomly sampling arbitary number of examples from the 4 following instances results in the same clustering results.
+    feat_mat = normalize(
+        smat.csr_matrix([[1, 0], [0.99, 0.02], [0.01, 1.03], [0, 1]], dtype=np.float32)
+    )
+    target_balanced = [0, 0, 1, 1]
+
+    # the clustering results are the same as long as min_sample_rate >= 0.25
+    train_params = HierarchicalKMeans.TrainParams(
+        do_sample=True,
+        min_sample_rate=0.75,
+        warmup_ratio=1.0,
+        max_leaf_size=2,
+    )
+    balanced_chain = Indexer.gen(feat_mat, train_params=train_params)
+    balanced_assignments = (balanced_chain[-1].todense() == [0, 1]).all(axis=1).A1
+    assert np.array_equal(balanced_assignments, target_balanced) or np.array_equal(
+        ~balanced_assignments, target_balanced
+    )
+
+
 def test_label_embedding():
     import random
     import numpy as np

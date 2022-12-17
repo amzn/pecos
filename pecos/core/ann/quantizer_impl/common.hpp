@@ -221,14 +221,13 @@ namespace ann {
 
                 // fit HLT or flat-Kmeans for each sub-space
                 std::vector<index_type> assignments(sub_sample_points);
-                pecos::clustering::Tree hlt(std::log2(num_of_local_centroids));
+                int hlt_depth = std::log2(num_of_local_centroids);
+                pecos::clustering::Tree hlt(hlt_depth);
+                pecos::clustering::ClusteringParam clustering_param(0, hlt_depth, seed, max_iter, threads, 1.0, 1.0, 1.0);
                 hlt.run_clustering<pecos::drm_t, index_type>(
                     Xsub,
-                    0,
-                    seed,
-                    assignments.data(),
-                    max_iter,
-                    threads);
+                    &clustering_param,
+                    assignments.data());
 
                 compute_centroids(Xsub, local_dimension, num_of_local_centroids, assignments.data(),
                     &original_local_codebooks[m * num_of_local_centroids * local_dimension], threads);

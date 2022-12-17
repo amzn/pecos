@@ -31,35 +31,45 @@ enum {
     SKMEANS=5,
 }; /* partition_algo */
 
-enum {
-    CONSTANT_SAMPLE_SCHEDULE=0,
-    LINEAR_SAMPLE_SCHEDULE=1,
-}; /* sample strategies */
-
 extern "C" {
-    struct ClusteringSamplerParam {
-        int strategy;
-        float sample_rate;
-        float warmup_sample_rate;
-        float warmup_layer_rate;
+    struct ClusteringParam {
+        size_t partition_algo;
+        size_t depth;
+        int seed;
+        size_t kmeans_max_iter;
+        int threads;
+        float max_sample_rate;
+        float min_sample_rate;
+        float warmup_ratio;
 
-        ClusteringSamplerParam(
-            int strategy,
-            float sample_rate,
-            float warmup_sample_rate,
-            float warmup_layer_rate
-        ): strategy(strategy),
-        sample_rate(sample_rate),
-        warmup_sample_rate(warmup_sample_rate),
-        warmup_layer_rate(warmup_layer_rate) {
-            if(sample_rate <= 0 || sample_rate > 1) {
-                throw std::invalid_argument("expect 0 < sample_rate <= 1.0");
+        ClusteringParam(
+            size_t partition_algo,
+            size_t depth,
+            int seed,
+            size_t kmeans_max_iter,
+            int threads,
+            float max_sample_rate,
+            float min_sample_rate,
+            float warmup_ratio
+        ): partition_algo(partition_algo),
+        depth(depth),
+        seed(seed),
+        kmeans_max_iter(kmeans_max_iter),
+        threads(threads),
+        max_sample_rate(max_sample_rate),
+        min_sample_rate(min_sample_rate),
+        warmup_ratio(warmup_ratio) {
+            if(min_sample_rate <= 0 || min_sample_rate > 1) {
+                throw std::invalid_argument("expect 0 < min_sample_rate <= 1.0");
             }
-            if(warmup_sample_rate <= 0 || warmup_sample_rate > 1) {
-                throw std::invalid_argument("expect 0 < warmup_sample_rate <= 1.0");
+            if(max_sample_rate <= 0 || max_sample_rate > 1) {
+                throw std::invalid_argument("expect 0 < max_sample_rate <= 1.0");
             }
-            if(warmup_layer_rate < 0 || warmup_layer_rate > 1) {
-                throw std::invalid_argument("expect 0 <= warmup_layer_rate <= 1.0");
+            if(min_sample_rate > max_sample_rate) {
+                throw std::invalid_argument("expect min_sample_rate <= max_sample_rate");
+            }
+            if(warmup_ratio < 0 || warmup_ratio > 1) {
+                throw std::invalid_argument("expect 0 <= warmup_ratio <= 1.0");
             }
         }
     };
@@ -113,28 +123,20 @@ struct Tree {
 
     struct ClusteringSampler {
         // scheduler for sampling
-        ClusteringSamplerParam* param_ptr;
+        ClusteringParam* param_ptr;
         size_t warmup_layers;
-        size_t depth;
 
-        ClusteringSampler(ClusteringSamplerParam* param_ptr, size_t depth): param_ptr(param_ptr), depth(depth) {
-            warmup_layers = size_t(depth * param_ptr->warmup_layer_rate);
+        ClusteringSampler(ClusteringParam* param_ptr): param_ptr(param_ptr) {
+            warmup_layers = size_t(param_ptr->depth * param_ptr->warmup_ratio);
         }
 
         float get_sample_rate(size_t layer) const {
-            if(param_ptr->strategy == LINEAR_SAMPLE_SCHEDULE) {
-                return _get_linear_sample_rate(layer);
-            }
-            return param_ptr->sample_rate; // Constant strategy
-        }
-
-        float _get_linear_sample_rate(size_t layer) const {
-            // If input `layer` < `warmup_layers`, return `warmup_sample_rate`.
-            // Otherwise, linearly increase the current sample rate from `warmup_sample_rate` to `sample_rate` until the last layer.
+            // If input `layer` < `warmup_layers`, return `min_sample_rate`.
+            // Otherwise, linearly increase the current sample rate from `min_sample_rate` to `max_sample_rate` until the last layer.
             if(layer < warmup_layers) {
-                return param_ptr->warmup_sample_rate;
+                return param_ptr->min_sample_rate;
             }
-            return param_ptr->warmup_sample_rate + (param_ptr->sample_rate - param_ptr->warmup_sample_rate) * (layer + 1 - warmup_layers) / (depth - warmup_layers);
+            return param_ptr->min_sample_rate + (param_ptr->max_sample_rate - param_ptr->min_sample_rate) * (layer + 1 - warmup_layers) / (param_ptr->depth - warmup_layers);
         }
     };
 
@@ -360,19 +362,19 @@ struct Tree {
     }
 
     template<typename MAT, typename IND=unsigned>
-    void run_clustering(const MAT& feat_mat, int partition_algo, int seed=0, IND *label_codes=NULL, size_t max_iter=10, int threads=1, ClusteringSamplerParam* sample_param_ptr=NULL) {
+    void run_clustering(const MAT& feat_mat, ClusteringParam* param_ptr=NULL, IND *label_codes=NULL) {
         size_t nr_elements = feat_mat.rows;
         elements.resize(nr_elements);
         previous_elements.resize(nr_elements);
         for(size_t i = 0; i < nr_elements; i++) {
             elements[i] = i;
         }
-        rng_t rng(seed);
+        rng_t rng(param_ptr->seed);
         for(size_t nid = 0; nid < nodes.size(); nid++) {
             seed_for_nodes[nid] = rng.randint<unsigned>();
         }
 
-        threads = set_threads(threads);
+        int threads = set_threads(param_ptr->threads);
         center1.resize(threads, f32_sdvec_t(feat_mat.cols));
         center2.resize(threads, f32_sdvec_t(feat_mat.cols));
         scores.resize(feat_mat.rows, 0);
@@ -382,10 +384,7 @@ struct Tree {
         // Allocate tmp arrays for parallel update center
         center_tmp_thread.resize(threads, f32_sdvec_t(feat_mat.cols));
 
-        if(sample_param_ptr == NULL) {
-            sample_param_ptr = new ClusteringSamplerParam(CONSTANT_SAMPLE_SCHEDULE, 1.0, 1.0, 1.0); // no sampling for default constructor
-        }
-        ClusteringSampler sample_scheduler(sample_param_ptr, depth);
+        ClusteringSampler sample_scheduler(param_ptr);
 
         // let's do it layer by layer so we can parallelize it
         for(size_t d = 0; d < depth; d++) {
@@ -398,10 +397,10 @@ struct Tree {
                     rng_t rng(seed_for_nodes[nid]);
                     int local_threads = 1;
                     int thread_id = omp_get_thread_num();
-                    if(partition_algo == KMEANS) {
-                        partition_kmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
-                    } else if(partition_algo == SKMEANS) {
-                        partition_skmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
+                    if(param_ptr->partition_algo == KMEANS) {
+                        partition_kmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                    } else if(param_ptr->partition_algo == SKMEANS) {
+                        partition_skmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
                     }
                 }
             } else {
@@ -409,10 +408,10 @@ struct Tree {
                     rng_t rng(seed_for_nodes[nid]);
                     int local_threads = threads;
                     int thread_id = 0;
-                    if(partition_algo == KMEANS) {
-                        partition_kmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
-                    } else if(partition_algo == SKMEANS) {
-                        partition_skmeans(nid, d, feat_mat, rng, max_iter, local_threads, thread_id, cur_sample_rate);
+                    if(param_ptr->partition_algo == KMEANS) {
+                        partition_kmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                    } else if(param_ptr->partition_algo == SKMEANS) {
+                        partition_skmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
                     }
                 }
             }
