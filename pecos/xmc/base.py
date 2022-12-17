@@ -93,6 +93,14 @@ class HierarchicalKMeans(Indexer):
         seed (int, optional): Random seed. Default is `0`.
         kmeans_max_iter (int, optional): Maximum number of iterations for each k-means problem. Default is `20`.
         threads (int, optional): Number of threads to use. `-1` denotes all CPUs. Default is `-1`.
+        do_sample (bool, optional): Do sampling if is True. Default is False.
+            We use linear sampling strategy with warmup, which linearly increases sampling rate from `min_sample_rate` to `max_sample_rate`.
+            The top (total_layer * `warmup_ratio`) layers are warmup_layers which use a fixed sampling rate `min_sample_rate`.
+            The sampling rate for layer l is `min_sample_rate`+max(l+1-warmup_layer,0)*(`max_sample_rate`-min_sample_rate)/(total_layers-warmup_layers).
+        max_sample_rate (float, optional): the maximum samplng rate at the end of the linear sampling strategy. Default is `1.0`.
+        min_sample_rate (float, optional): the minimum sampling rate at the begining warmup stage of the linear sampling strategy. Default is `0.1`.
+            Note that 0 < min_sample_rate <= max_sample_rate <= 1.0.
+        warmup_ratio: (float, optional): The ratio of warmup layers. 0 <= warmup_ratio <= 1.0. Default is 0.4.
         """
 
         nr_splits: int = 16
@@ -102,6 +110,12 @@ class HierarchicalKMeans(Indexer):
         seed: int = 0
         kmeans_max_iter: int = 20
         threads: int = -1
+
+        # paramters for sampling of hierarchical clustering
+        do_sample: bool = False
+        max_sample_rate: float = 1.0
+        min_sample_rate: float = 0.1
+        warmup_ratio: float = 0.4
 
     @classmethod
     def gen(
@@ -130,6 +144,11 @@ class HierarchicalKMeans(Indexer):
         if train_params.min_codes is None:
             train_params.min_codes = train_params.nr_splits
 
+        if not train_params.do_sample:
+            # set the min_sample_rate to be 1.0 so it doesn't do sampling
+            train_params.warmup_ratio = 1.0
+            train_params.min_sample_rate = 1.0
+
         LOGGER.debug(
             f"HierarchicalKMeans train_params: {json.dumps(train_params.to_dict(), indent=True)}"
         )
@@ -146,8 +165,10 @@ class HierarchicalKMeans(Indexer):
             raise ValueError(
                 f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {nr_instances} to avoid empty clusters"
             )
+        train_params.depth = depth
 
-        algo = cls.SKMEANS if train_params.spherical else cls.KMEANS
+        partition_algo = cls.SKMEANS if train_params.spherical else cls.KMEANS
+        train_params.partition_algo = partition_algo
 
         assert feat_mat.dtype == np.float32
         if isinstance(feat_mat, (smat.csr_matrix, ScipyCsrF32)):
@@ -162,12 +183,8 @@ class HierarchicalKMeans(Indexer):
         codes = np.zeros(py_feat_mat.rows, dtype=np.uint32)
         codes = clib.run_clustering(
             py_feat_mat,
-            depth,
-            algo,
-            train_params.seed,
-            codes=codes,
-            kmeans_max_iter=train_params.kmeans_max_iter,
-            threads=train_params.threads,
+            train_params,
+            codes,
         )
         C = cls.convert_codes_to_csc_matrix(codes, depth)
         cluster_chain = ClusterChain.from_partial_chain(
