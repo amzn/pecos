@@ -453,7 +453,7 @@ class MmapStore {
  * For std::vector case, it own the memory for data storage.
  * For mmap view case, it does not own any memory, but serve as a view for a piece of memory owned by MmapStore.
  * By default, it is initialized as empty std::vector that can be resized or loaded as mmap view.
- * Once loaded as mmap view, it cannot go back to std::vector case unless clear() is called.
+ * Once loaded as mmap view, it cannot go back to std::vector case unless clear() or convertion is called.
  */
 template<class T, class TT = T, details_::if_simple_serializable<TT> = true>
 class MmapableVector {
@@ -521,17 +521,29 @@ class MmapableVector {
         }
 
         void load_from_mmap_store(MmapStore& mmap_s) {
-            if (is_self_allocated_()) { // raises error for non-empty vector
+            if (is_self_allocated_()) { // raises error for non-empty self-allocated vector
                 throw std::runtime_error("Cannot load for non-empty vector case.");
             }
             size_ = mmap_s.fget_one<uint64_t>();
             data_ = mmap_s.fget_multiple<T>(size_);
         }
 
+        /* Convert from mmap view into self-allocated vector by copying data.
+         * To be noted, this is only a shallow copy and only good for POD without pointer members. */
+        void mmap_to_vec() {
+            if (!is_self_allocated_()) {
+                store_.resize(size_);
+                for (uint64_t i = 0; i < size_; ++i) {
+                    store_[i] = data_[i];
+                }
+                data_ = store_.data();
+            }
+        }
+
     private:
         uint64_t size_ = 0; // Number of elements of the data
-        T* data_ = nullptr; // Pointer to actual data
-        std::vector<T> store_; // Actual data storage for self-allocated case
+        T* data_ = nullptr; // Pointer to data. The same as store_.data() for self-allocated vector case
+        std::vector<T> store_; // Actual data storage for self-allocated vector case
 
         /* Whether data storage is non-empty self-allocated vector.
          * True indicates non-empty vector case; False indicates either empty or mmap view. */

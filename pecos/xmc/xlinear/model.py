@@ -133,6 +133,22 @@ class XLinearModel(pecos.BaseClass):
         )
         return cls(model)
 
+    @classmethod
+    def compile_mmap_model(cls, npz_folder, mmap_folder):
+        """
+        Compile xlinear model from npz format to memory-mapped format
+        for faster loading and referencing.
+        Args:
+            npz_folder (str): The source folder path for xlinear npz model.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        import shutil
+
+        shutil.copyfile(path.join(npz_folder, "param.json"), path.join(mmap_folder, "param.json"))
+        HierarchicalMLModel.compile_mmap_model(
+            path.join(npz_folder, "ranker"), path.join(mmap_folder, "ranker")
+        )
+
     @property
     def is_predict_only(self):
         """

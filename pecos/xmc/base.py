@@ -1252,9 +1252,13 @@ class HierarchicalMLModel(pecos.BaseClass):
         param = json.loads(open(f"{model_folder}/param.json", "r", encoding="utf-8").read())
         assert param["model"] == cls.__name__
         depth = int(param.get("depth", len(glob("{}/*.model".format(model_folder)))))
+        is_mmap = bool(param.get("is_mmap", False))
 
         if is_predict_only:
-            model = clib.xlinear_load_predict_only(model_folder, **kwargs)
+            if is_mmap:
+                model = clib.xlinear_load_mmap(model_folder, **kwargs)
+            else:
+                model = clib.xlinear_load_predict_only(model_folder, **kwargs)
         else:
             model = [MLModel.load(f"{model_folder}/{d}.model") for d in range(depth)]
 
@@ -1290,6 +1294,20 @@ class HierarchicalMLModel(pecos.BaseClass):
         for d in range(self.depth):
             local_folder = f"{folder}/{d}.model"
             self.model_chain[d].save(local_folder)
+
+    @classmethod
+    def compile_mmap_model(cls, npz_folder, mmap_folder):
+        """
+        Compile model from npz format to memory-mapped format
+        for faster loading and referencing.
+        Args:
+            npz_folder (str): The source folder path for xlinear npz model.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        param = json.loads(open(f"{npz_folder}/param.json", "r", encoding="utf-8").read())
+        assert param["model"] == cls.__name__
+
+        clib.xlinear_compile_mmap_model(npz_folder, mmap_folder)
 
     @classmethod
     def train(
