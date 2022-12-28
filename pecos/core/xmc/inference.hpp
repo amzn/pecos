@@ -374,11 +374,11 @@ namespace pecos {
             return chunk.row_hash.find(rows - 1) != chunk.row_hash.end();
         }
 
-        void save(const std::string& file_name) const {
+        void save_mmap(const std::string& file_name) const {
             throw std::runtime_error("Not implemented yet.");
         }
 
-        void load(const std::string& file_name, const bool pre_load) {
+        void load_mmap(const std::string& file_name, const bool pre_load) {
             throw std::runtime_error("Not implemented yet.");
         }
     };
@@ -432,7 +432,7 @@ namespace pecos {
 
             // post-processing
             // Re-assign chunks view pointers
-            chunks_.mmap_to_vec(); // Convert to memory vector for assigning
+            chunks_.to_self_alloc_vec(); // Convert to memory vector for assigning
             auto chunks_row_idx_data = chunks_row_idx_.data();
             auto chunks_row_ptr_data = chunks_row_ptr_.data();
             for (index_type i=0; i < chunk_count; ++i) {
@@ -451,14 +451,14 @@ namespace pecos {
             entries = entries_.data();
         }
 
-        void save(const std::string& file_name) const {
+        void save_mmap(const std::string& file_name) const {
             mmap_util::MmapStore mmap_s = mmap_util::MmapStore();
             mmap_s.open(file_name, "w");
             save_to_mmap_store(mmap_s);
             mmap_s.close();
         }
 
-        void load(const std::string& file_name, const bool pre_load) {
+        void load_mmap(const std::string& file_name, const bool pre_load) {
             mmap_store.open(file_name, pre_load?"r":"r_lazy");
             load_from_mmap_store(mmap_store);
         }
@@ -1716,14 +1716,14 @@ namespace pecos {
                 perm_inv.load_from_mmap_store(mmap_s);
             }
 
-            void save(const std::string& file_name) const {
+            void save_mmap(const std::string& file_name) const {
                 mmap_util::MmapStore mmap_s = mmap_util::MmapStore();
                 mmap_s.open(file_name, "w");
                 save_to_mmap_store(mmap_s);
                 mmap_s.close();
             }
 
-            void load(const std::string& file_name, const bool pre_load) {
+            void load_mmap(const std::string& file_name, const bool pre_load) {
                 mmap_store.open(file_name, pre_load?"r":"r_lazy");
                 load_from_mmap_store(mmap_store);
             }
@@ -1878,17 +1878,17 @@ namespace pecos {
 
             // load W
             // W is already chunktized
-            this->W.load(mmap_W_fn_(foldername), pre_load);
+            this->W.load_mmap(mmap_W_fn_(foldername), pre_load);
 
             // load C
             // C is already permuted
-            this->C.load(mmap_C_fn_(foldername), pre_load);
+            this->C.load_mmap(mmap_C_fn_(foldername), pre_load);
 
             // load rearrangement if exists
             std::string perm_mmap_fn = mmap_perm_fn_(foldername);
             if (access(perm_mmap_fn.c_str(), F_OK) == 0) { // Rearrangement mmap file exist
                 this->b_children_reordered = true;
-                this->children_rearrangement.load(perm_mmap_fn, pre_load);
+                this->children_rearrangement.load_mmap(perm_mmap_fn, pre_load);
             }
             else {
                 this->b_children_reordered = false;
@@ -1897,10 +1897,10 @@ namespace pecos {
 
         // Save layer data to mmap format
         void save_mmap(const std::string& foldername) const {
-            W.save(mmap_W_fn_(foldername));
-            C.save(mmap_C_fn_(foldername));
+            W.save_mmap(mmap_W_fn_(foldername));
+            C.save_mmap(mmap_C_fn_(foldername));
             if (b_children_reordered) {
-                children_rearrangement.save(mmap_perm_fn_(foldername));
+                children_rearrangement.save_mmap(mmap_perm_fn_(foldername));
             }
         }
 
@@ -1918,9 +1918,9 @@ namespace pecos {
 
     private:
         // mmap file names
-        inline std::string mmap_W_fn_(const std::string& foldername) const {return foldername + "/W_mmap";}
-        inline std::string mmap_C_fn_(const std::string& foldername) const {return foldername + "/C_mmap";}
-        inline std::string mmap_perm_fn_(const std::string& foldername) const {return foldername + "/perm_mmap";}
+        inline std::string mmap_W_fn_(const std::string& foldername) const {return foldername + "/W.mmap_store";}
+        inline std::string mmap_C_fn_(const std::string& foldername) const {return foldername + "/C.mmap_store";}
+        inline std::string mmap_perm_fn_(const std::string& foldername) const {return foldername + "/perm.mmap_store";}
     };
 
     template <typename w_matrix_t>

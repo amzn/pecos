@@ -528,9 +528,9 @@ class MmapableVector {
             data_ = mmap_s.fget_multiple<T>(size_);
         }
 
-        /* Convert from mmap view into self-allocated vector by copying data.
+        /* Convert (from mmap view) into self-allocated vector by copying data.
          * To be noted, this is only a shallow copy and only good for POD without pointer members. */
-        void mmap_to_vec() {
+        void to_self_alloc_vec() {
             if (!is_self_allocated_()) {
                 store_.resize(size_);
                 for (uint64_t i = 0; i < size_; ++i) {
