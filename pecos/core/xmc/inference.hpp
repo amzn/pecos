@@ -378,7 +378,7 @@ namespace pecos {
             throw std::runtime_error("Not implemented yet.");
         }
 
-        void load_mmap(const std::string& file_name, const bool pre_load) {
+        void load_mmap(const std::string& file_name, const bool lazy_load) {
             throw std::runtime_error("Not implemented yet.");
         }
     };
@@ -458,8 +458,8 @@ namespace pecos {
             mmap_s.close();
         }
 
-        void load_mmap(const std::string& file_name, const bool pre_load) {
-            mmap_store.open(file_name, pre_load?"r":"r_lazy");
+        void load_mmap(const std::string& file_name, const bool lazy_load) {
+            mmap_store.open(file_name, lazy_load?"r_lazy":"r");
             load_from_mmap_store(mmap_store);
         }
 
@@ -1494,12 +1494,12 @@ namespace pecos {
             const std::string foldername,
             uint32_t depth,
             MLModelMetadata& metadata,
-            const bool pre_load
+            const bool lazy_load
         ) = 0;
         static IModelLayer<index_type, value_type>* instantiate(const layer_type_t layer_type);
         static void load(const std::string& folderpath, const uint32_t cur_depth,
             IModelLayer<index_type, value_type>* model);
-        static void load_mmap(const std::string& folderpath, const uint32_t cur_depth, const bool pre_load,
+        static void load_mmap(const std::string& folderpath, const uint32_t cur_depth, const bool lazy_load,
             IModelLayer<index_type, value_type>* model);
 
     public:
@@ -1559,7 +1559,7 @@ namespace pecos {
         static IModelLayer<index_type, value_type>* instantiate(const std::string& folderpath,
             const layer_type_t layer_type, const uint32_t cur_depth);
         static IModelLayer<index_type, value_type>* instantiate_mmap(const std::string& folderpath,
-            const layer_type_t layer_type, const uint32_t cur_depth, const bool pre_load);
+            const layer_type_t layer_type, const uint32_t cur_depth, const bool lazy_load);
     };
 
     template <typename index_type, typename value_type>
@@ -1597,11 +1597,11 @@ namespace pecos {
     void IModelLayer<index_type, value_type>::load_mmap(
         const std::string& folderpath,
         const uint32_t cur_depth,
-        const bool pre_load,
+        const bool lazy_load,
         IModelLayer<index_type, value_type>* model) {
         MLModelMetadata metadata(folderpath + "/param.json");
 
-        model->init_mmap(folderpath, cur_depth, metadata, pre_load);
+        model->init_mmap(folderpath, cur_depth, metadata, lazy_load);
     }
 
     template <typename index_type, typename value_type>
@@ -1618,9 +1618,9 @@ namespace pecos {
     IModelLayer<index_type, value_type>* IModelLayer<index_type, value_type>::instantiate_mmap(
         const std::string& folderpath,
         const layer_type_t layer_type, const uint32_t cur_depth,
-        const bool pre_load) {
+        const bool lazy_load) {
         IModelLayer* result = IModelLayer::instantiate(layer_type);
-        IModelLayer::load_mmap(folderpath, cur_depth, pre_load, result);
+        IModelLayer::load_mmap(folderpath, cur_depth, lazy_load, result);
 
         return result;
     }
@@ -1663,7 +1663,7 @@ namespace pecos {
         }
 
         // Initialize mmap data
-        void init_mmap(const std::string& foldername, bool pre_load, value_type bias) {
+        void init_mmap(const std::string& foldername, bool lazy_load, value_type bias) {
             throw std::runtime_error("Not implemented yet.");
         }
 
@@ -1723,8 +1723,8 @@ namespace pecos {
                 mmap_s.close();
             }
 
-            void load_mmap(const std::string& file_name, const bool pre_load) {
-                mmap_store.open(file_name, pre_load?"r":"r_lazy");
+            void load_mmap(const std::string& file_name, const bool lazy_load) {
+                mmap_store.open(file_name, lazy_load?"r_lazy":"r");
                 load_from_mmap_store(mmap_store);
             }
 
@@ -1872,23 +1872,23 @@ namespace pecos {
         }
 
         // Initializes mmap for layer data
-        void init_mmap(const std::string& foldername, const bool pre_load, value_type bias) {
+        void init_mmap(const std::string& foldername, const bool lazy_load, value_type bias) {
             this->bias = bias;
             this->b_assumes_ownership = true; // Always true for mmap
 
             // load W
             // W is already chunktized
-            this->W.load_mmap(mmap_W_fn_(foldername), pre_load);
+            this->W.load_mmap(mmap_W_fn_(foldername), lazy_load);
 
             // load C
             // C is already permuted
-            this->C.load_mmap(mmap_C_fn_(foldername), pre_load);
+            this->C.load_mmap(mmap_C_fn_(foldername), lazy_load);
 
             // load rearrangement if exists
             std::string perm_mmap_fn = mmap_perm_fn_(foldername);
             if (access(perm_mmap_fn.c_str(), F_OK) == 0) { // Rearrangement mmap file exist
                 this->b_children_reordered = true;
-                this->children_rearrangement.load_mmap(perm_mmap_fn, pre_load);
+                this->children_rearrangement.load_mmap(perm_mmap_fn, lazy_load);
             }
             else {
                 this->b_children_reordered = false;
@@ -1972,12 +1972,12 @@ namespace pecos {
             const std::string foldername,
             const uint32_t depth,
             MLModelMetadata& metadata,
-            const bool pre_load
+            const bool lazy_load
         ) override {
             this->metadata = metadata;
 
             // No statistics to init for mmap since original W and C do not exist
-            layer_data.init_mmap(foldername, pre_load, metadata.bias);
+            layer_data.init_mmap(foldername, lazy_load, metadata.bias);
             cur_depth = depth;
 
             post_processor = PostProcessor<value_type>::get(metadata.post_processor);
@@ -2556,7 +2556,7 @@ namespace pecos {
             const std::string& folderpath,
             HierarchicalMLModel* model,
             const int depth,
-            const bool pre_load
+            const bool lazy_load
         ) {
             auto layer_type = LAYER_TYPE_BINARY_SEARCH_CHUNKED; // Only supported type for mmap
             std::vector<ISpecializedModelLayer*> layers(depth);
@@ -2564,7 +2564,7 @@ namespace pecos {
             // Abstractly instantiate every layer
             for (auto d = 0; d < depth; d++) {
                 std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
-                layers[d] = ISpecializedModelLayer::instantiate_mmap(layer_path, layer_type, d, pre_load);
+                layers[d] = ISpecializedModelLayer::instantiate_mmap(layer_path, layer_type, d, lazy_load);
             }
 
             // Model chain assumes ownership of the memory associated with the matrices above
@@ -2592,13 +2592,13 @@ namespace pecos {
         // Constructor for mmap
         HierarchicalMLModel(
             const std::string& folderpath,
-            const bool pre_load
+            const bool lazy_load
         ) {
             HierarchicalMLModelMetadata xlinear_metadata(folderpath + "/param.json");
             if (!xlinear_metadata.is_mmap) {
                 throw std::runtime_error("This folder contains npz model. Cannot load in mmap format.");
             }
-            HierarchicalMLModel::load_mmap(folderpath, this, xlinear_metadata.depth, pre_load);
+            HierarchicalMLModel::load_mmap(folderpath, this, xlinear_metadata.depth, lazy_load);
         }
 
         HierarchicalMLModel(

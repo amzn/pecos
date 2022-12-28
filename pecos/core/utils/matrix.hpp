@@ -222,7 +222,7 @@ namespace pecos {
             throw std::runtime_error("Not implemented yet.");
         }
 
-        void load_mmap(const std::string& file_name, const bool pre_load) {
+        void load_mmap(const std::string& file_name, const bool lazy_load) {
             throw std::runtime_error("Not implemented yet.");
         }
 
@@ -393,10 +393,10 @@ namespace pecos {
             mmap_s.close();
         }
 
-        void load_mmap(const std::string& file_name, const bool pre_load) {
+        void load_mmap(const std::string& file_name, const bool lazy_load) {
             free_underlying_memory(); // Clear any existing memory
             mmap_store_ptr = std::make_shared<mmap_util::MmapStore>(); // Create instance
-            mmap_store_ptr->open(file_name, pre_load?"r":"r_lazy");
+            mmap_store_ptr->open(file_name, lazy_load?"r_lazy":"r");
             load_from_mmap_store(*mmap_store_ptr);
         }
 

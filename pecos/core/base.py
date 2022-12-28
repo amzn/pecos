@@ -728,20 +728,21 @@ class corelib(object):
     def xlinear_load_mmap(
         self,
         folder,
-        pre_load=False,
+        lazy_load=False,
     ):
         """
         Load xlinear model in read-only mmap mode for prediction.
 
         Args:
             folder (str): The folder path for xlinear model.
-            pre_load (bool): Whether to lazy-load (False) or fully load model (True).
+            lazy_load (bool): Whether to lazy-load, i.e. load when needed(True)
+                or fully load model before returning(False).
 
         Return:
             cmodel (ptr): The pointer to xlinear model.
         """
         cmodel = self.clib_float32.c_xlinear_load_mmap_model_from_disk(
-            c_char_p(folder.encode("utf-8")), c_bool(pre_load)
+            c_char_p(folder.encode("utf-8")), c_bool(lazy_load)
         )
         return cmodel
 

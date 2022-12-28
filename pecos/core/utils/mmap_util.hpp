@@ -192,9 +192,9 @@ class MmapStoreLoad {
         /* Constructor loads from memory-mapped file name
          * Parameters:
          *      file_name (const std::string&): Name of file to load from.
-         *      pre_load (const bool): Whether to pre-fault all pages into memory before accessing.
+         *      lazy_load (const bool): If false, pre-fault all pages into memory before accessing.
          */
-        MmapStoreLoad(const std::string& file_name, const bool pre_load) {
+        MmapStoreLoad(const std::string& file_name, const bool lazy_load) {
             // Load metadata first
             FILE* fp = fopen(file_name.c_str(), "rb");
             if (!fp) {
@@ -210,7 +210,7 @@ class MmapStoreLoad {
             if (fd == -1) {
                 throw std::runtime_error("Load Mmap file: Open file failed.");
             }
-            load_mmap_(fd, pre_load);
+            load_mmap_(fd, lazy_load);
             if (close(fd) < 0) {
                 throw std::runtime_error("Load Mmap file: Close file failed.");
             }
@@ -249,7 +249,7 @@ class MmapStoreLoad {
         uint64_t mmap_size_ = 0; // Memory-mapped file size
 
         /* Create memory-mapped region */
-        void load_mmap_(const int fd, const bool pre_load) {
+        void load_mmap_(const int fd, const bool lazy_load) {
             // Get file size
             struct stat file_stat;
             fstat(fd, &file_stat);
@@ -260,7 +260,7 @@ class MmapStoreLoad {
 
             // Creat mmap
             int mmap_flags = MAP_SHARED;
-            if (pre_load) { // pre-fault all pages to load them into memory
+            if (!lazy_load) { // pre-fault all pages to load them into memory
                 mmap_flags |= MAP_POPULATE;
             }
             mmap_ptr_ = mmap(NULL, mmap_size_, PROT_READ, mmap_flags, fd, 0);
@@ -367,11 +367,11 @@ class MmapStore {
             if (mode_ != Mode::UNINIT) {
                 throw std::runtime_error("Should close existing file before open new one.");
             }
-            if (mode_str == "r") { // pre-load all pages
-                mmap_r_ = new details_::MmapStoreLoad(file_name, true);
-                mode_ = Mode::READONLY;
-            } else if (mode_str == "r_lazy") {
+            if (mode_str == "r") { // lazy_load=false, pre-load all pages
                 mmap_r_ = new details_::MmapStoreLoad(file_name, false);
+                mode_ = Mode::READONLY;
+            } else if (mode_str == "r_lazy") { // lazy_load=true
+                mmap_r_ = new details_::MmapStoreLoad(file_name, true);
                 mode_ = Mode::READONLY;
             } else if (mode_str == "w") {
                 mmap_w_ = new details_::MmapStoreSave(file_name);

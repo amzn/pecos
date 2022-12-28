@@ -37,8 +37,8 @@ extern "C" {
         return static_cast<void*>(model);
     }
 
-    void* c_xlinear_load_mmap_model_from_disk(const char* model_path, const bool pre_load) {
-        auto model = new pecos::HierarchicalMLModel(model_path, pre_load);
+    void* c_xlinear_load_mmap_model_from_disk(const char* model_path, const bool lazy_load) {
+        auto model = new pecos::HierarchicalMLModel(model_path, lazy_load);
         return static_cast<void*>(model);
     }
 
