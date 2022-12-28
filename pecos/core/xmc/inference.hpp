@@ -355,7 +355,7 @@ namespace pecos {
                 }
             }
             chunks_row_ptr_.resize(chunks_row_ptr_size);
-            mem_index_type * tmp_row_ptr_ptr = chunks_row_ptr_.data();
+            mem_index_type* tmp_row_ptr_ptr = chunks_row_ptr_.data();
             for (chunk_index_type i=0; i < chunk_count; ++i) {
                 auto& chunk = chunks[i];
                 if (chunk.nnz_rows != 0) {
@@ -476,8 +476,8 @@ namespace pecos {
             }
             chunks_row_idx_.resize(chunks_row_idx_size);
             chunks_row_ptr_.resize(chunks_row_ptr_size);
-            index_type * tmp_row_idx_ptr = chunks_row_idx_.data();
-            mem_index_type * tmp_row_ptr_ptr = chunks_row_ptr_.data();
+            index_type* tmp_row_idx_ptr = chunks_row_idx_.data();
+            mem_index_type* tmp_row_ptr_ptr = chunks_row_ptr_.data();
             for (chunk_index_type i=0; i < chunk_count; ++i) {
                 auto& chunk = chunks[i];
                 if (chunk.nnz_rows != 0) {
@@ -1571,8 +1571,8 @@ namespace pecos {
         // Load npz matrices. These are large data struct contains multiple vectors
         std::string w_npz_path = folderpath + "/W.npz";
         std::string c_npz_path = folderpath + "/C.npz";
-        ScipyCscF32Npz * npz_W = new ScipyCscF32Npz;
-        ScipyCscF32Npz * npz_C = new ScipyCscF32Npz;
+        ScipyCscF32Npz* npz_W = new ScipyCscF32Npz;
+        ScipyCscF32Npz* npz_C = new ScipyCscF32Npz;
         npz_W->load(w_npz_path);
         if ((cur_depth == 0) && (access(c_npz_path.c_str(), F_OK) != 0)) {
             // this is to handle the case where the root layer does not have code saved.
@@ -1716,14 +1716,14 @@ namespace pecos {
                 perm_inv.load_from_mmap_store(mmap_s);
             }
 
-            void save(const std::string & file_name) const {
+            void save(const std::string& file_name) const {
                 mmap_util::MmapStore mmap_s = mmap_util::MmapStore();
                 mmap_s.open(file_name, "w");
                 save_to_mmap_store(mmap_s);
                 mmap_s.close();
             }
 
-            void load(const std::string & file_name, const bool pre_load) {
+            void load(const std::string& file_name, const bool pre_load) {
                 mmap_store.open(file_name, pre_load?"r":"r_lazy");
                 load_from_mmap_store(mmap_store);
             }
