@@ -630,6 +630,15 @@ class corelib(object):
             self.clib_float32.c_xlinear_load_model_from_disk_ext, res_list, arg_list
         )
 
+        res_list = c_void_p
+        arg_list = [c_char_p, c_bool]
+        corelib.fillprototype(
+            self.clib_float32.c_xlinear_load_mmap_model_from_disk, res_list, arg_list
+        )
+
+        arg_list = [c_char_p, c_char_p]
+        corelib.fillprototype(self.clib_float32.c_xlinear_compile_mmap_model, None, arg_list)
+
         # c interface for per-layer prediction
         arg_list = [
             POINTER(ScipyCsrF32),
@@ -703,6 +712,39 @@ class corelib(object):
         res_list = c_int
         arg_list = [c_void_p, c_int]
         corelib.fillprototype(self.clib_float32.c_xlinear_get_layer_type, res_list, arg_list)
+
+    def xlinear_compile_mmap_model(self, npz_folder, mmap_folder):
+        """
+        Compile xlinear model from npz format to memory-mapped format
+        for faster loading.
+        Args:
+            npz_folder (str): The source folder path for xlinear npz model.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        self.clib_float32.c_xlinear_compile_mmap_model(
+            c_char_p(npz_folder.encode("utf-8")), c_char_p(mmap_folder.encode("utf-8"))
+        )
+
+    def xlinear_load_mmap(
+        self,
+        folder,
+        lazy_load=False,
+    ):
+        """
+        Load xlinear model in read-only mmap mode for prediction.
+
+        Args:
+            folder (str): The folder path for xlinear model.
+            lazy_load (bool): Whether to lazy-load, i.e. load when needed(True)
+                or fully load model before returning(False).
+
+        Return:
+            cmodel (ptr): The pointer to xlinear model.
+        """
+        cmodel = self.clib_float32.c_xlinear_load_mmap_model_from_disk(
+            c_char_p(folder.encode("utf-8")), c_bool(lazy_load)
+        )
+        return cmodel
 
     def xlinear_load_predict_only(
         self,

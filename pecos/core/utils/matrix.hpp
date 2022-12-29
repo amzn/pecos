@@ -24,6 +24,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "mmap_util.hpp"
 #include "parallel.hpp"
 #include "scipy_loader.hpp"
 
@@ -74,7 +75,7 @@ extern "C" {
 namespace pecos {
     // ===== Container for sparse-dense vectors =====
     // For sparse vectors computational acceleration
-    template<class IDX_T=uint32_t, class VAL_T=float32_t>    
+    template<class IDX_T=uint32_t, class VAL_T=float32_t>
     struct sdvec_t {
         typedef IDX_T index_type;
         typedef VAL_T value_type;
@@ -207,6 +208,24 @@ namespace pecos {
             col_idx(py->col_idx),
             val(py->val) { }
 
+        // Save/load mmap
+        // Signature for symmetry, not implemented
+        void save_to_mmap_store(mmap_util::MmapStore& mmap_s) const {
+            throw std::runtime_error("Not implemented yet.");
+        }
+
+        void load_from_mmap_store(mmap_util::MmapStore& mmap_s) {
+            throw std::runtime_error("Not implemented yet.");
+        }
+
+        void save_mmap(const std::string& file_name) const {
+            throw std::runtime_error("Not implemented yet.");
+        }
+
+        void load_mmap(const std::string& file_name, const bool lazy_load) {
+            throw std::runtime_error("Not implemented yet.");
+        }
+
         bool is_empty() const {
             return val == nullptr;
         }
@@ -326,6 +345,9 @@ namespace pecos {
             value_type *data;
         };
 
+        // mmap
+        std::shared_ptr<mmap_util::MmapStore> mmap_store_ptr = nullptr;
+
         csc_t() :
             rows(0),
             cols(0),
@@ -339,6 +361,44 @@ namespace pecos {
             col_ptr(py->col_ptr),
             row_idx(py->row_idx),
             val(py->val) { }
+
+        // Save/load mmap
+        void save_to_mmap_store(mmap_util::MmapStore& mmap_s) const {
+            auto nnz = get_nnz();
+            // scalars
+            mmap_s.fput_one<index_type>(rows);
+            mmap_s.fput_one<index_type>(cols);
+            mmap_s.fput_one<mem_index_type>(nnz);
+            // arrays
+            mmap_s.fput_multiple<mem_index_type>(col_ptr, cols + 1);
+            mmap_s.fput_multiple<index_type>(row_idx, nnz);
+            mmap_s.fput_multiple<value_type>(val, nnz);
+        }
+
+        void load_from_mmap_store(mmap_util::MmapStore& mmap_s) {
+            // scalars
+            rows = mmap_s.fget_one<index_type>();
+            cols = mmap_s.fget_one<index_type>();
+            auto nnz = mmap_s.fget_one<mem_index_type>();
+            // arrays
+            col_ptr = mmap_s.fget_multiple<mem_index_type>(cols + 1);
+            row_idx = mmap_s.fget_multiple<index_type>(nnz);
+            val = mmap_s.fget_multiple<value_type>(nnz);
+        }
+
+        void save_mmap(const std::string& file_name) const {
+            mmap_util::MmapStore mmap_s = mmap_util::MmapStore();
+            mmap_s.open(file_name, "w");
+            save_to_mmap_store(mmap_s);
+            mmap_s.close();
+        }
+
+        void load_mmap(const std::string& file_name, const bool lazy_load) {
+            free_underlying_memory(); // Clear any existing memory
+            mmap_store_ptr = std::make_shared<mmap_util::MmapStore>(); // Create instance
+            mmap_store_ptr->open(file_name, lazy_load?"r_lazy":"r");
+            load_from_mmap_store(*mmap_store_ptr);
+        }
 
         bool is_empty() const {
             return val == nullptr;
@@ -361,18 +421,25 @@ namespace pecos {
         // Every function in the inference code that returns a matrix has allocated memory, and
         // therefore one should call this function to free that memory.
         void free_underlying_memory() {
-            if (col_ptr) {
-                delete[] col_ptr;
-                col_ptr = nullptr;
+            if (mmap_store_ptr) { // mmap case, no need to check and free other pointers
+                mmap_store_ptr.reset(); // decrease reference count
+            } else { // memory case
+                if (col_ptr) {
+                    delete[] col_ptr;
+                }
+                if (row_idx) {
+                    delete[] row_idx;
+                }
+                if (val) {
+                    delete[] val;
+                }
             }
-            if (row_idx) {
-                delete[] row_idx;
-                row_idx = nullptr;
-            }
-            if (val) {
-                delete[] val;
-                val = nullptr;
-            }
+            mmap_store_ptr = nullptr;
+            col_ptr = nullptr;
+            row_idx = nullptr;
+            val = nullptr;
+            rows = 0;
+            cols = 0;
         }
 
         csr_t transpose() const ;
@@ -382,6 +449,9 @@ namespace pecos {
         // This allocates memory, so one should call free_underlying_memory on the copy when
         // one is finished using it.
         csc_t deep_copy() const {
+            if (mmap_store_ptr) {
+                throw std::runtime_error("Cannot deep copy for mmap instance.");
+            }
             mem_index_type nnz = col_ptr[cols];
             csc_t res;
             res.allocate(rows, cols, nnz);
@@ -392,6 +462,9 @@ namespace pecos {
         }
 
         void allocate(index_type rows, index_type cols, mem_index_type nnz) {
+            if (mmap_store_ptr) {
+                throw std::runtime_error("Cannot allocate for mmap instance.");
+            }
             this->rows = rows;
             this->cols = cols;
             col_ptr = new mem_index_type[cols + 1];
@@ -401,6 +474,9 @@ namespace pecos {
 
         // Construct a csc_t object with shape _rows x _cols filled by 1.
         void fill_ones(index_type _rows, index_type _cols) {
+            if (mmap_store_ptr) {
+                throw std::runtime_error("Cannot fill ones for mmap instance.");
+            }
             mem_index_type nnz = (mem_index_type) _rows * _cols;
             this->free_underlying_memory();
             this->allocate(_rows, _cols, nnz);
@@ -670,7 +746,7 @@ namespace pecos {
         float32_t ret = 0;
         for(size_t s = 0; s < x.nnz; s++) {
             auto &idx = x.idx[s];
-            if(y.entries[idx].touched) 
+            if(y.entries[idx].touched)
                 ret += y.entries[idx].val * x.val[s];
         }
         return ret;
@@ -749,7 +825,7 @@ namespace pecos {
         float32_t ret = 0;
         for(size_t s = 0; s < x.nr_touch; s++) {
             auto &idx = x.touched_indices[s];
-            if(y.entries[idx].touched) 
+            if(y.entries[idx].touched)
                 ret += y.entries[idx].val * x.entries[idx].val;
         }
         return static_cast<float32_t>(ret);

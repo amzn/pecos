@@ -192,9 +192,9 @@ class MmapStoreLoad {
         /* Constructor loads from memory-mapped file name
          * Parameters:
          *      file_name (const std::string&): Name of file to load from.
-         *      pre_load (const bool): Whether to pre-fault all pages into memory before accessing.
+         *      lazy_load (const bool): If false, pre-fault all pages into memory before accessing.
          */
-        MmapStoreLoad(const std::string& file_name, const bool pre_load) {
+        MmapStoreLoad(const std::string& file_name, const bool lazy_load) {
             // Load metadata first
             FILE* fp = fopen(file_name.c_str(), "rb");
             if (!fp) {
@@ -210,7 +210,7 @@ class MmapStoreLoad {
             if (fd == -1) {
                 throw std::runtime_error("Load Mmap file: Open file failed.");
             }
-            load_mmap_(fd, pre_load);
+            load_mmap_(fd, lazy_load);
             if (close(fd) < 0) {
                 throw std::runtime_error("Load Mmap file: Close file failed.");
             }
@@ -249,7 +249,7 @@ class MmapStoreLoad {
         uint64_t mmap_size_ = 0; // Memory-mapped file size
 
         /* Create memory-mapped region */
-        void load_mmap_(const int fd, const bool pre_load) {
+        void load_mmap_(const int fd, const bool lazy_load) {
             // Get file size
             struct stat file_stat;
             fstat(fd, &file_stat);
@@ -260,7 +260,7 @@ class MmapStoreLoad {
 
             // Creat mmap
             int mmap_flags = MAP_SHARED;
-            if (pre_load) { // pre-fault all pages to load them into memory
+            if (!lazy_load) { // pre-fault all pages to load them into memory
                 mmap_flags |= MAP_POPULATE;
             }
             mmap_ptr_ = mmap(NULL, mmap_size_, PROT_READ, mmap_flags, fd, 0);
@@ -367,11 +367,11 @@ class MmapStore {
             if (mode_ != Mode::UNINIT) {
                 throw std::runtime_error("Should close existing file before open new one.");
             }
-            if (mode_str == "r") { // pre-load all pages
-                mmap_r_ = new details_::MmapStoreLoad(file_name, true);
-                mode_ = Mode::READONLY;
-            } else if (mode_str == "r_lazy") {
+            if (mode_str == "r") { // lazy_load=false, pre-load all pages
                 mmap_r_ = new details_::MmapStoreLoad(file_name, false);
+                mode_ = Mode::READONLY;
+            } else if (mode_str == "r_lazy") { // lazy_load=true
+                mmap_r_ = new details_::MmapStoreLoad(file_name, true);
                 mode_ = Mode::READONLY;
             } else if (mode_str == "w") {
                 mmap_w_ = new details_::MmapStoreSave(file_name);
@@ -453,7 +453,7 @@ class MmapStore {
  * For std::vector case, it own the memory for data storage.
  * For mmap view case, it does not own any memory, but serve as a view for a piece of memory owned by MmapStore.
  * By default, it is initialized as empty std::vector that can be resized or loaded as mmap view.
- * Once loaded as mmap view, it cannot go back to std::vector case unless clear() is called.
+ * Once loaded as mmap view, it cannot go back to std::vector case unless clear() or convertion is called.
  */
 template<class T, class TT = T, details_::if_simple_serializable<TT> = true>
 class MmapableVector {
@@ -521,17 +521,29 @@ class MmapableVector {
         }
 
         void load_from_mmap_store(MmapStore& mmap_s) {
-            if (is_self_allocated_()) { // raises error for non-empty vector
+            if (is_self_allocated_()) { // raises error for non-empty self-allocated vector
                 throw std::runtime_error("Cannot load for non-empty vector case.");
             }
             size_ = mmap_s.fget_one<uint64_t>();
             data_ = mmap_s.fget_multiple<T>(size_);
         }
 
+        /* Convert (from mmap view) into self-allocated vector by copying data.
+         * To be noted, this is only a shallow copy and only good for POD without pointer members. */
+        void to_self_alloc_vec() {
+            if (!is_self_allocated_()) {
+                store_.resize(size_);
+                for (uint64_t i = 0; i < size_; ++i) {
+                    store_[i] = data_[i];
+                }
+                data_ = store_.data();
+            }
+        }
+
     private:
         uint64_t size_ = 0; // Number of elements of the data
-        T* data_ = nullptr; // Pointer to actual data
-        std::vector<T> store_; // Actual data storage for self-allocated case
+        T* data_ = nullptr; // Pointer to data. The same as store_.data() for self-allocated vector case
+        std::vector<T> store_; // Actual data storage for self-allocated vector case
 
         /* Whether data storage is non-empty self-allocated vector.
          * True indicates non-empty vector case; False indicates either empty or mmap view. */
