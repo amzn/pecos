@@ -37,6 +37,17 @@ extern "C" {
         return static_cast<void*>(model);
     }
 
+    void* c_xlinear_load_mmap_model_from_disk(const char* model_path, const bool lazy_load) {
+        auto model = new pecos::HierarchicalMLModel(model_path, lazy_load);
+        return static_cast<void*>(model);
+    }
+
+    void c_xlinear_compile_mmap_model(const char* model_path, const char* mmap_model_path) {
+        // Only implemented for bin_search_chunked
+        auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED);
+        model->save_mmap(mmap_model_path);
+    }
+
     void c_xlinear_destruct_model(void* ptr) {
         pecos::HierarchicalMLModel* mc = static_cast<pecos::HierarchicalMLModel*>(ptr);
         delete mc;
