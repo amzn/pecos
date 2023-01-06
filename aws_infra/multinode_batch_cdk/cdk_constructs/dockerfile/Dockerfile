@@ -6,10 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=TRUE
 
 # Fix vulnerability
 RUN yum update -y gnupg2
+RUN yum -y updateinfo && yum -y --security update
 
 # Install dependencies
 RUN yum install -y awscli sudo
-RUN yum install -y openssl openssh-client openssh-server iproute2
+RUN yum install -y openssl openssh-clients openssh-server iproute
 RUN yum install -y python3 python3-devel python3-distutils python3-venv
 RUN yum groupinstall -y 'Development Tools'
 RUN amazon-linux-extras install -y epel
