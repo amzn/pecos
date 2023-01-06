@@ -52,12 +52,22 @@ install_deps() {
   fi
 }
 
+get_ip() {
+  local ip=$(/sbin/ip -o -4 addr list eth0 | awk '{print $4}' | cut -d/ -f1)
+  if [[ -z $ip ]]; then
+    echo "Failed to get IP."
+    error_exit
+  else
+    echo "$ip"
+  fi
+}
+
 # wait for all nodes to report
 wait_for_nodes () {
   log "Running as master node"
 
   touch $NODE_IP_FILE_PATH
-  ip=$(/sbin/ip -o -4 addr list eth0 | awk '{print $4}' | cut -d/ -f1)
+  ip=$(get_ip)
 
   if [ -x "$(command -v nvidia-smi)" ] ; then
       NUM_GPUS=$(ls -l /dev/nvidia[0-9] | wc -l)
@@ -132,7 +142,7 @@ wait_for_nodes () {
 report_to_master () {
   # get own ip and num cpus
   #
-  ip=$(/sbin/ip -o -4 addr list eth0 | awk '{print $4}' | cut -d/ -f1)
+  ip=$(get_ip)
 
   if [ -x "$(command -v nvidia-smi)" ] ; then
       NUM_GPUS=$(ls -l /dev/nvidia[0-9] | wc -l)
