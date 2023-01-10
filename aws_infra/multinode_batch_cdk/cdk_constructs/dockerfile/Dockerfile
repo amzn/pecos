@@ -9,13 +9,12 @@ RUN yum update -y gnupg2
 RUN yum -y updateinfo && yum -y --security update
 
 # Install dependencies
-RUN yum install -y awscli sudo
+RUN yum install -y awscli sudo git
 RUN yum install -y openssl openssh-clients openssh-server iproute
 RUN yum install -y python3 python3-devel python3-distutils python3-venv
 RUN yum groupinstall -y 'Development Tools'
 RUN amazon-linux-extras install -y epel
 RUN yum install -y openblas-devel
-RUN yum install -y git
 
 # Install MPI
 RUN yum install -y http://mirror.centos.org/centos/7/os/x86_64/Packages/mpich-3.2-3.2-2.el7.x86_64.rpm
