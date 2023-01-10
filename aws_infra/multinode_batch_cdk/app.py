@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import aws_cdk
 import sys
+import os
 from cdk_constructs.batch import PecosDistributedBatchStack
 from cdk_constructs.vpc import PecosDistributedVPCStack
 from cdk_constructs.iam import PecosDistributedIAMStack
@@ -10,7 +11,8 @@ from cdk_constructs.param_config import PecosDistributedParamConfig
 
 
 try:
-    param_config = PecosDistributedParamConfig.from_json("param_config.json")
+    param_config = PecosDistributedParamConfig.from_json(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "param_config.json"))
 except FileNotFoundError:
     raise FileNotFoundError(
         f"Configuration json: 'param_config.json' not found. "

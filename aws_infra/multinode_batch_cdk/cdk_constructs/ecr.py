@@ -12,6 +12,11 @@ class PecosDistributedEcrStack(Stack):
             id="PECOS-Distributed-Ecr-Image",
             directory=os.path.join(
                 os.path.dirname(os.path.realpath(__file__)),
-                "dockerfile"
+                "../../../"
+            ),
+            file=os.path.join(
+                "aws_infra/multinode_batch_cdk/cdk_constructs",
+                "dockerfile",
+                "Dockerfile"
             )
         )

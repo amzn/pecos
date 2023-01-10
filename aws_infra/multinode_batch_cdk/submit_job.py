@@ -40,7 +40,7 @@ class PecosBatchJobArgs(object):
             "--cdk-config",
             metavar="CDK_CONF_PATH",
             type=str,
-            default="./param_config.json",
+            default=f"{os.path.join(os.path.dirname(os.path.realpath(__file__)), 'param_config.json')}",
             help="CDK parameter configuration file path"
         )
         parser.add_argument(
