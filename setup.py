@@ -110,8 +110,7 @@ numpy_requires = [
     'numpy>=1.19.5; python_version>="3.7"'
 ]
 setup_requires = numpy_requires + [
-    'pytest-runner',
-    'sphinx_rtd_theme'
+    'pytest-runner'
 ]
 install_requires = numpy_requires + [
     'scipy>=1.4.1',
