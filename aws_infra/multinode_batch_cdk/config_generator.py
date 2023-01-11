@@ -47,7 +47,7 @@ def get_parameters():
     )
 
     # dump json
-    with open("./param_config.json", "w") as fp:
+    with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "param_config.json"), "w") as fp:
         json.dump(param_dict, fp)
 
 

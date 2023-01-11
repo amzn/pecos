@@ -9,7 +9,7 @@ RUN yum update -y gnupg2
 RUN yum -y updateinfo && yum -y --security update
 
 # Install dependencies
-RUN yum install -y awscli sudo
+RUN yum install -y awscli sudo git
 RUN yum install -y openssl openssh-clients openssh-server iproute
 RUN yum install -y python3 python3-devel python3-distutils python3-venv
 RUN yum groupinstall -y 'Development Tools'
@@ -25,7 +25,13 @@ ENV PATH="/usr/lib64/mpich-3.2/bin/:${PATH}"
 
 RUN python3 -m pip install supervisor
 RUN python3 -m pip install mpi4py
-RUN python3 -m pip install libpecos
+
+# Install pecos from local source
+ADD README.md /pecos-source/README.md
+ADD Makefile /pecos-source/Makefile
+ADD setup.py /pecos-source/setup.py
+ADD pecos /pecos-source/pecos/
+RUN cd /pecos-source && make libpecos
 
 # Setup user
 RUN groupadd -r amazon && useradd --no-log-init -r -g amazon ecs-user
@@ -56,8 +62,9 @@ EXPOSE 22
 
 # Add script
 USER ecs-user
-ADD ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
-ADD ./scripts/dist-run.sh /supervised-scripts/dist-run.sh
+ARG SCRIPTS_DIR=aws_infra/multinode_batch_cdk/cdk_constructs/dockerfile/scripts
+ADD ${SCRIPTS_DIR}/supervisord.conf /etc/supervisor/supervisord.conf
+ADD ${SCRIPTS_DIR}/dist-run.sh /supervised-scripts/dist-run.sh
 RUN sudo chmod 755 /supervised-scripts/dist-run.sh
-ADD ./scripts/entry-point.sh /batch-runtime-scripts/entry-point.sh
+ADD ${SCRIPTS_DIR}/entry-point.sh /batch-runtime-scripts/entry-point.sh
 RUN sudo chmod 755 /batch-runtime-scripts/entry-point.sh
