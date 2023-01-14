@@ -31,7 +31,7 @@ ADD README.md /pecos-source/README.md
 ADD Makefile /pecos-source/Makefile
 ADD setup.py /pecos-source/setup.py
 ADD pecos /pecos-source/pecos/
-RUN cd /pecos-source && make libpecos
+RUN cd /pecos-source && make clean && make libpecos
 
 # Setup user
 RUN groupadd -r amazon && useradd --no-log-init -r -g amazon ecs-user
@@ -39,7 +39,7 @@ RUN echo "ecs-user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 ENV USER ecs-user
 ENV HOME /home/$USER
 RUN echo $HOME
-RUN chown -R ecs-user:amazon /home
+RUN mkdir -p $HOME && chown -R ecs-user:amazon $HOME
 
 # Enable password-less SSH
 ENV SSHDIR $HOME/.ssh
