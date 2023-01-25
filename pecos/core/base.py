@@ -155,7 +155,6 @@ class ClusteringParam(ctypes.Structure):
 
     _fields_ = [
         ("partition_algo", c_uint64),
-        ("depth", c_uint64),
         ("seed", c_int),
         ("kmeans_max_iter", c_uint64),
         ("threads", c_int),
@@ -1314,6 +1313,7 @@ class corelib(object):
         """
         arg_list = [
             POINTER(ScipyCsrF32),
+            c_uint64,
             POINTER(ClusteringParam),
             POINTER(c_uint32),
         ]
@@ -1354,9 +1354,11 @@ class corelib(object):
 
         if codes is None or len(codes) != py_feat_mat.shape[0] or codes.dtype != np.uint32:
             codes = np.zeros(py_feat_mat.rows, dtype=np.uint32)
+        depth = train_params.depth
         train_params = ClusteringParam(train_params)
         run_clustering(
             byref(py_feat_mat),
+            depth,
             train_params,
             codes.ctypes.data_as(POINTER(c_uint32)),
         )

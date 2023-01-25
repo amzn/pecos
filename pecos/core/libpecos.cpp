@@ -268,10 +268,11 @@ extern "C" {
     #define C_RUN_CLUSTERING(SUFFIX, PY_MAT, C_MAT) \
     void c_run_clustering ## SUFFIX( \
         const PY_MAT* py_mat_ptr, \
+        size_t depth, \
         pecos::clustering::ClusteringParam* param_ptr, \
         uint32_t* label_codes) { \
         C_MAT feat_mat(py_mat_ptr); \
-        pecos::clustering::Tree tree(param_ptr->depth); \
+        pecos::clustering::Tree tree(depth); \
         tree.run_clustering(feat_mat, param_ptr, label_codes); \
     }
     C_RUN_CLUSTERING(_csr_f32, ScipyCsrF32, pecos::csr_t)

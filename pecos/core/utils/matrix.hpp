@@ -80,30 +80,47 @@ namespace pecos {
         typedef IDX_T index_type;
         typedef VAL_T value_type;
 
-        index_type len;
-        index_type nr_touch;
-
         struct entry_t {
             value_type val;
             bool touched;
             entry_t(value_type val=0, bool touched=0): val(val), touched(touched) {}
         };
 
-        std::vector<entry_t> entries;
-        std::vector<index_type> touched_indices;
+        struct container_t {
+            index_type len;
+            index_type nr_touch;
+            std::vector<entry_t> entries;
+            std::vector<index_type> touched_indices;
 
-        sdvec_t(index_type len=0) : len(len), nr_touch(0) {
-            entries.resize(len);
-            touched_indices.resize(len);
-        }
+            container_t(index_type len=0) : len(len), nr_touch(0) {
+                entries.resize(len);
+                touched_indices.resize(len);
+            }
 
+            void resize(index_type len_) {
+                len = len_;
+                // if len_ >= len, nr_touch remains unchanged, otherwise delete indices >= len
+                if(len_ < len) {
+                    index_type write_pos = 0;
+                    for(size_t i = 0; i < nr_touch; i++) {
+                        if(touched_indices[i] < len) {
+                            touched_indices[write_pos] = touched_indices[i];
+                            write_pos += 1;
+                        } 
+                    }
+                    nr_touch = write_pos;
+                }
+                entries.resize(len);
+                touched_indices.resize(len);
+            }
+        };
 
-        void resize(index_type len_) {
-            len = len_;
-            nr_touch = 0;
-            entries.resize(len);
-            touched_indices.resize(len);
-        }
+        index_type& len;
+        index_type& nr_touch;
+        std::vector<entry_t>& entries;
+        std::vector<index_type>& touched_indices;
+
+        sdvec_t(container_t& cont) : len(cont.len), nr_touch(cont.nr_touch), entries(cont.entries), touched_indices(cont.touched_indices) {}
 
         value_type& add_nonzero_at(index_type idx, value_type v) {
             entries[idx].val += static_cast<value_type>(v);
@@ -118,6 +135,9 @@ namespace pecos {
             std::sort(touched_indices.data(), touched_indices.data() + nr_touch);
         }
 
+        value_type& operator[](size_t i) { return add_nonzero_at(i, 0.0); }
+        const value_type& operator[](size_t i) const { return entries[i].val; }
+
         void fill_zeros() {
             if(nr_touch < (len >> 1)) {
                 for(size_t t = 0; t < nr_touch; t++) {
@@ -130,7 +150,6 @@ namespace pecos {
             nr_touch = 0;
         }
     };
-
 
     // ===== Wrapper for sparse/dense vectors =====
     template<class IDX_T=uint32_t, class VAL_T=float32_t>
@@ -163,6 +182,7 @@ namespace pecos {
         const value_type& at(size_t i) const { return val[i]; }
 
         uint64_t get_nnz() const { return len; }
+        void fill_zeros() const{ std::fill(val, val + len, 0); }
     };
 
     // ===== Wrapper for sparse/dense matrices =====
@@ -516,6 +536,10 @@ namespace pecos {
         }
 
         dcm_t transpose() const ;
+
+        mem_index_type get_nnz() const {
+            return static_cast<mem_index_type>(rows) * static_cast<mem_index_type>(cols);
+        }
     };
 
     struct dcm_t { // Dense Column Majored Matrix
@@ -540,6 +564,10 @@ namespace pecos {
         col_vec_t get_col(index_type idx) const {
             return col_vec_t(cols,
                 &val[static_cast<mem_index_type>(rows) * static_cast<mem_index_type>(idx)]);
+        }
+
+        mem_index_type get_nnz() const {
+            return static_cast<mem_index_type>(rows) * static_cast<mem_index_type>(cols);
         }
     };
 
