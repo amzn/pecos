@@ -34,7 +34,6 @@ enum {
 extern "C" {
     struct ClusteringParam {
         size_t partition_algo;
-        size_t depth;
         int seed;
         size_t kmeans_max_iter;
         int threads;
@@ -44,7 +43,6 @@ extern "C" {
 
         ClusteringParam(
             size_t partition_algo,
-            size_t depth,
             int seed,
             size_t kmeans_max_iter,
             int threads,
@@ -52,7 +50,6 @@ extern "C" {
             float min_sample_rate,
             float warmup_ratio
         ): partition_algo(partition_algo),
-        depth(depth),
         seed(seed),
         kmeans_max_iter(kmeans_max_iter),
         threads(threads),
@@ -89,6 +86,7 @@ struct Node {
     size_t size() const { return end - start; }
 };
 
+
 /*
  * Each node is a cluster of elements
  * #leaf nodes = 2^{depth}
@@ -96,8 +94,37 @@ struct Node {
  * #nodes = 2^{depth + 1}
  */
 struct Tree {
+
+    template<class Cont, class Wrap>
+    struct center_buffer_t {
+        typedef Cont container_t;
+        typedef Wrap wrapper_t;
+
+        std::vector<Cont> center1; // need to be duplicated to handle parallel clustering
+        std::vector<Cont> center2; // need to be duplicated to handle parallel clustering
+        std::vector<Cont> center_tmp_thread; // Temporary working spaces for function update_center, will be cleared
+
+        void resize(int threads, size_t feat_num) {
+            center1.resize(threads, Cont(feat_num));
+            center2.resize(threads, Cont(feat_num));
+            center_tmp_thread.resize(threads, Cont(feat_num));
+        }
+
+        void deep_clear() {
+            center1.clear();
+            center1.shrink_to_fit();
+            center2.clear();
+            center2.shrink_to_fit();
+            center_tmp_thread.clear();
+            center_tmp_thread.shrink_to_fit();
+        }
+    };
+
     typedef random_number_generator<> rng_t;
-    typedef sdvec_t<uint32_t,float32_t> f32_sdvec_t;
+    typedef dense_vec_t<float32_t> dvec_wrapper_t;
+    typedef sdvec_t<uint32_t, float32_t> sdvec_wrapper_t;
+    typedef center_buffer_t<f32_dvec_t, dense_vec_t<float32_t>> dvec_center_buffer_t;
+    typedef center_buffer_t<typename sdvec_wrapper_t::container_t, sdvec_wrapper_t> sdvec_center_buffer_t;
 
     size_t depth;     // # leaf nodes = 2^depth
     std::vector<Node> nodes;
@@ -105,13 +132,12 @@ struct Tree {
     // used for balanced 2-means
     u64_dvec_t elements;
     u64_dvec_t previous_elements;
-    std::vector<f32_sdvec_t> center1; // need to be duplicated to handle parallel clustering
-    std::vector<f32_sdvec_t> center2; // for spherical kmeans
     u32_dvec_t seed_for_nodes; // random seeds used for each node
     f32_dvec_t scores;
 
-    // Temporary working spaces for function update_center, will be cleared after clustering to release space
-    std::vector<f32_sdvec_t> center_tmp_thread; // thread-private working array for parallel updating center
+    dvec_center_buffer_t dvec_center_buffer;
+    sdvec_center_buffer_t sdvec_center_buffer;
+    bool use_sdvec;
 
     Tree(size_t depth=0) { this->reset_depth(depth); }
 
@@ -123,11 +149,12 @@ struct Tree {
 
     struct ClusteringSampler {
         // scheduler for sampling
+        size_t depth;
         ClusteringParam* param_ptr;
         size_t warmup_layers;
 
-        ClusteringSampler(ClusteringParam* param_ptr): param_ptr(param_ptr) {
-            warmup_layers = size_t(param_ptr->depth * param_ptr->warmup_ratio);
+        ClusteringSampler(size_t depth, ClusteringParam* param_ptr): depth(depth), param_ptr(param_ptr) {
+            warmup_layers = size_t(depth * param_ptr->warmup_ratio);
         }
 
         float get_sample_rate(size_t layer) const {
@@ -136,7 +163,7 @@ struct Tree {
             if(layer < warmup_layers) {
                 return param_ptr->min_sample_rate;
             }
-            return param_ptr->min_sample_rate + (param_ptr->max_sample_rate - param_ptr->min_sample_rate) * (layer + 1 - warmup_layers) / (param_ptr->depth - warmup_layers);
+            return param_ptr->min_sample_rate + (param_ptr->max_sample_rate - param_ptr->min_sample_rate) * (layer + 1 - warmup_layers) / (depth - warmup_layers);
         }
     };
 
@@ -194,8 +221,8 @@ struct Tree {
     //                euclidean similarity
 
     // Loop through node's elements and update current center
-    template<typename MAT>
-    void update_center(const MAT& feat_mat, Node& cur_node, f32_sdvec_t& cur_center, float32_t alpha, int threads=1) {
+    template<typename MAT, typename CenterWrapper, typename CenterBuffer>
+    void update_center(const MAT& feat_mat, Node& cur_node, CenterWrapper& cur_center, float32_t alpha, int threads, CenterBuffer& center_buffer) {
         if(threads == 1) {
            for(size_t i = cur_node.start; i < cur_node.end; i++) {
                 size_t eid = elements[i];
@@ -206,8 +233,8 @@ struct Tree {
             #pragma omp parallel num_threads(threads)
             {
                 int thread_id = omp_get_thread_num();
-                center_tmp_thread[thread_id].fill_zeros();
-                f32_sdvec_t& cur_center_tmp_thread = center_tmp_thread[thread_id];
+                typename CenterBuffer::wrapper_t cur_center_tmp_thread(center_buffer.center_tmp_thread[thread_id]);
+                cur_center_tmp_thread.fill_zeros();
                 // use static for reproducibility under multi-trials with same seed.
                 #pragma omp for schedule(static)
                 for(size_t i = cur_node.start; i < cur_node.end; i++) {
@@ -216,15 +243,27 @@ struct Tree {
                     do_axpy(alpha, feat, cur_center_tmp_thread);
                 }
             }
-            
-            for(int thread_id = 0; thread_id < threads; thread_id++) {
-                do_axpy(1.0, center_tmp_thread[thread_id], cur_center);
+
+            if(std::is_same<typename CenterBuffer::wrapper_t, dvec_wrapper_t>::value) {
+                // global parallel reduction for dense vector center
+#pragma omp parallel for schedule(static)
+                for(size_t i = 0; i < cur_center.len; ++i) {
+                    for(int thread_id = 0; thread_id < threads; thread_id++) {
+                        typename CenterBuffer::wrapper_t cur_center_tmp_thread(center_buffer.center_tmp_thread[thread_id]);
+                        cur_center[i] += cur_center_tmp_thread[i];
+                    }
+                }
+            } else {
+                for(int thread_id = 0; thread_id < threads; thread_id++) {
+                    typename CenterBuffer::wrapper_t cur_center_tmp_thread(center_buffer.center_tmp_thread[thread_id]);
+                    do_axpy(1.0, cur_center_tmp_thread, cur_center);
+                }
             }
         }
     }
 
-    template<typename MAT>
-    bool do_assignment(MAT* feat_mat_ptr, Node& root, f32_sdvec_t* center_ptr, int threads) {
+    template<typename MAT, typename CenterWrapper>
+    bool do_assignment(MAT* feat_mat_ptr, Node& root, CenterWrapper* center_ptr, int threads) {
         u64_dvec_t *elements_ptr = &elements;
         auto *scores_ptr = &scores;
         if(threads == 1) {
@@ -245,8 +284,8 @@ struct Tree {
         return assignment_changed;
     }
 
-    template<typename MAT>
-    void partition_kmeans(size_t nid, size_t depth, const MAT& feat_mat, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0, float cur_sample_rate=1.0) {
+    template<typename MAT, typename CenterBuffer>
+    void partition_kmeans(size_t nid, size_t depth, const MAT& feat_mat, CenterBuffer& center_buffer, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0, float cur_sample_rate=1.0) {
         // copy nodes rather than reference for sampling
         Node root = root_of(nid);
         Node left = left_of(nid);
@@ -258,7 +297,7 @@ struct Tree {
         }
         partition_elements(root, left, right);
 
-        f32_sdvec_t& cur_center = center1[thread_id];
+        typename CenterBuffer::wrapper_t cur_center(center_buffer.center1[thread_id]);
 
         // perform the clustering and sorting
         for(size_t iter = 0; iter < max_iter; iter++) {
@@ -278,10 +317,10 @@ struct Tree {
             } else {
                 float32_t alpha = 0;
                 alpha = +1.0 / right.size();
-                update_center(feat_mat, right, cur_center, alpha, threads);
+                update_center(feat_mat, right, cur_center, alpha, threads, center_buffer);
 
                 alpha = -1.0 / left.size();
-                update_center(feat_mat, left, cur_center, alpha, threads);
+                update_center(feat_mat, left, cur_center, alpha, threads, center_buffer);
             }
             bool assignment_changed = do_assignment(&feat_mat, root, &cur_center, threads);
             if(!assignment_changed) {
@@ -298,8 +337,8 @@ struct Tree {
         }
     }
 
-    template<typename MAT>
-    void partition_skmeans(size_t nid, size_t depth, const MAT& feat_mat, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0, float cur_sample_rate=1.0) {
+    template<typename MAT, typename CenterBuffer>
+    void partition_skmeans(size_t nid, size_t depth, const MAT& feat_mat, CenterBuffer& center_buffer, rng_t& rng, size_t max_iter=10, int threads=1, int thread_id=0, float cur_sample_rate=1.0) {
         // copy nodes rather than reference for sampling
         Node root = root_of(nid);
         Node left = left_of(nid);
@@ -311,8 +350,8 @@ struct Tree {
         }
         partition_elements(root, left, right);
 
-        f32_sdvec_t& cur_center1 = center1[thread_id];
-        f32_sdvec_t& cur_center2 = center2[thread_id];
+        typename CenterBuffer::wrapper_t cur_center1(center_buffer.center1[thread_id]);
+        typename CenterBuffer::wrapper_t cur_center2(center_buffer.center2[thread_id]);
 
         // perform the clustering and sorting
         for(size_t iter = 0; iter < max_iter; iter++) {
@@ -332,13 +371,13 @@ struct Tree {
                 do_axpy(1.0, feat_left, cur_center2);
                 do_axpy(-1.0, cur_center2, cur_center1);
             } else {
-                update_center(feat_mat, right, cur_center1, one, threads);
+                update_center(feat_mat, right, cur_center1, one, threads, center_buffer);
                 float32_t alpha = do_dot_product(cur_center1, cur_center1);
                 if(alpha > 0) {
                     do_scale(1.0 / sqrt(alpha), cur_center1);
                 }
 
-                update_center(feat_mat, left, cur_center2, one, threads);
+                update_center(feat_mat, left, cur_center2, one, threads, center_buffer);
                 alpha = do_dot_product(cur_center2, cur_center2);
                 if(alpha > 0) {
                     do_scale(1.0 / sqrt(alpha), cur_center2);
@@ -374,45 +413,77 @@ struct Tree {
             seed_for_nodes[nid] = rng.randint<unsigned>();
         }
 
+        use_sdvec = false; // use dense vector by default
+
+        // no need to allocate sdvec and dvec at the same time!
         int threads = set_threads(param_ptr->threads);
-        center1.resize(threads, f32_sdvec_t(feat_mat.cols));
-        center2.resize(threads, f32_sdvec_t(feat_mat.cols));
+
         scores.resize(feat_mat.rows, 0);
         nodes[0].set(0, nr_elements);
         nodes[1].set(0, nr_elements);
 
-        // Allocate tmp arrays for parallel update center
-        center_tmp_thread.resize(threads, f32_sdvec_t(feat_mat.cols));
-
-        ClusteringSampler sample_scheduler(param_ptr);
+        ClusteringSampler sample_scheduler(depth, param_ptr);
 
         // let's do it layer by layer so we can parallelize it
         for(size_t d = 0; d < depth; d++) {
             size_t layer_start = 1U << d;
             size_t layer_end = 1U << (d + 1);
             float cur_sample_rate = sample_scheduler.get_sample_rate(d);
+
+            // switch from dense vec to sdvec if matrix worst max density is below threshold
+            if(double(feat_mat.get_nnz()) / (double(layer_end - layer_start) * double(feat_mat.cols))  < 1) {
+                use_sdvec = true;
+            }
+
+            if(use_sdvec) {
+                dvec_center_buffer.deep_clear();
+                sdvec_center_buffer.resize(threads, feat_mat.cols);
+            } else {
+                sdvec_center_buffer.deep_clear();
+                dvec_center_buffer.resize(threads, feat_mat.cols);
+            }
+
             if((layer_end - layer_start) >= (size_t) threads) {
 #pragma omp parallel for schedule(dynamic)
                 for(size_t nid = layer_start; nid < layer_end; nid++) {
                     rng_t rng(seed_for_nodes[nid]);
                     int local_threads = 1;
                     int thread_id = omp_get_thread_num();
-                    if(param_ptr->partition_algo == KMEANS) {
-                        partition_kmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
-                    } else if(param_ptr->partition_algo == SKMEANS) {
-                        partition_skmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+
+                    if(use_sdvec) {
+                        if(param_ptr->partition_algo == KMEANS) {
+                            partition_kmeans(nid, d, feat_mat, sdvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        } else if(param_ptr->partition_algo == SKMEANS) {
+                            partition_skmeans(nid, d, feat_mat, sdvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        }
+                    } else {
+                        if(param_ptr->partition_algo == KMEANS) {
+                            partition_kmeans(nid, d, feat_mat, dvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        } else if(param_ptr->partition_algo == SKMEANS) {
+                            partition_skmeans(nid, d, feat_mat, dvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        }
                     }
+
                 }
             } else {
                 for(size_t nid = layer_start; nid < layer_end; nid++) {
                     rng_t rng(seed_for_nodes[nid]);
                     int local_threads = threads;
                     int thread_id = 0;
-                    if(param_ptr->partition_algo == KMEANS) {
-                        partition_kmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
-                    } else if(param_ptr->partition_algo == SKMEANS) {
-                        partition_skmeans(nid, d, feat_mat, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                    if(use_sdvec) {
+                        if(param_ptr->partition_algo == KMEANS) {
+                            partition_kmeans(nid, d, feat_mat, sdvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        } else if(param_ptr->partition_algo == SKMEANS) {
+                            partition_skmeans(nid, d, feat_mat, sdvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        }
+                    } else {
+                        if(param_ptr->partition_algo == KMEANS) {
+                            partition_kmeans(nid, d, feat_mat, dvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        } else if(param_ptr->partition_algo == SKMEANS) {
+                            partition_skmeans(nid, d, feat_mat, dvec_center_buffer, rng, param_ptr->kmeans_max_iter, local_threads, thread_id, cur_sample_rate);
+                        }
                     }
+
                 }
             }
         }
@@ -427,9 +498,8 @@ struct Tree {
             }
         }
 
-        // clear tmp arrays
-        center_tmp_thread.clear();
-        center_tmp_thread.shrink_to_fit();
+        dvec_center_buffer.deep_clear();
+        sdvec_center_buffer.deep_clear();
     }
 
     void output() {
