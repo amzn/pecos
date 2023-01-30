@@ -97,6 +97,7 @@ class HierarchicalKMeans(Indexer):
             We use linear sampling strategy with warmup, which linearly increases sampling rate from `min_sample_rate` to `max_sample_rate`.
             The top (total_layer * `warmup_ratio`) layers are warmup_layers which use a fixed sampling rate `min_sample_rate`.
             The sampling rate for layer l is `min_sample_rate`+max(l+1-warmup_layer,0)*(`max_sample_rate`-min_sample_rate)/(total_layers-warmup_layers).
+            Please refer to 'self.get_layer_sample_rate()' function for complete definition.
         max_sample_rate (float, optional): the maximum samplng rate at the end of the linear sampling strategy. Default is `1.0`.
         min_sample_rate (float, optional): the minimum sampling rate at the begining warmup stage of the linear sampling strategy. Default is `0.1`.
             Note that 0 < min_sample_rate <= max_sample_rate <= 1.0.
@@ -116,6 +117,33 @@ class HierarchicalKMeans(Indexer):
         max_sample_rate: float = 1.0
         min_sample_rate: float = 0.1
         warmup_ratio: float = 0.4
+
+        def infer_binary_tree_depth(self, label_num):
+            """Given label_num, infer the depth of a binary tree.
+
+            label_num: (int): the label number of a binary tree.
+            """
+            depth = max(1, int(math.ceil(math.log2(label_num / self.max_leaf_size))))
+            if (2**depth) > label_num:
+                raise ValueError(
+                    f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {label_num} to avoid empty clusters"
+                )
+            return depth
+
+        def get_layer_sample_rate(self, cur_layer, binary_tree_depth):
+            """Given sample parameters, get the sample rate of cur_layer.
+            The definition of this function corresponds to pecos/core/utils/clustering.hpp "ClusteringSampler" struct
+
+            cur_layer: (int): 0-based layer index in a binary tree.
+            binary_tree_depth: (int): the depth of a binary tree.
+            """
+            warmup_depth = int(self.warmup_ratio * binary_tree_depth)
+            if cur_layer < warmup_depth:
+                return self.min_sample_rate
+            sample_rate = self.min_sample_rate + (
+                self.max_sample_rate - self.min_sample_rate
+            ) * float(cur_layer + 1 - warmup_depth) / float(binary_tree_depth - warmup_depth)
+            return sample_rate
 
     @classmethod
     def gen(
@@ -160,12 +188,7 @@ class HierarchicalKMeans(Indexer):
                 smat.csc_matrix(np.ones((nr_instances, 1), dtype=np.float32))
             )
 
-        depth = max(1, int(math.ceil(math.log2(nr_instances / train_params.max_leaf_size))))
-        if (2**depth) > nr_instances:
-            raise ValueError(
-                f"max_leaf_size > 1 is needed for feat_mat.shape[0] == {nr_instances} to avoid empty clusters"
-            )
-        train_params.depth = depth
+        train_params.depth = train_params.infer_binary_tree_depth(nr_instances)
 
         partition_algo = cls.SKMEANS if train_params.spherical else cls.KMEANS
         train_params.partition_algo = partition_algo
@@ -186,7 +209,7 @@ class HierarchicalKMeans(Indexer):
             train_params,
             codes,
         )
-        C = cls.convert_codes_to_csc_matrix(codes, depth)
+        C = cls.convert_codes_to_csc_matrix(codes, train_params.depth)
         cluster_chain = ClusterChain.from_partial_chain(
             C, min_codes=train_params.min_codes, nr_splits=train_params.nr_splits
         )

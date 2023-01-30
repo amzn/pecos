@@ -26,7 +26,6 @@ def predict(args):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="SentencePiece: tokenize text")
 
     parser.add_argument(

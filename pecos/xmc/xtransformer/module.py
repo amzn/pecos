@@ -77,7 +77,6 @@ class MLProblemWithText(object):
 
 
 class XMCTextTensorizer(object):
-
     DEFAULT_FEATURE_KEYS = ["input_ids", "attention_mask", "token_type_ids", "instance_number"]
 
     def __init__(self, text, feature_keys=None, input_transform=None):
@@ -167,7 +166,6 @@ class XMCLabelTensorizer(object):
         max_labels=None,
         pre_compute=False,
     ):
-
         self.label_padding_idx = label_padding_idx
         self.has_label = Y is not None
         self.has_ns = M is not None
@@ -230,7 +228,6 @@ class XMCLabelTensorizer(object):
         return self.label_width
 
     def get_lbl_mat(self, M, Y, max_labels=None):
-
         if M is None and Y is None:
             # 1.inference at top layer
             self.label_width = 0
