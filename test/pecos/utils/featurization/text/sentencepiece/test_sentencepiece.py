@@ -53,7 +53,6 @@ def test_unigram_model(tmpdir):
 
 
 def test_cli_bpe_model(tmpdir, capsys):
-
     test_input_file = tmpdir.join("test_input")
     test_input_file.write_text("hello world", encoding="utf-8")
     test_encoded_file = tmpdir.join("test_encoded")

@@ -137,7 +137,6 @@ class TfidfVectorizerParam(ctypes.Structure):
     ]
 
     def __init__(self, base_vect_param_list, norm_p):
-
         self.num_base_vect = len(base_vect_param_list)
         self.c_base_params = (TfidfBaseVectorizerParam * self.num_base_vect)()
         for i, base_vect_param in enumerate(base_vect_param_list):

@@ -36,7 +36,6 @@ def train(args):
 
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="SentencePiece: train tokenization model")
 
     parser.add_argument(

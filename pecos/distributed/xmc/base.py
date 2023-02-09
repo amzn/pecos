@@ -20,6 +20,8 @@ from pecos.utils.cluster_util import ClusterChain
 from scipy.sparse import csr_matrix, csc_matrix
 from pecos.distributed.comm.abs_dist_comm import DistComm
 from pecos.utils.profile_util import MemInfo
+import math
+from copy import deepcopy
 
 
 LOGGER = logging.getLogger(__name__)
@@ -359,9 +361,29 @@ class DistClustering(object):
         )
 
         LOGGER.info("Starts generating meta tree cluster on main node...")
-        meta_indexer_params = self._indexer_params.to_dict()
-        meta_indexer_params["max_leaf_size"] = self._get_meta_tree_max_leaf_size(Y.shape[1])
-        meta_cluster_chain = Indexer.gen(label_feat, **meta_indexer_params)
+        meta_indexer_params = deepcopy(self._indexer_params)
+        meta_indexer_params.max_leaf_size = self._get_meta_tree_max_leaf_size(Y.shape[1])
+
+        if self._indexer_params.do_sample:
+            total_binary_indexer_depth = self._indexer_params.infer_binary_tree_depth(
+                label_feat.shape[0],
+            )
+            total_binary_warmup_layers = math.floor(
+                self._indexer_params.warmup_ratio * total_binary_indexer_depth
+            )
+            self._meta_binary_indexer_depth = meta_indexer_params.infer_binary_tree_depth(
+                label_feat.shape[0],
+            )
+            meta_indexer_params.warmup_ratio = min(
+                1, total_binary_warmup_layers / self._meta_binary_indexer_depth
+            )
+
+            meta_indexer_params.max_sample_rate = self._indexer_params.get_layer_sample_rate(
+                self._meta_binary_indexer_depth - 1,
+                total_binary_indexer_depth,
+            )
+
+        meta_cluster_chain = Indexer.gen(label_feat, train_params=meta_indexer_params)
         LOGGER.info(f"Done generating meta tree cluster." f" {MemInfo.mem_info()}")
 
         return meta_cluster_chain
@@ -394,6 +416,32 @@ class DistClustering(object):
             LOGGER.info(
                 f"Starts generating {idx}th sub-tree cluster on rank {self._dist_comm.get_rank()}..."
             )
+
+            if self._indexer_params.do_sample:
+                sub_binary_indexer_depth = self._indexer_params.infer_binary_tree_depth(
+                    label_feat.shape[0],
+                )
+
+                total_binary_indexer_depth = (
+                    sub_binary_indexer_depth + self._meta_binary_indexer_depth
+                )
+                total_binary_warmup_layers = math.floor(
+                    self._indexer_params.warmup_ratio * total_binary_indexer_depth
+                )
+
+                if self._meta_binary_indexer_depth >= total_binary_warmup_layers:
+                    self._indexer_params.min_sample_rate = (
+                        self._indexer_params.get_layer_sample_rate(
+                            self._meta_binary_indexer_depth - 1,
+                            total_binary_indexer_depth,
+                        )
+                    )
+                    self._indexer_params.warmup_ratio = 0
+                else:
+                    self._indexer_params.warmup_ratio = float(
+                        total_binary_warmup_layers - self._meta_binary_indexer_depth
+                    ) / float(sub_binary_indexer_depth)
+
             cluster_chain = Indexer.gen(label_feat, train_params=self._indexer_params)
             LOGGER.info(
                 f"Done generating {idx}th sub-tree cluster on rank {self._dist_comm.get_rank()}."
@@ -439,12 +487,16 @@ class DistClustering(object):
 
         # Create meta tree cluster chain on main node
         grp_sub_tree_assign_arr_list = None
+        self._meta_binary_indexer_depth = None
         if self._dist_comm.get_rank() == 0:
             meta_cluster_chain = self._train_meta_cluster(X, Y)
             # Get sub-tree assignment arrays list for leaf cluster layer of meta-tree
             sub_tree_assign_arr_list = smat_util.get_csc_col_nonzero(meta_cluster_chain[-1])
             # Divide into n_machine groups to scatter
             grp_sub_tree_assign_arr_list = self._divide_sub_cluster_jobs(sub_tree_assign_arr_list)
+        self._meta_binary_indexer_depth = self._dist_comm.bcast(
+            self._meta_binary_indexer_depth, root=0
+        )
 
         # Create sub-tree cluster chain on all nodes
         self_sub_tree_assign_arr_list = self._dist_comm.scatter(
