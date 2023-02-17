@@ -12,6 +12,7 @@ import logging
 import numpy as np
 import dataclasses as dc
 import itertools
+import pecos
 from pecos.utils import smat_util
 from pecos.xmc import Indexer, LabelEmbeddingFactory
 from pecos.xmc.base import HierarchicalKMeans
@@ -279,22 +280,24 @@ class DistClustering(object):
     """
 
     @dc.dataclass
-    class ClusterParams(object):
+    class TrainParams(pecos.BaseParams):
         """Clustering parameters of Distributed Cluster Chain
 
         Parameters:
             indexer_params (HierarchicalKMeans.TrainParams): Params for indexing
-            meta_label_embedding_method (str): Meta-tree cluster label embedding method
+            meta_label_embedding_method (str): Meta-tree cluster label embedding method.
+                Default pifa
             sub_label_embedding_method (str): Sub-tree cluster label embedding method
+                Default pifa
         """
 
-        indexer_params: HierarchicalKMeans.TrainParams  # type: ignore
-        meta_label_embedding_method: str
-        sub_label_embedding_method: str
+        indexer_params: HierarchicalKMeans.TrainParams = None  # type: ignore
+        meta_label_embedding_method: str = "pifa"
+        sub_label_embedding_method: str = "pifa"
 
     def __init__(self, dist_comm, cluster_params):
         assert isinstance(dist_comm, DistComm), type(dist_comm)
-        assert isinstance(cluster_params, self.ClusterParams), type(cluster_params)
+        assert isinstance(cluster_params, self.TrainParams), type(cluster_params)
         assert cluster_params.meta_label_embedding_method in (
             "pii",
             "pifa",
