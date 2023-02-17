@@ -756,7 +756,7 @@ class DistributedCPUXLinearModel(object):
             dist_comm (DistComm): Distributed communicator.
             X (csr_matrix(float32)): instance feature matrix of shape (nr_inst, nr_feat).
             Y (csc_matrix(float32)): label matrix of shape (nr_inst, nr_labels).
-            cluster_params (DistClustering.ClusterParams): Clustering parameters.
+            cluster_params (DistClustering.TrainParams): Clustering parameters.
             train_params (cls.TrainParams): Training parameters.
             pred_params (cls.PredParams): Prediction parameters.
             dist_params (cls.DistParams): Distributed parameters.
@@ -764,7 +764,7 @@ class DistributedCPUXLinearModel(object):
         assert isinstance(dist_comm, DistComm), type(dist_comm)
         assert isinstance(X, csr_matrix), type(X)
         assert isinstance(Y, csc_matrix), type(Y)
-        assert isinstance(cluster_params, DistClustering.ClusterParams), type(cluster_params)
+        assert isinstance(cluster_params, DistClustering.TrainParams), type(cluster_params)
         assert isinstance(train_params, cls.TrainParams), type(train_params)
         assert isinstance(pred_params, cls.PredParams), type(pred_params)
         assert isinstance(dist_params, cls.DistParams), type(dist_params)

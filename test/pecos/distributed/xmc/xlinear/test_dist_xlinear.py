@@ -80,7 +80,7 @@ def test_dist_training():
 
     dummy_comm = DummyComm()
 
-    cluster_params = DistClustering.ClusterParams(
+    cluster_params = DistClustering.TrainParams(
         indexer_params=HierarchicalKMeans.TrainParams(
             nr_splits=2, max_leaf_size=2, threads=1, seed=0
         ),
