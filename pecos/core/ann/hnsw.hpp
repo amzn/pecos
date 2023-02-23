@@ -25,12 +25,11 @@
 #include <utility>
 #include <vector>
 
-
-
 #include "ann/feat_vectors.hpp"
 #include "ann/quantizer.hpp"
 #include "third_party/nlohmann_json/json.hpp"
 #include "utils/file_util.hpp"
+#include "utils/mmap_util.hpp"
 #include "utils/matrix.hpp"
 #include "utils/random.hpp"
 #include "utils/type_util.hpp"
@@ -94,44 +93,27 @@ namespace ann {
         index_type feat_dim;
         index_type max_degree;
         index_type node_mem_size;
-        std::vector<uint64_t> mem_start_of_node;
-        std::vector<char> buffer;
+        mmap_util::MmapableVector<mem_index_type> mem_start_of_node;
+        mmap_util::MmapableVector<char> buffer;
 
         size_t neighborhood_memory_size() const { return (1 + max_degree) * sizeof(index_type); }
 
-        void save(FILE *fp) const {
-            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&feat_dim, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&max_degree, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&node_mem_size, 1, fp);
-            size_t sz = mem_start_of_node.size();
-            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
-            if (sz) {
-                pecos::file_util::fput_multiple<uint64_t>(&mem_start_of_node[0], sz, fp);
-            }
-            sz = buffer.size();
-            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
-            if (sz) {
-                pecos::file_util::fput_multiple<char>(&buffer[0], sz, fp);
-            }
+        void save(mmap_util::MmapStore& mmap_s) const {
+            mmap_s.fput_one<index_type>(this->num_node);
+            mmap_s.fput_one<index_type>(this->feat_dim);
+            mmap_s.fput_one<index_type>(this->max_degree);
+            mmap_s.fput_one<index_type>(this->node_mem_size);
+            this->mem_start_of_node.save_to_mmap_store(mmap_s);
+            this->buffer.save_to_mmap_store(mmap_s);
         }
 
-        void load(FILE *fp) {
-            pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&feat_dim, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&max_degree, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&node_mem_size, 1, fp);
-            size_t sz = 0;
-            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
-            mem_start_of_node.resize(sz);
-            if (sz) {
-                pecos::file_util::fget_multiple<uint64_t>(&mem_start_of_node[0], sz, fp);
-            }
-            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
-            buffer.resize(sz);
-            if (sz) {
-                pecos::file_util::fget_multiple<char>(&buffer[0], sz, fp);
-            }
+        void load(mmap_util::MmapStore& mmap_s) {
+            this->num_node = mmap_s.fget_one<index_type>();
+            this->feat_dim = mmap_s.fget_one<index_type>();
+            this->max_degree = mmap_s.fget_one<index_type>();
+            this->node_mem_size = mmap_s.fget_one<index_type>();
+            this->mem_start_of_node.load_from_mmap_store(mmap_s);
+            this->buffer.load_from_mmap_store(mmap_s);
         }
 
         template<class MAT_T>
@@ -198,33 +180,24 @@ namespace ann {
         index_type max_degree;
         index_type node_mem_size;
         index_type level_mem_size;
-        std::vector<index_type> buffer;
+        mmap_util::MmapableVector<index_type> buffer;
 
-        void save(FILE *fp) const {
-            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&max_level, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&max_degree, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&node_mem_size, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&level_mem_size, 1, fp);
-            size_t sz = buffer.size();
-            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
-            if (sz) {
-                pecos::file_util::fput_multiple<index_type>(&buffer[0], sz, fp);
-            }
+        void save(mmap_util::MmapStore& mmap_s) const {
+            mmap_s.fput_one<index_type>(this->num_node);
+            mmap_s.fput_one<index_type>(this->max_level);
+            mmap_s.fput_one<index_type>(this->max_degree);
+            mmap_s.fput_one<index_type>(this->node_mem_size);
+            mmap_s.fput_one<index_type>(this->level_mem_size);
+            this->buffer.save_to_mmap_store(mmap_s);
         }
 
-        void load(FILE *fp) {
-            pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&max_level, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&max_degree, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&node_mem_size, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&level_mem_size, 1, fp);
-            size_t sz = 0;
-            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
-            buffer.resize(sz);
-            if (sz) {
-                pecos::file_util::fget_multiple<index_type>(&buffer[0], sz, fp);
-            }
+        void load(mmap_util::MmapStore& mmap_s) {
+            this->num_node = mmap_s.fget_one<index_type>();
+            this->max_level = mmap_s.fget_one<index_type>();
+            this->max_degree = mmap_s.fget_one<index_type>();
+            this->node_mem_size = mmap_s.fget_one<index_type>();
+            this->level_mem_size = mmap_s.fget_one<index_type>();
+            this->buffer.load_from_mmap_store(mmap_s);
         }
 
         template<class MAT_T>
@@ -246,7 +219,6 @@ namespace ann {
     template<class FeatVec_T>
     struct GraphProductQuantizer4Bits : GraphBase {
         typedef FeatVec_T feat_vec_t;
-        ProductQuantizer4Bits quantizer;
         index_type num_node;
         // code_dimension is number of 4 bits code used to encode a data point in GraphPQ4Bits
         // code_dimension can be different from parameter num_local_codebooks in quantizer
@@ -254,55 +226,34 @@ namespace ann {
         // found in pad_parameters function of ann/quantizer_impl/x86.hpp
         size_t code_dimension;
         // code_offset helps to locate memory position containing neighboring codes
-        size_t code_offset;  
+        size_t code_offset;
         size_t node_mem_size;
         index_type max_degree;
-        std::vector<uint64_t> mem_start_of_node;
-        std::vector<char> buffer;
+        mmap_util::MmapableVector<mem_index_type> mem_start_of_node;
+        mmap_util::MmapableVector<char> buffer;
+        ProductQuantizer4Bits quantizer;
 
-        void save(FILE *fp) const {
-            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fput_multiple<size_t>(&code_dimension, 1, fp);
-            pecos::file_util::fput_multiple<size_t>(&code_offset, 1, fp);
-            pecos::file_util::fput_multiple<size_t>(&node_mem_size, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&max_degree, 1, fp);
-            size_t sz = mem_start_of_node.size();
-            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
-            if (sz) {
-                pecos::file_util::fput_multiple<uint64_t>(&mem_start_of_node[0], sz, fp);
-            }
-            sz = buffer.size();
-            pecos::file_util::fput_multiple<size_t>(&sz, 1, fp);
-            if (sz) {
-                pecos::file_util::fput_multiple<char>(&buffer[0], sz, fp);
-            }
-            quantizer.save(fp);
-            fclose(fp);
+        void save(mmap_util::MmapStore& mmap_s) const {
+            mmap_s.fput_one<index_type>(this->num_node);
+            mmap_s.fput_one<size_t>(this->code_dimension);
+            mmap_s.fput_one<size_t>(this->code_offset);
+            mmap_s.fput_one<size_t>(this->node_mem_size);
+            mmap_s.fput_one<index_type>(this->max_degree);
+            this->mem_start_of_node.save_to_mmap_store(mmap_s);
+            this->buffer.save_to_mmap_store(mmap_s);
+            quantizer.save(mmap_s);
         }
 
-        void load(FILE *fp) {
-            pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fget_multiple<size_t>(&code_dimension, 1, fp);
-            pecos::file_util::fget_multiple<size_t>(&code_offset, 1, fp);
-            pecos::file_util::fget_multiple<size_t>(&node_mem_size, 1, fp);
-            pecos::file_util::fget_multiple<index_type>(&max_degree, 1, fp);
-            size_t sz = 0;
-            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
-            mem_start_of_node.resize(sz);
-            if (sz) {
-                pecos::file_util::fget_multiple<uint64_t>(&mem_start_of_node[0], sz, fp);
-            }
-            pecos::file_util::fget_multiple<size_t>(&sz, 1, fp);
-            buffer.resize(sz);
-            if (sz) {
-                pecos::file_util::fget_multiple<char>(&buffer[0], sz, fp);
-            }
-
-            quantizer.load(fp);
-
-            fclose(fp);
+        void load(mmap_util::MmapStore& mmap_s) {
+            this->num_node = mmap_s.fget_one<index_type>();
+            this->code_dimension = mmap_s.fget_one<size_t>();
+            this->code_offset = mmap_s.fget_one<size_t>();
+            this->node_mem_size = mmap_s.fget_one<size_t>();
+            this->max_degree = mmap_s.fget_one<index_type>();
+            this->mem_start_of_node.load_from_mmap_store(mmap_s);
+            this->buffer.load_from_mmap_store(mmap_s);
+            quantizer.load(mmap_s);
         }
-
 
         void build_quantizer(const pecos::drm_t& X_trn, index_type subspace_dimension, index_type sub_sample_points) {
             size_t code_dimension = X_trn.cols;
@@ -383,7 +334,6 @@ namespace ann {
             return NeighborHood((void*)neighborhood_ptr);
         }
     };
-
 
     template<class T>
     struct SetOfVistedNodes {
@@ -508,6 +458,9 @@ namespace ann {
         GraphL0<feat_vec_t> graph_l0;   // neighborhood graph along with feature vectors at level 0
         GraphL1 graph_l1;               // neighborhood graphs from level 1 and above
 
+        // for loading memory-mapped file
+        pecos::mmap_util::MmapStore mmap_store;
+
         // destructor
         ~HNSW() {}
 
@@ -534,7 +487,7 @@ namespace ann {
         void save_config(const std::string& filepath) const {
             nlohmann::json j_params = {
                 {"hnsw_t", pecos::type_util::full_name<HNSW>()},
-                {"version", "v1.0"},
+                {"version", "v2.0"},
                 {"train_params", {
                     {"num_node", this->num_node},
                     {"maxM", this->maxM},
@@ -561,37 +514,38 @@ namespace ann {
                 }
             }
             save_config(model_dir + "/config.json");
-            std::string index_path = model_dir + "/index.bin";
-            FILE *fp = fopen(index_path.c_str(), "wb");
-            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&maxM, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&maxM0, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&efC, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&max_level, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&init_node, 1, fp);
-            graph_l0.save(fp);
-            graph_l1.save(fp);
-            fclose(fp);
+            std::string index_path = model_dir + "/index.mmap_store";
+            mmap_util::MmapStore mmap_s = mmap_util::MmapStore();
+            mmap_s.open(index_path.c_str(), "w");
+            mmap_s.fput_one<index_type>(this->num_node);
+            mmap_s.fput_one<index_type>(this->maxM);
+            mmap_s.fput_one<index_type>(this->maxM0);
+            mmap_s.fput_one<index_type>(this->efC);
+            mmap_s.fput_one<index_type>(this->max_level);
+            mmap_s.fput_one<index_type>(this->init_node);
+            graph_l0.save(mmap_s);
+            graph_l1.save(mmap_s);
+            mmap_s.close();
         }
 
-        void load(const std::string& model_dir) {
+        void load(const std::string& model_dir, bool lazy_load = false) {
             auto config = load_config(model_dir + "/config.json");
             std::string version = config.find("version") != config.end() ? config["version"] : "not found";
-            std::string index_path = model_dir + "/index.bin";
-            FILE *fp = fopen(index_path.c_str(), "rb");
-            if (version == "v1.0") {
-                pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&maxM, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&maxM0, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&efC, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&max_level, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&init_node, 1, fp);
-                graph_l0.load(fp);
-                graph_l1.load(fp);
+            if (version == "v2.0") {
+                std::string index_path = model_dir + "/index.mmap_store";
+                mmap_store.open(index_path.c_str(), lazy_load ? "r_lazy" : "r");
+                this->num_node = mmap_store.fget_one<index_type>();
+                this->maxM = mmap_store.fget_one<index_type>();
+                this->maxM0 = mmap_store.fget_one<index_type>();
+                this->efC = mmap_store.fget_one<index_type>();
+                this->max_level = mmap_store.fget_one<index_type>();
+                this->init_node = mmap_store.fget_one<index_type>();
+                graph_l0.load(mmap_store);
+                graph_l1.load(mmap_store);
+                // DO NOT call mmap_store.close() as the actual memory is held by this->mmap_store object.
             } else {
-                throw std::runtime_error("Unable to load this binary with version = " + version);
+                throw std::runtime_error("Unable to load memory-mapped file with version = " + version);
             }
-            fclose(fp);
         }
 
         // Algorithm 4 of HNSW paper
@@ -1014,14 +968,13 @@ namespace ann {
         }
     };
 
-
+    // PECOS-HNSW-PQ4 Interface
     template<typename dist_t, class FeatVec_T>
     struct HNSWProductQuantizer4Bits {
         typedef FeatVec_T feat_vec_t;
         typedef Pair<dist_t, index_type> pair_t;
         typedef heap_t<pair_t, std::less<pair_t>> max_heap_t;
         typedef heap_t<pair_t, std::greater<pair_t>> min_heap_t;
-
 
         // scalar variables
         index_type num_node;
@@ -1031,18 +984,24 @@ namespace ann {
         index_type max_level;
         index_type init_node;
         index_type subspace_dimension;  // dimension of each subspace in Product Quantization
-        index_type sub_sample_points;   // number of sub-sampled points used to build quantizer subspace centors. 
+        index_type sub_sample_points;   // number of sub-sampled points used to build quantizer subspace centors.
 
         GraphL0<feat_vec_t> feature_vec;           // feature vectors only
         GraphL1 graph_l1;                       // neighborhood graphs from level 1 and above
         GraphProductQuantizer4Bits<feat_vec_t> graph_l0_pq4;   // Productquantized4Bits neighborhood graph built from graph_l0
+
+        // for loading memory-mapped file
+        mmap_util::MmapStore mmap_store;
+
         HNSWProductQuantizer4Bits() {
             std::string space_type = pecos::type_util::full_name<feat_vec_t>();
             if (space_type != "pecos::ann::FeatVecDenseL2Simd<float>") {
                 throw std::runtime_error("Currently, we only support L2 distance with float type.");
-            } 
+            }
         }
+
         ~HNSWProductQuantizer4Bits() {}
+
         struct Searcher : SetOfVistedNodes<unsigned short int> {
             typedef SetOfVistedNodes<unsigned short int> set_of_visited_nodes_t;
             typedef HNSWProductQuantizer4Bits<dist_t, FeatVec_T> hnswpq4_t;
@@ -1074,22 +1033,24 @@ namespace ann {
                 auto num_local_codebooks = hnsw->graph_l0_pq4.quantizer.num_local_codebooks;
 
                 //  When using AVX512f, we have 16 centroids per local codebook, and each of it uses 8 bits to represent quantized
-                //  distance value. Thus,m we will have 128 bits to load 1 set of local codebooks. Thus, a loadu_si512 will load
+                //  distance value. Thus, we will have 128 bits to load 1 set of local codebooks. Thus, a loadu_si512 will load
                 //  512 / 128 == 4 local codebooks at a time. Thus, the lookup table size needs to be adjusted (padding 0) if
                 //  if num_local_codebooks is not divisible by 4.
-                size_t adjusted_num_local_codebooks = num_local_codebooks % 4 == 0 ? num_local_codebooks : (num_local_codebooks / 4 + 1) * 4;
+                index_type adjusted_num_local_codebooks = num_local_codebooks % 4 == 0 ? num_local_codebooks : (num_local_codebooks / 4 + 1) * 4;
 
                 // Similarly, we have to parse every 16 neighbors at a time to maximally leverage avx512f.
                 // Thus, we have to prepare result array which is multiple of 16 to make sure the SIMD
                 // will not touch unavailable memory
-                size_t adjusted_max_degree = max_degree % 16 == 0 ? max_degree : ((max_degree / 16) + 1) * 16;
+                index_type adjusted_max_degree = max_degree % 16 == 0 ? max_degree : ((max_degree / 16) + 1) * 16;
 
                 lut.resize(num_of_local_centroids * adjusted_num_local_codebooks, 0);
                 appx_dist.resize(adjusted_max_degree, 0);
             }
+
             void setup_lut(float* query) {
                 hnsw->graph_l0_pq4.quantizer.setup_lut(query, lut.data(), scale, bias);
             }
+
             void approximate_distance(size_t neighbor_size, const char* neighbor_codes) {
                 // pass searcher to group_distance
                 hnsw->graph_l0_pq4.quantizer.approximate_neighbor_group_distance(neighbor_size, appx_dist.data(), neighbor_codes, lut.data(), scale, bias);
@@ -1107,7 +1068,6 @@ namespace ann {
         Searcher create_searcher() const {
             return Searcher(this);
         }
-
 
         static nlohmann::json load_config(const std::string& filepath) {
             std::ifstream loadfile(filepath);
@@ -1131,7 +1091,7 @@ namespace ann {
         void save_config(const std::string& filepath) const {
             nlohmann::json j_params = {
                 {"hnsw_t", pecos::type_util::full_name<HNSWProductQuantizer4Bits>()},
-                {"version", "v1.0"},
+                {"version", "v2.0"},
                 {"train_params", {
                     {"num_node", this->num_node},
                     {"subspace_dimension", this->subspace_dimension},
@@ -1160,43 +1120,44 @@ namespace ann {
                 }
             }
             save_config(model_dir + "/config.json");
-            std::string index_path = model_dir + "/index.bin";
-            FILE *fp = fopen(index_path.c_str(), "wb");
-            pecos::file_util::fput_multiple<index_type>(&num_node, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&maxM, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&maxM0, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&efC, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&max_level, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&init_node, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&subspace_dimension, 1, fp);
-            pecos::file_util::fput_multiple<index_type>(&sub_sample_points, 1, fp);
-            feature_vec.save(fp);
-            graph_l1.save(fp);
-            graph_l0_pq4.save(fp);
-            fclose(fp);
+            std::string index_path = model_dir + "/index.mmap_store";
+            mmap_util::MmapStore mmap_s = mmap_util::MmapStore();
+            mmap_s.open(index_path.c_str(), "w");
+            mmap_s.fput_one<index_type>(this->num_node);
+            mmap_s.fput_one<index_type>(this->maxM);
+            mmap_s.fput_one<index_type>(this->maxM0);
+            mmap_s.fput_one<index_type>(this->efC);
+            mmap_s.fput_one<index_type>(this->max_level);
+            mmap_s.fput_one<index_type>(this->init_node);
+            mmap_s.fput_one<index_type>(this->subspace_dimension);
+            mmap_s.fput_one<index_type>(this->sub_sample_points);
+            feature_vec.save(mmap_s);
+            graph_l1.save(mmap_s);
+            graph_l0_pq4.save(mmap_s);
+            mmap_s.close();
         }
 
-        void load(const std::string& model_dir) {
+        void load(const std::string& model_dir, bool lazy_load = false) {
             auto config = load_config(model_dir + "/config.json");
             std::string version = config.find("version") != config.end() ? config["version"] : "not found";
-            std::string index_path = model_dir + "/index.bin";
-            FILE *fp = fopen(index_path.c_str(), "rb");
-            if (version == "v1.0") {
-                pecos::file_util::fget_multiple<index_type>(&num_node, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&maxM, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&maxM0, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&efC, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&max_level, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&init_node, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&subspace_dimension, 1, fp);
-                pecos::file_util::fget_multiple<index_type>(&sub_sample_points, 1, fp);
-                feature_vec.load(fp);
-                graph_l1.load(fp);
-                graph_l0_pq4.load(fp);
+            if (version == "v2.0") {
+                std::string index_path = model_dir + "/index.mmap_store";
+                mmap_store.open(index_path.c_str(), lazy_load ? "r_lazy" : "r");
+                this->num_node = mmap_store.fget_one<index_type>();
+                this->maxM = mmap_store.fget_one<index_type>();
+                this->maxM0 = mmap_store.fget_one<index_type>();
+                this->efC = mmap_store.fget_one<index_type>();
+                this->max_level = mmap_store.fget_one<index_type>();
+                this->init_node = mmap_store.fget_one<index_type>();
+                this->subspace_dimension = mmap_store.fget_one<index_type>();
+                this->sub_sample_points = mmap_store.fget_one<index_type>();
+                feature_vec.load(mmap_store);
+                graph_l1.load(mmap_store);
+                graph_l0_pq4.load(mmap_store);
+                // DO NOT call mmap_store.close() as the actual memory is held by this->mmap_store object.
             } else {
-                throw std::runtime_error("Unable to load this binary with version = " + version);
+                throw std::runtime_error("Unable to load memory-mapped file with version = " + version);
             }
-            fclose(fp);
         }
 
         template<class MAT_T>
@@ -1233,7 +1194,6 @@ namespace ann {
             delete hnsw;
             feature_vec.init(X_trn, -1);
         }
-
 
         max_heap_t& predict_single(const feat_vec_t& query, index_type efS, index_type topk, Searcher& searcher, index_type num_rerank) const {
             index_type curr_node = this->init_node;
@@ -1370,5 +1330,6 @@ namespace ann {
             return topk_queue;
         }
     };
+
 }  // end of namespace ann
 }  // end of namespace pecos
