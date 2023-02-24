@@ -48,6 +48,9 @@ namespace pecos {
 
 namespace ann {
 
+    typedef uint32_t index_type;
+    typedef uint64_t mem_index_type;
+
     struct ProductQuantizer4Bits : ProductQuantizer4BitsBase {
 
         __attribute__((__target__("default")))
@@ -57,12 +60,15 @@ namespace ann {
 
         __attribute__((__target__("avx512f")))
         void pack_codebook_for_inference() {
+            mem_index_type offset1, offset2;
             local_codebooks.resize(original_local_codebooks.size(), 0);
-            for (index_type i = 0; i < num_local_codebooks; i++) {
-                for (size_t j = 0; j < num_of_local_centroids; j++) {
-                    for (int k = 0; k < local_dimension; k++) {
-                        local_codebooks[i * num_of_local_centroids * local_dimension + k * num_of_local_centroids + j]
-                            = original_local_codebooks[i * num_of_local_centroids * local_dimension + j * local_dimension + k];
+            for (index_type m = 0; m < num_local_codebooks; m++) {
+                offset1 = (mem_index_type) m * num_of_local_centroids * local_dimension;
+                for (index_type k = 0; k < num_of_local_centroids; k++) {
+                    offset2 = (mem_index_type) k * local_dimension;
+                    for (index_type d = 0; d < local_dimension; d++) {
+                        local_codebooks[offset1 + (mem_index_type) d * num_of_local_centroids + k]
+                            = original_local_codebooks[offset1 + offset2 + d];
                     }
                 }
             }
@@ -73,7 +79,7 @@ namespace ann {
             pad_parameters_default(max_degree, code_dimension);
         }
 
-        __attribute__((__target__("avx512f"))) 
+        __attribute__((__target__("avx512f")))
         void pad_parameters(index_type& max_degree, size_t& code_dimension) {
             //  When using AVX512f, we have 16 centroids per local codebook, and each of it uses 8 bits to represent quantized
             //  distance value. Thus, we will have 128 bits to load 1 set of local codebooks. Thus, a loadu_si512 will load
@@ -184,14 +190,14 @@ namespace ann {
                 globalID += 16;
             }
 
-            for (index_type d = 0; d < num_local_codebooks; d++) {
+            for (index_type m = 0; m < num_local_codebooks; m++) {
                 __m512 tmp_v = _mm512_setzero_ps();
                 // prefect data used in the next round. It's currently decided by experience and observance of good empirical
                 // results. The best prefetch position could be determined by a more complete empirical study.
                 _mm_prefetch(localID + local_dimension * 16, _MM_HINT_T0);
-                _mm_prefetch(raw_dist.data() + d * num_of_local_centroids, _MM_HINT_T0);
+                _mm_prefetch(raw_dist.data() + m * num_of_local_centroids, _MM_HINT_T0);
 
-                for (int j = 0; j < local_dimension; j++) {
+                for (index_type d = 0; d < local_dimension; d++) {
                     __m512 q = _mm512_set1_ps(*query_ptr++);
                     __m512 l = _mm512_loadu_ps(localID);
                     __m512 v = _mm512_sub_ps(q, l);
@@ -200,7 +206,7 @@ namespace ann {
                     // AVX512 read 16 floats at a time so locaiID will move 16 positions after a round
                     localID += 16;
                 }
-                _mm512_storeu_ps(&raw_dist[d * num_of_local_centroids], tmp_v);
+                _mm512_storeu_ps(&raw_dist[m * num_of_local_centroids], tmp_v);
                 max = std::max(max, _mm512_reduce_max_ps(tmp_v));
                 min = std::min(min, _mm512_reduce_min_ps(tmp_v));
             }
@@ -210,7 +216,7 @@ namespace ann {
             __m512 _scale = _mm512_set1_ps(scale);
             __m512 _bias = _mm512_set1_ps(bias);
             auto *raw_ptr = raw_dist.data();
-            for (index_type d = 0; d < num_local_codebooks; d++) {
+            for (index_type m = 0; m < num_local_codebooks; m++) {
                 __m512 raw_table = _mm512_loadu_ps(raw_ptr);
                 raw_table = _mm512_sub_ps(raw_table, _bias);
                 raw_table = _mm512_div_ps(raw_table, _scale);
