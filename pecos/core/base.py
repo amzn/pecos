@@ -1608,7 +1608,10 @@ class corelib(object):
                 c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
                 local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
                 res_list = c_void_p  # pointer to C/C++ pecos::ann::HNSW
-                arg_list = [c_char_p]  # pointer to char* model_dir
+                arg_list = [
+                    c_char_p,  # pointer to C/C++ pecos:ann::hnsw
+                    c_bool,  # bool for lazy_load of mmap files
+                ]
                 corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
 
                 fn_name = "save"
