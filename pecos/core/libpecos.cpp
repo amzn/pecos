@@ -378,9 +378,9 @@ extern "C" {
     C_ANN_HNSW_TRAIN(_drm_l2_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_l2_t)
 
     #define C_ANN_HNSW_LOAD(SUFFIX, HNSW_T) \
-    void* c_ann_hnsw_load ## SUFFIX(const char* model_dir) { \
+    void* c_ann_hnsw_load ## SUFFIX(const char* model_dir, const bool lazy_load) { \
         HNSW_T *model_ptr = new HNSW_T(); \
-        model_ptr->load(model_dir); \
+        model_ptr->load(model_dir, lazy_load); \
         return static_cast<void*>(model_ptr); \
     }
     C_ANN_HNSW_LOAD(_drm_ip_f32, hnsw_drm_ip_t)

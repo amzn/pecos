@@ -45,6 +45,14 @@ def test_save_and_load(tmpdir):
     assert Yp_from_mem == approx(
         Yp_from_file, abs=0.0
     ), f"save and load failed: Yp_from_mem != Yp_from_file"
+    del model
+
+    # test load memory-mapped files
+    model = HNSW.load(model_folder, lazy_load=True)
+    Yp_from_file, _ = model.predict(X_tst, pred_params=pred_params, ret_csr=False)
+    assert Yp_from_mem == approx(
+        Yp_from_file, abs=0.0
+    ), f"load mmap-file failed: Yp_from_mem != Yp_from_file"
 
 
 def test_predict_and_recall():

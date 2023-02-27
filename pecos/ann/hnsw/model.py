@@ -10,6 +10,7 @@
 #  and limitations under the License.
 from ctypes import (
     POINTER,
+    c_bool,
     c_float,
     c_uint32,
     c_char_p,
@@ -149,10 +150,11 @@ class HNSW(pecos.BaseClass):
         return cls(model_ptr, pX.rows, pX.cols, fn_dict, pred_params)
 
     @classmethod
-    def load(cls, model_folder):
+    def load(cls, model_folder, lazy_load=False):
         """Load HNSW model from file
         Args:
             model_folder (str): model directory from which the model is loaded.
+            lazy_load (bool): whether to lazy_load memory-mapped files (default False).
         Returns:
             HNSWModel (pecos.ann.hnsw.HNSW): the loaded HNSW model
         """
@@ -168,7 +170,7 @@ class HNSW(pecos.BaseClass):
         c_model_dir = f"{model_folder}/c_model"
         if not os.path.isdir(c_model_dir):
             raise ValueError(f"c_model_dir did not exist: {c_model_dir}")
-        model_ptr = fn_dict["load"](c_char_p(c_model_dir.encode("utf-8")))
+        model_ptr = fn_dict["load"](c_char_p(c_model_dir.encode("utf-8")), c_bool(lazy_load))
         pred_params = cls.PredParams.from_dict(param["pred_kwargs"])
         return cls(model_ptr, param["num_item"], param["feat_dim"], fn_dict, pred_params)
 
