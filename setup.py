@@ -115,7 +115,7 @@ setup_requires = numpy_requires + [
 install_requires = numpy_requires + [
     'scipy>=1.4.1',
     'scikit-learn>=0.24.1',
-    'torch>=1.8.0',
+    'torch>=1.8.0,<2.0.0',
     'sentencepiece>=0.1.86,!=0.1.92', # 0.1.92 results in error for transformers
     'transformers>=4.1.1; python_version<"3.9"',
     'transformers>=4.4.2; python_version>="3.9"'
