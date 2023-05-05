@@ -122,7 +122,7 @@ install_requires = numpy_requires + [
 ]
 
 # Fetch Numpy before building Numpy-dependent extension, if Numpy required version was not installed
-setuptools.dist.Distribution().fetch_build_eggs(numpy_requires)
+setuptools.distutils.core.Distribution().fetch_build_eggs(numpy_requires)
 blas_lib, blas_dir = BlasHelper.get_blas_lib_dir()
 
 # Get extra manual compile args if any
