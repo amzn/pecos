@@ -245,23 +245,25 @@ extern "C" {
     C_SPARSE_MATMUL(_csr_f32, ScipyCsrF32, pecos::csr_t)
 
 
-    #define C_SPARSE_INNER_PRODUCTS(SUFFIX, PY_MAT, C_MAT) \
+    #define C_SPARSE_INNER_PRODUCTS(SUFFIX, PX_MAT, CX_MAT, PW_MAT, CW_MAT) \
     void c_sparse_inner_products ## SUFFIX( \
-        const PY_MAT *pX, \
-        const ScipyCscF32 *pW, \
+        const PX_MAT *pX, \
+        const PW_MAT *pW, \
         uint64_t len, \
         uint32_t *X_row_idx, \
         uint32_t *W_col_idx, \
         float32_t *val, \
         int threads) { \
-        C_MAT X(pX); \
-        pecos::csc_t W(pW); \
+        CX_MAT X(pX); \
+        CW_MAT W(pW); \
         compute_sparse_entries_from_rowmajored_X_and_colmajored_M( \
             X, W, len, X_row_idx, W_col_idx, val, threads \
         ); \
     }
-    C_SPARSE_INNER_PRODUCTS(_csr_f32, ScipyCsrF32, pecos::csr_t)
-    C_SPARSE_INNER_PRODUCTS(_drm_f32, ScipyDrmF32, pecos::drm_t)
+    C_SPARSE_INNER_PRODUCTS(_csr2csc_f32, ScipyCsrF32, pecos::csr_t, ScipyCscF32, pecos::csc_t)
+    C_SPARSE_INNER_PRODUCTS(_drm2csc_f32, ScipyDrmF32, pecos::drm_t, ScipyCscF32, pecos::csc_t)
+    C_SPARSE_INNER_PRODUCTS(_csr2dcm_f32, ScipyCsrF32, pecos::csr_t, ScipyDcmF32, pecos::dcm_t)
+    C_SPARSE_INNER_PRODUCTS(_drm2dcm_f32, ScipyDrmF32, pecos::drm_t, ScipyDcmF32, pecos::dcm_t)
 
     // ==== C Interface of Clustering ====
 
