@@ -88,6 +88,7 @@
 #    include <type_traits>      // for enable_if_t, declval, conditional_t, ena...
 #    include <utility>          // for forward, exchange, pair, as_const, piece...
 #    include <vector>           // for vector
+#    include "../../utils/mmap_util.hpp" // for mmap
 #    if ANKERL_UNORDERED_DENSE_HAS_EXCEPTIONS() == 0
 #        include <cstdlib> // for abort
 #    endif
@@ -798,6 +799,9 @@ private:
     KeyEqual m_equal{};
     uint8_t m_shifts = initial_shifts;
 
+    // mmap. Not opened for read indicates everything is in memory
+    pecos::mmap_util::MmapStore mmap_store;
+
     [[nodiscard]] auto next(value_idx_type bucket_idx) const -> value_idx_type {
         return ANKERL_UNORDERED_DENSE_UNLIKELY(bucket_idx + 1U == m_num_buckets)
                    ? 0
@@ -904,8 +908,10 @@ private:
 
     void deallocate_buckets() {
         auto ba = bucket_alloc(m_values.get_allocator());
-        if (nullptr != m_buckets) {
-            bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
+        if (!mmap_store.is_open_for_read()) { // In memory
+            if (nullptr != m_buckets) {
+                bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
+            }
         }
         m_buckets = nullptr;
         m_num_buckets = 0;
@@ -1016,7 +1022,6 @@ private:
     template <typename K, typename... Args>
     auto do_place_element(dist_and_fingerprint_type dist_and_fingerprint, value_idx_type bucket_idx, K&& key, Args&&... args)
         -> std::pair<iterator, bool> {
-
         // emplace the new value. If that throws an exception, no harm done; index is still in a valid state
         m_values.emplace_back(std::piecewise_construct,
                               std::forward_as_tuple(std::forward<K>(key)),
@@ -1196,10 +1201,52 @@ public:
         : table(init, bucket_count, hash, KeyEqual(), alloc) {}
 
     ~table() {
-        if (nullptr != m_buckets) {
-            auto ba = bucket_alloc(m_values.get_allocator());
-            bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
+        if (!mmap_store.is_open_for_read()) { // in memory
+            if (nullptr != m_buckets) {
+                auto ba = bucket_alloc(m_values.get_allocator());
+                bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
+            }
         }
+    }
+
+    /* Memory-mapped */
+    table(const std::string& folderpath, const bool lazy_load) : table(0) {
+        load_mmap(folderpath, lazy_load);
+    }
+
+    inline std::string mmap_file_name(const std::string& folderpath) const {
+        return folderpath + "/ankerl_hashmap.mmap_store";
+    }
+
+    void load_mmap(const std::string& folderpath, const bool lazy_load) {
+        mmap_store.open(mmap_file_name(folderpath), lazy_load?"r_lazy":"r");
+
+        // kv pairs
+        m_values.load_from_mmap_store(mmap_store);
+
+        // buckets
+        m_num_buckets = mmap_store.fget_one<size_t>();
+        m_buckets = mmap_store.fget_multiple<Bucket>(m_num_buckets);
+        m_max_bucket_capacity = mmap_store.fget_one<size_t>();
+        m_max_load_factor = mmap_store.fget_one<float>();
+        m_shifts = mmap_store.fget_one<uint8_t>();
+    }
+
+    void save_mmap(const std::string& folderpath) {
+        auto mmap_s = pecos::mmap_util::MmapStore();
+        mmap_s.open(mmap_file_name(folderpath), "w");
+
+        // kv pairs
+        m_values.save_to_mmap_store(mmap_s);
+
+        // buckets
+        mmap_s.fput_one(m_num_buckets);
+        mmap_s.fput_multiple(m_buckets, m_num_buckets);
+        mmap_s.fput_one(m_max_bucket_capacity);
+        mmap_s.fput_one(m_max_load_factor);
+        mmap_s.fput_one(m_shifts);
+
+        mmap_s.close();
     }
 
     auto operator=(table const& other) -> table& {
