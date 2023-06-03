@@ -7,6 +7,8 @@ The optmization algorithm is AdaGrad with L2 regularization, with the option of 
 
 ## Install
 ```
+git clone -b v0.4.0 https://github.com/amzn/pecos.git
+cd pecos/example/fm
 make all
 ```
 You might need to specify path to OpenBlas with `-L[/openblas_dir/lib]`
