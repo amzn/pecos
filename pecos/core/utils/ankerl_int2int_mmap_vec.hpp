@@ -1,17 +1,17 @@
 #include "mmap_util.hpp"
 
 
-// Memory-mappable vector of fixed length type T for Ankerl
+// Memory-mappable vector of std::pair<uint64_t, uint64_t> for Ankerl
 // When calling write methods, the assumption is that the underlying storage is in memory, i.e. std::vector
-template<class T>
-class AnkerlMmapableVector : public pecos::mmap_util::MmapableVector<T> {
+class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std::pair<uint64_t, uint64_t>> {
     template <bool IsConst>
     class iter_t;
 
     public:
-        using mem_vec_type = std::vector<T>;
+        using key_type = uint64_t;
+        using value_type = std::pair<uint64_t, uint64_t>;
+        using mem_vec_type = std::vector<value_type>;
         using allocator_type = typename mem_vec_type::allocator_type;
-        using value_type = typename mem_vec_type::value_type;
         using size_type = typename mem_vec_type::size_type;
         using difference_type = typename mem_vec_type::difference_type;
         using reference = typename mem_vec_type::reference;
@@ -22,9 +22,9 @@ class AnkerlMmapableVector : public pecos::mmap_util::MmapableVector<T> {
         using iterator = iter_t<false>;
         using const_iterator = iter_t<true>;
 
-        AnkerlMmapableVector() = default;
-        AnkerlMmapableVector(allocator_type alloc)
-            : pecos::mmap_util::MmapableVector<T>(alloc) {}
+        AnkerlInt2IntMmapableVector() = default;
+        AnkerlInt2IntMmapableVector(allocator_type alloc)
+            : pecos::mmap_util::MmapableVector<value_type>(alloc) {}
 
         auto get_allocator() { return this->store_.get_allocator(); }
 
@@ -51,6 +51,11 @@ class AnkerlMmapableVector : public pecos::mmap_util::MmapableVector<T> {
             this->data_ = this->store_.data();
         }
 
+        /* Get key for member */
+        key_type get_key(value_type const& vt) const {
+            return vt.first;
+        }
+
 
     private:
         /**
@@ -59,7 +64,7 @@ class AnkerlMmapableVector : public pecos::mmap_util::MmapableVector<T> {
         template <bool IsConst>
         class iter_t {
             using ptr_t = typename std::conditional_t<IsConst,
-                AnkerlMmapableVector::const_pointer, AnkerlMmapableVector::pointer>;
+                AnkerlInt2IntMmapableVector::const_pointer, AnkerlInt2IntMmapableVector::pointer>;
             ptr_t iter_data_{};
 
             template <bool B>
@@ -67,12 +72,12 @@ class AnkerlMmapableVector : public pecos::mmap_util::MmapableVector<T> {
 
             public:
                 using iterator_category = std::forward_iterator_tag;
-                using difference_type = AnkerlMmapableVector::difference_type;
-                using value_type = T;
+                using difference_type = AnkerlInt2IntMmapableVector::difference_type;
+                using value_type = AnkerlInt2IntMmapableVector::value_type;
                 using reference = typename std::conditional_t<IsConst,
                     value_type const&, value_type&>;
                 using pointer = typename std::conditional_t<IsConst,
-                    AnkerlMmapableVector::const_pointer, AnkerlMmapableVector::pointer>;
+                    AnkerlInt2IntMmapableVector::const_pointer, AnkerlInt2IntMmapableVector::pointer>;
 
                 iter_t() noexcept = default;
 

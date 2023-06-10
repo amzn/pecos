@@ -848,9 +848,9 @@ private:
         return static_cast<value_idx_type>(hash >> m_shifts);
     }
 
-    [[nodiscard]] static constexpr auto get_key(value_type const& vt) -> key_type const& {
+    [[nodiscard]] constexpr auto get_key(value_type const& vt) -> key_type const {
         if constexpr (is_map_v<T>) {
-            return vt.first;
+            return m_values.get_key(vt);
         } else {
             return vt;
         }
