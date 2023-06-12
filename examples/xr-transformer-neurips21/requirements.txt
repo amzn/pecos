@@ -22,7 +22,7 @@ threadpoolctl==2.2.0
 tokenizers==0.10.3
 torch==1.9.1
 tqdm==4.62.3
-transformers==4.11.0
+transformers==4.30.0
 typing-extensions==3.10.0.2
 urllib3==1.26.7
 yarg==0.1.9
