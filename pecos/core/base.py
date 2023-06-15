@@ -25,6 +25,7 @@ from ctypes import (
     c_int32,
     c_uint32,
     c_uint64,
+    c_size_t,
     c_void_p,
     cast,
 )
@@ -531,6 +532,7 @@ class corelib(object):
         self.link_clustering()
         self.link_tfidf_vectorizer()
         self.link_ann_hnsw_methods()
+        self.link_mmap_ankerl_hashmap_methods()
 
     def link_xlinear_methods(self):
         """
@@ -1698,6 +1700,88 @@ class corelib(object):
                 "data_type={} and metric_type={} is not implemented".format(data_type, metric_type)
             )
         return self.ann_hnsw_fn_dict[data_type, metric_type]
+
+    def link_mmap_ankerl_hashmap_methods(self):
+        """
+        Specify C-lib's Memory-mappable Ankerl Hashmap methods arguments and return types.
+        """
+        fn_prefix = "ankerl_map"
+        map_type_list = ["str2int", "int2int"]
+        self.mmap_ankerl_map_fn_dict = {}
+
+        for map_type in map_type_list:
+            local_fn_dict = {}
+
+            fn_name = "new"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            corelib.fillprototype(local_fn_dict[fn_name], c_void_p, None)
+
+            fn_name = "destruct"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p])
+
+            fn_name = "save"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p, c_char_p])
+
+            fn_name = "load"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            corelib.fillprototype(local_fn_dict[fn_name], c_void_p, [c_char_p, c_bool])
+
+            fn_name = "size"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            corelib.fillprototype(local_fn_dict[fn_name], c_size_t, None)
+
+            # Fill insert & get
+            fn_name = "insert"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            if map_type == "str2int":
+                arg_list = [
+                    c_void_p,  # pointer of C/C++ map
+                    c_char_p,  # pointer of key string
+                    c_uint32,  # length of key string
+                    c_uint64,  # value int64
+                ]
+            elif map_type == "int2int":
+                arg_list = [
+                    c_void_p,  # pointer of C/C++ map
+                    c_uint64,  # key int64
+                    c_uint64,  # value int64
+                ]
+            else:
+                raise ValueError(f"{map_type} not implemented.")
+            corelib.fillprototype(local_fn_dict[fn_name], None, arg_list)
+
+            fn_name = "get"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            if map_type == "str2int":
+                arg_list = [
+                    c_void_p,  # pointer of C/C++ map
+                    c_char_p,  # pointer of key string
+                    c_uint32,  # length of key string
+                ]
+            elif map_type == "int2int":
+                arg_list = [
+                    c_void_p,  # pointer of C/C++ map
+                    c_uint64,  # key int64
+                ]
+            else:
+                raise ValueError(f"{map_type} not implemented.")
+            corelib.fillprototype(local_fn_dict[fn_name], c_uint64, arg_list)
+
+            self.mmap_ankerl_map_fn_dict[map_type] = local_fn_dict
+
+    def mmap_ankerl_hashmap_init(self, map_type):
+        """Python to C/C++ interface for Memory-mappable Ankerl Hashmap initialization
+        Args:
+            map_type (string): Type of Hashmap.
+        Returns:
+            mmap_ankerl_map_fn_dict (dict): a dictionary that holds clib's C/C++ functions for Python to call
+        """
+
+        if map_type not in self.mmap_ankerl_map_fn_dict:
+            raise NotImplementedError(f"map_type={map_type} is not implemented.")
+        return self.mmap_ankerl_map_fn_dict[map_type]
 
 
 clib = corelib(os.path.join(os.path.dirname(os.path.abspath(pecos.__file__)), "core"), "libpecos")

@@ -13,6 +13,7 @@
 
 #include "utils/clustering.hpp"
 #include "utils/matrix.hpp"
+#include "utils/mmap_ankerl_hashmap.hpp"
 #include "utils/tfidf.hpp"
 #include "utils/parallel.hpp"
 #include "xmc/inference.hpp"
@@ -474,4 +475,55 @@ extern "C" {
     C_ANN_HNSW_PREDICT(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_ip_t)
     C_ANN_HNSW_PREDICT(_csr_l2_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_l2_t)
 
+    // ==== C Interface of Memory-mappable Ankerl Hashmap ====
+
+    typedef pecos::ankerl_mmap_hashmap::Str2IntMap ankerl_map_str2int;
+    typedef pecos::ankerl_mmap_hashmap::Int2IntMap ankerl_map_int2int;
+
+    #define ANKERL_MAP_NEW(SUFFIX) \
+    void* ankerl_map_new_ ## SUFFIX () { \
+    return static_cast<void*>(new ankerl_map_ ## SUFFIX()); }
+    ANKERL_MAP_NEW(str2int)
+    ANKERL_MAP_NEW(int2int)
+
+    #define ANKERL_MAP_DESTRUCT(SUFFIX) \
+    void ankerl_map_destruct_ ## SUFFIX (void* map_ptr) { \
+    delete static_cast<ankerl_map_ ## SUFFIX *>(map_ptr); }
+    ANKERL_MAP_DESTRUCT(str2int)
+    ANKERL_MAP_DESTRUCT(int2int)
+
+    #define ANKERL_MAP_SAVE(SUFFIX) \
+    void ankerl_map_save_ ## SUFFIX (void* map_ptr, const char* map_dir) { \
+    static_cast<ankerl_map_ ## SUFFIX *>(map_ptr)->save(map_dir); }
+    ANKERL_MAP_SAVE(str2int)
+    ANKERL_MAP_SAVE(int2int)
+
+    #define ANKERL_MAP_LOAD(SUFFIX) \
+    void* ankerl_map_load_ ## SUFFIX (const char* map_dir, const bool lazy_load) { \
+    ankerl_map_ ## SUFFIX * map_ptr = new ankerl_map_ ## SUFFIX(); \
+    map_ptr->load(map_dir, lazy_load); \
+    return static_cast<void *>(map_ptr); }
+    ANKERL_MAP_LOAD(str2int)
+    ANKERL_MAP_LOAD(int2int)
+
+    #define ANKERL_MAP_SIZE(SUFFIX) \
+    size_t ankerl_map_size_ ## SUFFIX (void* map_ptr) { \
+    return static_cast<ankerl_map_ ## SUFFIX *>(map_ptr)->size(); }
+    ANKERL_MAP_SIZE(str2int)
+    ANKERL_MAP_SIZE(int2int)
+
+    // Insert
+    #define KEY_SINGLE_ARG(A,B) A,B
+    #define ANKERL_MAP_INSERT(SUFFIX, KEY, FUNC_CALL_KEY) \
+    void ankerl_map_insert_  ## SUFFIX (void* map_ptr, KEY, uint64_t val) { \
+        static_cast<ankerl_map_ ## SUFFIX *>(map_ptr)->insert( FUNC_CALL_KEY, val); }
+    ANKERL_MAP_INSERT(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    ANKERL_MAP_INSERT(int2int, uint64_t key, key)
+
+    // Get
+    #define ANKERL_MAP_GET(SUFFIX, KEY, FUNC_CALL_KEY) \
+    uint64_t ankerl_map_get_  ## SUFFIX (void* map_ptr, KEY) { \
+        return static_cast<ankerl_map_ ## SUFFIX *>(map_ptr)->get( FUNC_CALL_KEY); }
+    ANKERL_MAP_GET(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    ANKERL_MAP_GET(int2int, uint64_t key, key)
 }

@@ -1,5 +1,26 @@
+/*
+ * Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance
+ * with the License. A copy of the License is located at
+ *
+ * http://aws.amazon.com/apache2.0/
+ *
+ * or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
+ * OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
+ * and limitations under the License.
+ */
+
+#ifndef __MMAP_ANKERL_HASHMAP_H__
+#define __MMAP_ANKERL_HASHMAP_H__
+
+#include "../third_party/ankerl/unordered_dense.h"
 #include "mmap_util.hpp"
 
+namespace pecos {
+namespace ankerl_mmap_hashmap {
+
+namespace details_ { // namespace for Module Private classes
 
 // Memory-mappable vector of std::pair<StrView, uint64_t> for Ankerl
 // This vector takes/gets std::string_view as the key, but emplace back as the special mmap format StrView
@@ -211,3 +232,175 @@ class AnkerlStr2IntMmapableVector {
                 }
         };
 };
+
+
+// Memory-mappable vector of std::pair<uint64_t, uint64_t> for Ankerl
+// When calling write methods, the assumption is that the underlying storage is in memory, i.e. std::vector
+class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std::pair<uint64_t, uint64_t>> {
+    template <bool IsConst>
+    class iter_t;
+
+    public:
+        using key_type = uint64_t;
+        using value_type = std::pair<uint64_t, uint64_t>;
+        using mem_vec_type = std::vector<value_type>;
+        using allocator_type = typename mem_vec_type::allocator_type;
+        using size_type = typename mem_vec_type::size_type;
+        using difference_type = typename mem_vec_type::difference_type;
+        using reference = typename mem_vec_type::reference;
+        using const_reference = typename mem_vec_type::const_reference;
+        using pointer = typename mem_vec_type::pointer;
+        using const_pointer = typename mem_vec_type::const_pointer;
+        // Custom iterator
+        using iterator = iter_t<false>;
+        using const_iterator = iter_t<true>;
+
+        AnkerlInt2IntMmapableVector() = default;
+        AnkerlInt2IntMmapableVector(allocator_type alloc)
+            : pecos::mmap_util::MmapableVector<value_type>(alloc) {}
+
+        auto get_allocator() { return this->store_.get_allocator(); }
+
+        constexpr auto back() -> reference { return this->data_[this->size_ - 1]; }
+        constexpr auto begin() -> iterator { return {this->data_}; }
+        constexpr auto cbegin() -> const_iterator { return {this->data_}; }
+        constexpr auto end() -> iterator { return {this->data_ + this->size_}; }
+        constexpr auto cend() -> const_iterator{ return {this->data_ + this->size_}; }
+
+        void shrink_to_fit() { this->store_.shrink_to_fit(); }
+        void reserve(size_t new_capacity) { this->store_.reserve(new_capacity); }
+
+        template <class... Args>
+        auto emplace_back(Args&&... args) {
+            auto eb_val = this->store_.emplace_back(std::forward<Args>(args)...);
+            this->size_ = this->store_.size();
+            this->data_ = this->store_.data();
+            return eb_val;
+        }
+
+        void pop_back() {
+            this->store_.pop_back();
+            this->size_ = this->store_.size();
+            this->data_ = this->store_.data();
+        }
+
+        /* Get key for member */
+        key_type get_key(value_type const& vt) const {
+            return vt.first;
+        }
+
+
+    private:
+        /**
+         * Iterator class doubles as const_iterator and iterator
+         */
+        template <bool IsConst>
+        class iter_t {
+            using ptr_t = typename std::conditional_t<IsConst,
+                AnkerlInt2IntMmapableVector::const_pointer, AnkerlInt2IntMmapableVector::pointer>;
+            ptr_t iter_data_{};
+
+            template <bool B>
+            friend class iter_t;
+
+            public:
+                using iterator_category = std::forward_iterator_tag;
+                using difference_type = AnkerlInt2IntMmapableVector::difference_type;
+                using value_type = AnkerlInt2IntMmapableVector::value_type;
+                using reference = typename std::conditional_t<IsConst,
+                    value_type const&, value_type&>;
+                using pointer = typename std::conditional_t<IsConst,
+                    AnkerlInt2IntMmapableVector::const_pointer, AnkerlInt2IntMmapableVector::pointer>;
+
+                iter_t() noexcept = default;
+
+                template <bool OtherIsConst, typename = typename std::enable_if<IsConst && !OtherIsConst>::type>
+                constexpr iter_t(iter_t<OtherIsConst> const& other) noexcept
+                    : iter_data_(other.iter_data_) {}
+
+                constexpr iter_t(ptr_t data) noexcept
+                    : iter_data_(data) {}
+
+                template <bool OtherIsConst, typename = typename std::enable_if<IsConst && !OtherIsConst>::type>
+                constexpr auto operator=(iter_t<OtherIsConst> const& other) noexcept -> iter_t& {
+                    iter_data_ = other.iter_data_;
+                    return *this;
+                }
+
+                constexpr auto operator++() noexcept -> iter_t& {
+                    ++iter_data_;
+                    return *this;
+                }
+
+                constexpr auto operator+(difference_type diff) noexcept -> iter_t {
+                    return {iter_data_ + diff};
+                }
+
+                template <bool OtherIsConst>
+                constexpr auto operator-(iter_t<OtherIsConst> const& other) noexcept -> difference_type {
+                    return static_cast<difference_type>(iter_data_ - other.iter_data_);
+                }
+
+                constexpr auto operator*() const noexcept -> reference {
+                    return *iter_data_;
+                }
+
+                constexpr auto operator->() const noexcept -> pointer {
+                    return iter_data_;
+                }
+
+                template <bool O>
+                constexpr auto operator==(iter_t<O> const& o) const noexcept -> bool {
+                    return iter_data_ == o.iter_data_;
+                }
+
+                template <bool O>
+                constexpr auto operator!=(iter_t<O> const& o) const noexcept -> bool {
+                    return !(*this == o);
+                }
+        };
+
+};
+} // end namespace details_
+
+
+class Str2IntMap {
+public:
+    void insert(const char* key, uint32_t key_len, uint64_t val) { map[std::string_view(key, key_len)] = val; }
+    uint64_t get(const char* key, uint32_t key_len) { return map.at(std::string_view(key, key_len)); }
+    auto size() { return map.size(); }
+
+    void save(const std::string& map_dir) { map.save_mmap(map_dir); }
+    void load(const std::string& map_dir, const bool lazy_load) { map.load_mmap(map_dir, lazy_load); }
+
+private:
+    ankerl::unordered_dense::map<
+        std::string_view, uint64_t,
+        ankerl::unordered_dense::v4_0_0::hash<std::string_view>,
+        std::equal_to<std::string_view>,
+        details_::AnkerlStr2IntMmapableVector
+    > map;
+};
+
+class Int2IntMap {
+public:
+    void insert(uint64_t key, uint64_t val) { map[key] = val; }
+    uint64_t get(uint64_t key) { return map.at(key); }
+    auto size() { return map.size(); }
+
+    void save(const std::string& folderpath) { map.save_mmap(folderpath); }
+    void load(const std::string& folderpath, const bool lazy_load) { map.load_mmap(folderpath, lazy_load); }
+
+private:
+    ankerl::unordered_dense::map<
+        uint64_t, uint64_t,
+        ankerl::unordered_dense::v4_0_0::hash<uint64_t>,
+        std::equal_to<uint64_t>,
+        details_::AnkerlInt2IntMmapableVector
+    > map;
+};
+
+} // end namespace ankerl_mmap_hashmap
+} // end namespace pecos
+
+#endif  // end of __MMAP_ANKERL_HASHMAP_H__
