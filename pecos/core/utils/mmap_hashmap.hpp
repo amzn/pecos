@@ -18,7 +18,7 @@
 #include "mmap_util.hpp"
 
 namespace pecos {
-namespace ankerl_mmap_hashmap {
+namespace mmap_hashmap {
 
 namespace details_ { // namespace for Module Private classes
 
@@ -64,25 +64,12 @@ class AnkerlStr2IntMmapableVector {
         /* Functions to match std::vector interface */
         auto get_allocator() { return store_.get_allocator(); }
 
-        constexpr auto back() -> reference {
-            return data_[size_ - 1];
-        }
-
-        constexpr auto begin() -> iterator {
-            return {data_};
-        }
-
-        constexpr auto cbegin() -> const_iterator {
-            return {data_};
-        }
-
-        constexpr auto end() -> iterator {
-            return {data_ + size_};
-        }
-
-        constexpr auto cend() -> const_iterator{
-            return {data_ + size_};
-        }
+        constexpr auto back() -> reference { return data_[size_ - 1]; }
+        constexpr auto begin() -> iterator { return {data_}; }
+        constexpr auto cbegin() -> const_iterator { return {data_}; }
+        constexpr auto end() -> iterator { return {data_ + size_}; }
+        constexpr auto end() const -> const_iterator { return {data_ + size_}; }
+        constexpr auto cend() const -> const_iterator{ return {data_ + size_}; }
 
         void shrink_to_fit() { store_.shrink_to_fit(); }
         void reserve(size_t new_capacity) { store_.reserve(new_capacity); }
@@ -265,7 +252,8 @@ class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std:
         constexpr auto begin() -> iterator { return {this->data_}; }
         constexpr auto cbegin() -> const_iterator { return {this->data_}; }
         constexpr auto end() -> iterator { return {this->data_ + this->size_}; }
-        constexpr auto cend() -> const_iterator{ return {this->data_ + this->size_}; }
+        constexpr auto end() const -> const_iterator { return {this->data_ + this->size_}; }
+        constexpr auto cend() const -> const_iterator{ return {this->data_ + this->size_}; }
 
         void shrink_to_fit() { this->store_.shrink_to_fit(); }
         void reserve(size_t new_capacity) { this->store_.reserve(new_capacity); }
@@ -366,9 +354,25 @@ class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std:
 
 class Str2IntMap {
 public:
-    void insert(const char* key, uint32_t key_len, uint64_t val) { map[std::string_view(key, key_len)] = val; }
-    uint64_t get(const char* key, uint32_t key_len) { return map.at(std::string_view(key, key_len)); }
-    auto size() { return map.size(); }
+    void insert(const char* key, uint32_t key_len, uint64_t val) {
+        map[std::string_view(key, key_len)] = val;
+    }
+
+    uint64_t get(const char* key, uint32_t key_len) {
+        return map.at(std::string_view(key, key_len));
+    }
+
+    uint64_t get_w_default(const char* key, uint32_t key_len, uint64_t def_val) {
+        try {
+            return get(key, key_len);
+        } catch (...) { return def_val;}
+    }
+
+    bool contains(const char* key, uint32_t key_len) {
+        return map.contains(std::string_view(key, key_len));
+    }
+
+    size_t size() { return map.size(); }
 
     void save(const std::string& map_dir) { map.save_mmap(map_dir); }
     void load(const std::string& map_dir, const bool lazy_load) { map.load_mmap(map_dir, lazy_load); }
@@ -386,7 +390,16 @@ class Int2IntMap {
 public:
     void insert(uint64_t key, uint64_t val) { map[key] = val; }
     uint64_t get(uint64_t key) { return map.at(key); }
-    auto size() { return map.size(); }
+
+    uint64_t get_w_default(uint64_t key, uint64_t def_val) {
+        try {
+            return get(key);
+        } catch (...) { return def_val;}
+    }
+
+    bool contains(uint64_t key) { return map.contains(key); }
+
+    size_t size() { return map.size(); }
 
     void save(const std::string& folderpath) { map.save_mmap(folderpath); }
     void load(const std::string& folderpath, const bool lazy_load) { map.load_mmap(folderpath, lazy_load); }

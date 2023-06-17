@@ -88,7 +88,7 @@
 #    include <type_traits>      // for enable_if_t, declval, conditional_t, ena...
 #    include <utility>          // for forward, exchange, pair, as_const, piece...
 #    include <vector>           // for vector
-#    include "../../utils/mmap_util.hpp" // for mmap
+#    include "../../utils/mmap_util.hpp" // MODIFIED for mmap
 #    if ANKERL_UNORDERED_DENSE_HAS_EXCEPTIONS() == 0
 #        include <cstdlib> // for abort
 #    endif
@@ -799,6 +799,7 @@ private:
     KeyEqual m_equal{};
     uint8_t m_shifts = initial_shifts;
 
+    // MODIFIED
     // mmap. Not opened for read indicates everything is in memory
     pecos::mmap_util::MmapStore mmap_store;
 
@@ -850,6 +851,8 @@ private:
 
     [[nodiscard]] constexpr auto get_key(value_type const& vt) -> key_type const {
         if constexpr (is_map_v<T>) {
+            // MODIFIED
+            // Requires container to have get_key method implemented
             return m_values.get_key(vt);
         } else {
             return vt;
@@ -908,6 +911,7 @@ private:
 
     void deallocate_buckets() {
         auto ba = bucket_alloc(m_values.get_allocator());
+        // MODIFIED
         if (!mmap_store.is_open_for_read()) { // In memory
             if (nullptr != m_buckets) {
                 bucket_alloc_traits::deallocate(ba, m_buckets, bucket_count());
@@ -1201,6 +1205,7 @@ public:
         : table(init, bucket_count, hash, KeyEqual(), alloc) {}
 
     ~table() {
+        // MODIFIED
         if (!mmap_store.is_open_for_read()) { // in memory
             if (nullptr != m_buckets) {
                 auto ba = bucket_alloc(m_values.get_allocator());
@@ -1209,6 +1214,7 @@ public:
         }
     }
 
+    // ---- MODIFIED ----
     /* Memory-mapped */
     table(const std::string& folderpath, const bool lazy_load) : table(0) {
         load_mmap(folderpath, lazy_load);
@@ -1248,6 +1254,7 @@ public:
 
         mmap_s.close();
     }
+    // --------
 
     auto operator=(table const& other) -> table& {
         if (&other != this) {
