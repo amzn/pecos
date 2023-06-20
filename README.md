@@ -29,7 +29,7 @@ Given an input, PECOS identifies a small set (10-100) of relevant outputs from a
 
 ## Requirements and Installation
 
-* Python (>=3.6, <=3.9)
+* Python (3.7, 3.8, 3.9, 3.10)
 * Pip (>=19.3)
 
 See other dependencies in [`setup.py`](https://github.com/amzn/pecos/blob/mainline/setup.py#L135)
@@ -37,7 +37,7 @@ You should install PECOS in a [virtual environment](https://docs.python.org/3/li
 If you're unfamiliar with Python virtual environments, check out the [user guide](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/).
 
 ### Supporting Platforms
-* Ubuntu 18.04 and 20.04
+* Ubuntu 20.04 and 22.04
 * Amazon Linux 2
 
 ### Installation from Wheel
@@ -51,20 +51,20 @@ python3 -m pip install libpecos
 ### Installation from Source
 
 #### Prerequisite builder tools
-* For Ubuntu (18.04, 20.04):
+* For Ubuntu (20.04, 22.04):
 ``` bash
 sudo apt-get update && sudo apt-get install -y build-essential git python3 python3-distutils python3-venv
 ```
-* For Amazon Linux 2 Image:
+* For Amazon Linux 2:
 ``` bash
-sudo yum -y install python3 python3-devel python3-distutils python3-venv && sudo yum -y groupinstall 'Development Tools' 
+sudo yum -y install python3 python3-devel python3-distutils python3-venv && sudo yum -y groupinstall 'Development Tools'
 ```
 One needs to install at least one BLAS library to compile PECOS, e.g. `OpenBLAS`:
-* For Ubuntu (18.04, 20.04):
+* For Ubuntu (20.04, 22.04):
 ``` bash
 sudo apt-get install -y libopenblas-dev
 ```
-* For Amazon Linux 2 Image and AMI:
+* For Amazon Linux 2:
 ``` bash
 sudo amazon-linux-extras install epel -y
 sudo yum install openblas-devel -y
@@ -122,17 +122,25 @@ If you find PECOS useful, please consider citing the following paper:
 
 * [PECOS: Prediction for Enormous and Correlated Output Spaces (Yu et al., JMLR 2022)](https://arxiv.org/pdf/2010.05878.pdf) [[bib]](./bibtex/yu2020pecos.bib)
 
-Some papers from our group using PECOS:
+Some papers from PECOS team:
 
-* [FINGER: Fast Inference for Graph-based Approximate Nearest Neighbor Search (Chen et al., ArXiv 2022)](https://arxiv.org/pdf/2206.11408.pdf) [[bib]](./bibtex/)
+* [Representer Points for Explaining Recommender Systems (Tsai et al., ICML 2023)](./) [[bib]](./bibtex/)
+
+* [PINA: Leveraging Side Information in eXtreme Multilabel Classification via Predicted Instance Neighborhood Aggregation (Chien et al., ICML 2023)](./) [[bib]](./bibtex/)
+
+* [Uncertainty Quantification in Extreme Classification (Jiang et al., SIGIR 2023)](./) [[bib]](./bibtex/)
+
+* [FINGER: Fast Inference for Graph-based Approximate Nearest Neighbor Search (Chen et al., WWW 2023)](https://dl.acm.org/doi/abs/10.1145/3543507.3583318) [[bib]](./bibtex/)
+
+* [End-to-End Learning to Index and Search in Large Output Space (Gupta et al., NeurIPS 2022)](https://papers.nips.cc/paper_files/paper/2022/hash/7d4f98f916494121aca3da02e36a4d18-Abstract-Conference.html) [[bib]](./bibtex/)
 
 * [Relevance under the Iceberg: Reasonable Prediction for Extreme Multi-label Classification (Jiang et al., SIGIR 2022)](https://dl.acm.org/doi/abs/10.1145/3477495.3531767) [[bib]](./bibtex/)
 
 * [Extreme Zero-Shot Learning for Extreme Text Classification (Xiong et al., NAACL 2022)](https://aclanthology.org/2022.naacl-main.399.pdf) [[bib]](./bibtex/)
 
-* [Node Feature Extraction by Self-Supervised Multi-scale Neighborhood Prediction (Chien et al., ICLR 2022)](https://arxiv.org/pdf/2111.00064.pdf) [[bib]](./bibtex/chien2021node.bib)
+* [Node Feature Extraction by Self-Supervised Multi-scale Neighborhood Prediction (Chien et al., ICLR 2022)](https://openreview.net/pdf?id=KJggliHbs8) [[bib]](./bibtex/chien2021node.bib)
 
-* [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., WWW 2022)](https://arxiv.org/pdf/2106.02697.pdf) [[bib]](./bibtex/etter2021accelerating.bib)
+* [Accelerating Inference for Sparse Extreme Multi-Label Ranking Trees (Etter et al., WWW 2022)](https://dl.acm.org/doi/10.1145/3485447.3511973) [[bib]](./bibtex/etter2021accelerating.bib)
 
 * [Fast Multi-Resolution Transformer Fine-tuning for Extreme Multi-label Text Classification (Zhang et al., NeurIPS 2021)](https://arxiv.org/pdf/2110.00685.pdf) [[bib]](./bibtex/zhang2021fast.bib)
 

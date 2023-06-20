@@ -1173,14 +1173,24 @@ class corelib(object):
             c_int,  # threads
         ]
         corelib.fillprototype(
-            self.clib_float32.c_sparse_inner_products_csr_f32,
+            self.clib_float32.c_sparse_inner_products_csr2csc_f32,
             None,
-            [POINTER(ScipyCsrF32)] + arg_list[1:],
+            [POINTER(ScipyCsrF32), POINTER(ScipyCscF32)] + arg_list[2:],
         )
         corelib.fillprototype(
-            self.clib_float32.c_sparse_inner_products_drm_f32,
+            self.clib_float32.c_sparse_inner_products_drm2csc_f32,
             None,
-            [POINTER(ScipyDrmF32)] + arg_list[1:],
+            [POINTER(ScipyDrmF32), POINTER(ScipyCscF32)] + arg_list[2:],
+        )
+        corelib.fillprototype(
+            self.clib_float32.c_sparse_inner_products_csr2dcm_f32,
+            None,
+            [POINTER(ScipyCsrF32), POINTER(ScipyDcmF32)] + arg_list[2:],
+        )
+        corelib.fillprototype(
+            self.clib_float32.c_sparse_inner_products_drm2dcm_f32,
+            None,
+            [POINTER(ScipyDrmF32), POINTER(ScipyDcmF32)] + arg_list[2:],
         )
 
     def sparse_matmul(self, X, Y, eliminate_zeros=False, sorted_indices=True, threads=-1):
@@ -1259,17 +1269,17 @@ class corelib(object):
 
         return pred_alloc.get()
 
-    def sparse_inner_products(self, pX, pW, X_row_idx, W_col_idx, pred_values=None, threads=-1):
+    def sparse_inner_products(self, X, W, X_row_idx, W_col_idx, pred_values=None, threads=-1):
         """
         Sparse-Sparse matrix batch inner product with multithreading (shared-memory).
         Do inner product for rows from `pX` indicated by `X_row_idx`, and columns from `pW` indicated by `W_col_idx`.
         Results will be written in `pred_values` if provided; Otherwise, create a new array for results.
 
         Args:
-            pX (ScipyCsrF32, ScipyDrmF32): The first sparse matrix.
-            pW (ScipyCscF32, ScipyDcmF32): The second sparse matrix.
-            X_row_idx (ndarray): Row indexes for `pX`.
-            W_col_idx (ndarray): Column indexes for `pW`.
+            X (smat.csr_matrix, or np.ndarray): The first row-majored sparse/dense matrix, w/ dtype of np.float32.
+            W (smat.csc_matrix, or np.ndarray): The second col-majored sparse/dense matrix, w/ dtype of np.float32.
+            X_row_idx (ndarray): Row indexes for `X` matrix, w/ dtype of np.uint32.
+            W_col_idx (ndarray): Column indexes for `W` matrix, w/ dtype of np.uint32.
             pred_values (ndarray, optional): The inner product result array.
             threads (int, optional): The number of threads. Default -1 to use all cores.
 
@@ -1281,16 +1291,24 @@ class corelib(object):
 
         nnz = len(X_row_idx)
         assert nnz == len(W_col_idx)
+        assert X.shape[1] == W.shape[0]
 
-        if not isinstance(pW, ScipyCscF32):
-            raise NotImplementedError("type(pW) = {} no implemented".format(type(pW)))
-
-        if isinstance(pX, ScipyCsrF32):
-            c_sparse_inner_products = clib.c_sparse_inner_products_csr_f32
-        elif isinstance(pX, ScipyDrmF32):
-            c_sparse_inner_products = clib.c_sparse_inner_products_drm_f32
+        if isinstance(X, smat.csr_matrix) and isinstance(W, smat.csc_matrix):
+            pX, pW = ScipyCsrF32.init_from(X), ScipyCscF32.init_from(W)
+            c_sparse_inner_products = clib.c_sparse_inner_products_csr2csc_f32
+        elif isinstance(X, np.ndarray) and isinstance(W, smat.csc_matrix):
+            pX, pW = ScipyDrmF32.init_from(X), ScipyCscF32.init_from(W)
+            c_sparse_inner_products = clib.c_sparse_inner_products_drm2csc_f32
+        elif isinstance(X, smat.csr_matrix) and isinstance(W, np.ndarray):
+            pX, pW = ScipyCsrF32.init_from(X), ScipyDcmF32.init_from(W)
+            c_sparse_inner_products = clib.c_sparse_inner_products_csr2dcm_f32
+        elif isinstance(X, np.ndarray) and isinstance(W, np.ndarray):
+            pX, pW = ScipyDrmF32.init_from(X), ScipyDcmF32.init_from(W)
+            c_sparse_inner_products = clib.c_sparse_inner_products_drm2dcm_f32
         else:
-            raise NotImplementedError("type(pX) = {} no implemented".format(type(pX)))
+            raise NotImplementedError(
+                "type(X)={} and type(W)={} no implemented".format(type(X), type(W))
+            )
 
         if pred_values is None or len(pred_values) != nnz or pred_values.dtype != np.float32:
             pred_values = np.zeros(nnz, pW.dtype)
@@ -1608,7 +1626,10 @@ class corelib(object):
                 c_fn_name = f"c_ann_hnsw_{fn_name}_{data_type}_{metric_type}_f32"
                 local_fn_dict[fn_name] = getattr(self.clib_float32, c_fn_name)
                 res_list = c_void_p  # pointer to C/C++ pecos::ann::HNSW
-                arg_list = [c_char_p]  # pointer to char* model_dir
+                arg_list = [
+                    c_char_p,  # pointer to C/C++ pecos:ann::hnsw
+                    c_bool,  # bool for lazy_load of mmap files
+                ]
                 corelib.fillprototype(local_fn_dict[fn_name], res_list, arg_list)
 
                 fn_name = "save"

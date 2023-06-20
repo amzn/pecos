@@ -115,14 +115,14 @@ setup_requires = numpy_requires + [
 install_requires = numpy_requires + [
     'scipy>=1.4.1',
     'scikit-learn>=0.24.1',
-    'torch>=1.8.0',
+    'torch>=1.8.0,<2.0.0',
     'sentencepiece>=0.1.86,!=0.1.92', # 0.1.92 results in error for transformers
     'transformers>=4.1.1; python_version<"3.9"',
     'transformers>=4.4.2; python_version>="3.9"'
 ]
 
 # Fetch Numpy before building Numpy-dependent extension, if Numpy required version was not installed
-setuptools.dist.Distribution().fetch_build_eggs(numpy_requires)
+setuptools.distutils.core.Distribution().fetch_build_eggs(numpy_requires)
 blas_lib, blas_dir = BlasHelper.get_blas_lib_dir()
 
 # Get extra manual compile args if any
