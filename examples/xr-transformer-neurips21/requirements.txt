@@ -15,7 +15,7 @@ regex==2021.9.24
 requests==2.31.0
 sacremoses==0.0.46
 scikit-learn==1.0
-scipy==1.7.1
+scipy==1.10.0
 sentencepiece==0.1.96
 six==1.16.0
 threadpoolctl==2.2.0
