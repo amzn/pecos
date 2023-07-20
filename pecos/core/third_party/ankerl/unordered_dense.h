@@ -26,6 +26,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+
+// NOTE: Ankerl mmap is modified for memory-mappable functionality and cannot be used in the original way
+// Check utils/mmap_hashmap.hpp for usage
+
+
 #ifndef ANKERL_UNORDERED_DENSE_H
 #define ANKERL_UNORDERED_DENSE_H
 
@@ -88,7 +93,7 @@
 #    include <type_traits>      // for enable_if_t, declval, conditional_t, ena...
 #    include <utility>          // for forward, exchange, pair, as_const, piece...
 #    include <vector>           // for vector
-#    include "../../utils/mmap_util.hpp" // MODIFIED for mmap
+#    include "utils/mmap_util.hpp" // MODIFIED for mmap
 #    if ANKERL_UNORDERED_DENSE_HAS_EXCEPTIONS() == 0
 #        include <cstdlib> // for abort
 #    endif

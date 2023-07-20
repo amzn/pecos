@@ -14,13 +14,16 @@
 #ifndef __MMAP_ANKERL_HASHMAP_H__
 #define __MMAP_ANKERL_HASHMAP_H__
 
-#include "../third_party/ankerl/unordered_dense.h"
+#include "third_party/ankerl/unordered_dense.h"
 #include "mmap_util.hpp"
 
 namespace pecos {
 namespace mmap_hashmap {
 
 namespace details_ { // namespace for Module Private classes
+
+/* For all memory-mappable vectors, when calling write functions,
+assume the underlying storage is in memory, otherwise the code will fail. */
 
 // Memory-mappable vector of std::pair<StrView, uint64_t> for Ankerl
 // This vector takes/gets std::string_view as the key, but emplace back as the special mmap format StrView
@@ -71,6 +74,7 @@ class AnkerlStr2IntMmapableVector {
         constexpr auto end() const -> const_iterator { return {data_ + size_}; }
         constexpr auto cend() const -> const_iterator{ return {data_ + size_}; }
 
+        // ----- Write funcs start -----
         void shrink_to_fit() { store_.shrink_to_fit(); }
         void reserve(size_t new_capacity) { store_.reserve(new_capacity); }
 
@@ -101,6 +105,7 @@ class AnkerlStr2IntMmapableVector {
         void pop_back() {
             throw std::runtime_error("Not implemented for deletion");
         }
+        // ----- Write funcs end -----
 
         size_type size() const { return size_; }
 
@@ -222,7 +227,6 @@ class AnkerlStr2IntMmapableVector {
 
 
 // Memory-mappable vector of std::pair<uint64_t, uint64_t> for Ankerl
-// When calling write methods, the assumption is that the underlying storage is in memory, i.e. std::vector
 class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std::pair<uint64_t, uint64_t>> {
     template <bool IsConst>
     class iter_t;
@@ -255,6 +259,7 @@ class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std:
         constexpr auto end() const -> const_iterator { return {this->data_ + this->size_}; }
         constexpr auto cend() const -> const_iterator{ return {this->data_ + this->size_}; }
 
+        // ----- Write funcs start -----
         void shrink_to_fit() { this->store_.shrink_to_fit(); }
         void reserve(size_t new_capacity) { this->store_.reserve(new_capacity); }
 
@@ -271,6 +276,7 @@ class AnkerlInt2IntMmapableVector : public pecos::mmap_util::MmapableVector<std:
             this->size_ = this->store_.size();
             this->data_ = this->store_.data();
         }
+        // ----- Write funcs end -----
 
         /* Get key for member */
         key_type get_key(value_type const& vt) const {
