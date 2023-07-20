@@ -13,6 +13,7 @@
 
 #include "utils/clustering.hpp"
 #include "utils/matrix.hpp"
+#include "utils/mmap_hashmap.hpp"
 #include "utils/tfidf.hpp"
 #include "utils/parallel.hpp"
 #include "xmc/inference.hpp"
@@ -474,4 +475,73 @@ extern "C" {
     C_ANN_HNSW_PREDICT(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_ip_t)
     C_ANN_HNSW_PREDICT(_csr_l2_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_l2_t)
 
+    // ==== C Interface of Memory-mappable Hashmap ====
+
+    typedef pecos::mmap_hashmap::Str2IntMap mmap_hashmap_str2int;
+    typedef pecos::mmap_hashmap::Int2IntMap mmap_hashmap_int2int;
+
+    // New
+    #define MMAP_MAP_NEW(SUFFIX) \
+    void* mmap_hashmap_new_ ## SUFFIX () { \
+    return static_cast<void*>(new mmap_hashmap_ ## SUFFIX()); }
+    MMAP_MAP_NEW(str2int)
+    MMAP_MAP_NEW(int2int)
+
+    // Destruct
+    #define MMAP_MAP_DESTRUCT(SUFFIX) \
+    void mmap_hashmap_destruct_ ## SUFFIX (void* map_ptr) { \
+    delete static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr); }
+    MMAP_MAP_DESTRUCT(str2int)
+    MMAP_MAP_DESTRUCT(int2int)
+
+    // Save
+    #define MMAP_MAP_SAVE(SUFFIX) \
+    void mmap_hashmap_save_ ## SUFFIX (void* map_ptr, const char* map_dir) { \
+    static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->save(map_dir); }
+    MMAP_MAP_SAVE(str2int)
+    MMAP_MAP_SAVE(int2int)
+
+    // Load
+    #define MMAP_MAP_LOAD(SUFFIX) \
+    void* mmap_hashmap_load_ ## SUFFIX (const char* map_dir, const bool lazy_load) { \
+    mmap_hashmap_ ## SUFFIX * map_ptr = new mmap_hashmap_ ## SUFFIX(); \
+    map_ptr->load(map_dir, lazy_load); \
+    return static_cast<void *>(map_ptr); }
+    MMAP_MAP_LOAD(str2int)
+    MMAP_MAP_LOAD(int2int)
+
+    // Size
+    #define MMAP_MAP_SIZE(SUFFIX) \
+    size_t mmap_hashmap_size_ ## SUFFIX (void* map_ptr) { \
+    return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->size(); }
+    MMAP_MAP_SIZE(str2int)
+    MMAP_MAP_SIZE(int2int)
+
+    // Insert
+    #define KEY_SINGLE_ARG(A,B) A,B
+    #define MMAP_MAP_INSERT(SUFFIX, KEY, FUNC_CALL_KEY) \
+    void mmap_hashmap_insert_  ## SUFFIX (void* map_ptr, KEY, uint64_t val) { \
+        static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->insert(FUNC_CALL_KEY, val); }
+    MMAP_MAP_INSERT(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_INSERT(int2int, uint64_t key, key)
+
+    // Get
+    #define MMAP_MAP_GET(SUFFIX, KEY, FUNC_CALL_KEY) \
+    uint64_t mmap_hashmap_get_  ## SUFFIX (void* map_ptr, KEY) { \
+        return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->get(FUNC_CALL_KEY); }
+    MMAP_MAP_GET(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_GET(int2int, uint64_t key, key)
+
+    #define MMAP_MAP_GET_W_DEFAULT(SUFFIX, KEY, FUNC_CALL_KEY) \
+    uint64_t mmap_hashmap_get_w_default_  ## SUFFIX (void* map_ptr, KEY, uint64_t def_val) { \
+        return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->get_w_default(FUNC_CALL_KEY, def_val); }
+    MMAP_MAP_GET_W_DEFAULT(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_GET_W_DEFAULT(int2int, uint64_t key, key)
+
+    // Contains
+    #define MMAP_MAP_CONTAINS(SUFFIX, KEY, FUNC_CALL_KEY) \
+    bool mmap_hashmap_contains_  ## SUFFIX (void* map_ptr, KEY) { \
+        return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->contains(FUNC_CALL_KEY); }
+    MMAP_MAP_CONTAINS(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_CONTAINS(int2int, uint64_t key, key)
 }

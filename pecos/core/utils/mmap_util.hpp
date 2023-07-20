@@ -45,7 +45,7 @@ template<class Type>
 constexpr bool IsPlainOldData = std::is_trivially_copyable<Type>::value && std::is_standard_layout<Type>::value;
 
 template<typename Type, typename Ret=bool>
-using if_simple_serializable = std::enable_if_t<IsPlainOldData<Type>, Ret>;
+using if_simple_serializable = std::enable_if_t<IsPlainOldData<Type>||std::is_standard_layout<Type>::value, Ret>;
 
 
 /*
@@ -381,6 +381,10 @@ class MmapStore {
             }
         }
 
+        bool is_open_for_read() {
+            return mode_ == Mode::READONLY;
+        }
+
         /* Close any opened files
          * If open for read, should NOT close until the data of the file is not visited anymore.
          */
@@ -458,6 +462,10 @@ class MmapStore {
 template<class T, class TT = T, details_::if_simple_serializable<TT> = true>
 class MmapableVector {
     public:
+        /* Allocator constructor, valid for C++17*/
+        MmapableVector(std::allocator<T> alloc)
+            : store_(alloc) {}
+
         /* Constructor */
         MmapableVector(uint64_t size=0, const T& value=T()) { resize(size, value); }
 
@@ -540,7 +548,7 @@ class MmapableVector {
             }
         }
 
-    private:
+    protected:
         uint64_t size_ = 0; // Number of elements of the data
         T* data_ = nullptr; // Pointer to data. The same as store_.data() for self-allocated vector case
         std::vector<T> store_; // Actual data storage for self-allocated vector case
