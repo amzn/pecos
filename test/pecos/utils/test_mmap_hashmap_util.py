@@ -48,7 +48,7 @@ def test_str2int_mmap_hashmap(tmpdir):
     # Batch get with default
     max_batch_size = 5
     # max_batch_size > num of key
-    r_map_batch_getter = MmapHashmapBatchGetter(r_map, max_batch_size)
+    r_map_batch_getter = MmapHashmapBatchGetter(r_map.map, max_batch_size)
     ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")]  # Non-exist key
     vs = list(kv_dict.values()) + [10]
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
@@ -99,7 +99,7 @@ def test_int2int_mmap_hashmap(tmpdir):
     # Batch get with default
     max_batch_size = 5
     # max_batch_size > num of key
-    r_map_batch_getter = MmapHashmapBatchGetter(r_map, max_batch_size)
+    r_map_batch_getter = MmapHashmapBatchGetter(r_map.map, max_batch_size)
     ks = list(kv_dict.keys()) + [1000]  # Non-exist key
     vs = list(kv_dict.values()) + [10]
     assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs
