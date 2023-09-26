@@ -376,8 +376,8 @@ public:
         } catch (...) { return def_val;}
     }
 
-    void batch_get_w_default(const uint32_t n_key, const char* const* keys, const uint32_t* keys_lens, const uint64_t def_val, uint64_t* vals) {
-        #pragma omp parallel for schedule(static, 1)
+    void batch_get_w_default(const uint32_t n_key, const char* const* keys, const uint32_t* keys_lens, const uint64_t def_val, uint64_t* vals, const int threads) {
+        #pragma omp parallel for schedule(static, 1) num_threads(threads)
         for (uint32_t i=0; i<n_key; ++i) {
             vals[i] = get_w_default(keys[i], keys_lens[i], def_val);
         }
@@ -412,8 +412,8 @@ public:
         } catch (...) { return def_val;}
     }
 
-    void batch_get_w_default(const uint32_t n_key, const uint64_t* keys, const uint64_t def_val, uint64_t* vals) {
-        #pragma omp parallel for schedule(static, 1)
+    void batch_get_w_default(const uint32_t n_key, const uint64_t* keys, const uint64_t def_val, uint64_t* vals, const int threads) {
+        #pragma omp parallel for schedule(static, 1) num_threads(threads)
         for (uint32_t i=0; i<n_key; ++i) {
             vals[i] = get_w_default(keys[i], def_val);
         }

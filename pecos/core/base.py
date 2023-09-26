@@ -1776,7 +1776,7 @@ class corelib(object):
                 None,
                 [c_void_p, c_uint32]
                 + batch_key_args_dict[map_type]  # noqa: W503
-                + [c_uint64, POINTER(c_uint64)],  # noqa: W503
+                + [c_uint64, POINTER(c_uint64), c_uint32],  # noqa: W503
             )
 
             fn_name = "contains"

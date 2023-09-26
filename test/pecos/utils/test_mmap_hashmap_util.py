@@ -53,7 +53,9 @@ def test_str2int_mmap_hashmap(tmpdir):
     vs = list(kv_dict.values()) + [10]
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
     # max_batch_size = num of key
-    ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")] * (max_batch_size - len(kv_dict))  # Non-exist key
+    ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")] * (
+        max_batch_size - len(kv_dict)
+    )  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
     # Cannot test for max_batch_size < num of key, will result in segmentation fault
