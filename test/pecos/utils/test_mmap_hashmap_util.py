@@ -12,7 +12,7 @@ import pytest  # noqa: F401; pylint: disable=unused-variable
 
 
 def test_str2int_mmap_hashmap(tmpdir):
-    from pecos.utils.mmap_hashmap_util import MmapHashmap
+    from pecos.utils.mmap_hashmap_util import MmapHashmap, MmapHashmapBatchGetter
 
     map_dir = tmpdir.join("str2int_mmap").realpath().strpath
     kv_dict = {"aaaa".encode("utf-8"): 2, "bb".encode("utf-8"): 3}
@@ -38,6 +38,11 @@ def test_str2int_mmap_hashmap(tmpdir):
     for k, v in kv_dict.items():
         assert r_map.map.get(k, 10) == v
     assert r_map.map.get("ccccc".encode("utf-8"), 10) == 10
+    # Batch get with default
+    r_map_batch_getter = MmapHashmapBatchGetter(r_map, 3)
+    ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")]  # Non-exist key
+    vs = list(kv_dict.values()) + [10]
+    assert r_map_batch_getter.get(ks, 10).tolist() == vs
     # Contains
     for k, _ in kv_dict.items():
         assert k in r_map.map
@@ -47,7 +52,8 @@ def test_str2int_mmap_hashmap(tmpdir):
 
 
 def test_int2int_mmap_hashmap(tmpdir):
-    from pecos.utils.mmap_hashmap_util import MmapHashmap
+    from pecos.utils.mmap_hashmap_util import MmapHashmap, MmapHashmapBatchGetter
+    import numpy as np
 
     map_dir = tmpdir.join("int2int_mmap").realpath().strpath
     kv_dict = {10: 2, 20: 3}
@@ -73,6 +79,11 @@ def test_int2int_mmap_hashmap(tmpdir):
     for k, v in kv_dict.items():
         assert r_map.map.get(k, 10) == v
     assert r_map.map.get(1000, 10) == 10
+    # Batch get with default
+    r_map_batch_getter = MmapHashmapBatchGetter(r_map, 3)
+    ks = list(kv_dict.keys()) + [1000]  # Non-exist key
+    vs = list(kv_dict.values()) + [10]
+    assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs
     # Contains
     for k, _ in kv_dict.items():
         assert k in r_map.map
