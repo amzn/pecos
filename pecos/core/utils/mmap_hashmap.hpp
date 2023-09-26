@@ -14,8 +14,10 @@
 #ifndef __MMAP_ANKERL_HASHMAP_H__
 #define __MMAP_ANKERL_HASHMAP_H__
 
+#include <omp.h>
 #include "third_party/ankerl/unordered_dense.h"
 #include "mmap_util.hpp"
+
 
 namespace pecos {
 namespace mmap_hashmap {
@@ -374,6 +376,13 @@ public:
         } catch (...) { return def_val;}
     }
 
+    void batch_get_w_default(const uint32_t n_key, const char* const* keys, const uint32_t* keys_lens, const uint64_t def_val, uint64_t* vals, const int threads) {
+        #pragma omp parallel for schedule(static, 1) num_threads(threads)
+        for (uint32_t i=0; i<n_key; ++i) {
+            vals[i] = get_w_default(keys[i], keys_lens[i], def_val);
+        }
+    }
+
     bool contains(const char* key, uint32_t key_len) {
         return map.contains(std::string_view(key, key_len));
     }
@@ -401,6 +410,13 @@ public:
         try {
             return get(key);
         } catch (...) { return def_val;}
+    }
+
+    void batch_get_w_default(const uint32_t n_key, const uint64_t* keys, const uint64_t def_val, uint64_t* vals, const int threads) {
+        #pragma omp parallel for schedule(static, 1) num_threads(threads)
+        for (uint32_t i=0; i<n_key; ++i) {
+            vals[i] = get_w_default(keys[i], def_val);
+        }
     }
 
     bool contains(uint64_t key) { return map.contains(key); }

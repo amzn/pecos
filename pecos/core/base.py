@@ -1716,6 +1716,15 @@ class corelib(object):
                 c_uint64,  # key int64
             ],
         }
+        batch_key_args_dict = {
+            "str2int": [
+                c_void_p,  # List of pointer of key string
+                POINTER(c_uint32),  # List of length of key string
+            ],
+            "int2int": [
+                POINTER(c_uint64),  # List of key int64
+            ],
+        }
         self.mmap_map_fn_dict = {}
 
         for map_type in map_type_list:
@@ -1758,6 +1767,16 @@ class corelib(object):
             local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
             corelib.fillprototype(
                 local_fn_dict[fn_name], c_uint64, [c_void_p] + key_args_dict[map_type] + [c_uint64]
+            )
+
+            fn_name = "batch_get_w_default"
+            local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{map_type}")
+            corelib.fillprototype(
+                local_fn_dict[fn_name],
+                None,
+                [c_void_p, c_uint32]
+                + batch_key_args_dict[map_type]  # noqa: W503
+                + [c_uint64, POINTER(c_uint64), c_uint32],  # noqa: W503
             )
 
             fn_name = "contains"

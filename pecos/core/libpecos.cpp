@@ -538,6 +538,12 @@ extern "C" {
     MMAP_MAP_GET_W_DEFAULT(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
     MMAP_MAP_GET_W_DEFAULT(int2int, uint64_t key, key)
 
+    #define MMAP_MAP_BATCH_GET_W_DEFAULT(SUFFIX, KEY, FUNC_CALL_KEY) \
+    void mmap_hashmap_batch_get_w_default_  ## SUFFIX (void* map_ptr, const uint32_t n_key, KEY, uint64_t def_val, uint64_t* vals, const int threads) { \
+        static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->batch_get_w_default(n_key, FUNC_CALL_KEY, def_val, vals, threads); }
+    MMAP_MAP_BATCH_GET_W_DEFAULT(str2int, KEY_SINGLE_ARG(const char* const* keys, const uint32_t* keys_lens), KEY_SINGLE_ARG(keys, keys_lens))
+    MMAP_MAP_BATCH_GET_W_DEFAULT(int2int, const uint64_t* key, key)
+
     // Contains
     #define MMAP_MAP_CONTAINS(SUFFIX, KEY, FUNC_CALL_KEY) \
     bool mmap_hashmap_contains_  ## SUFFIX (void* map_ptr, KEY) { \

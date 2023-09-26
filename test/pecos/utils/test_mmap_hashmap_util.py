@@ -12,7 +12,7 @@ import pytest  # noqa: F401; pylint: disable=unused-variable
 
 
 def test_str2int_mmap_hashmap(tmpdir):
-    from pecos.utils.mmap_hashmap_util import MmapHashmap
+    from pecos.utils.mmap_hashmap_util import MmapHashmap, MmapHashmapBatchGetter
 
     map_dir = tmpdir.join("str2int_mmap").realpath().strpath
     kv_dict = {"aaaa".encode("utf-8"): 2, "bb".encode("utf-8"): 3}
@@ -45,9 +45,25 @@ def test_str2int_mmap_hashmap(tmpdir):
     # Size
     assert r_map.map.size() == len(kv_dict)
 
+    # Batch get with default
+    max_batch_size = 5
+    # max_batch_size > num of key
+    r_map_batch_getter = MmapHashmapBatchGetter(r_map.map, max_batch_size)
+    ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")]  # Non-exist key
+    vs = list(kv_dict.values()) + [10]
+    assert r_map_batch_getter.get(ks, 10).tolist() == vs
+    # max_batch_size = num of key
+    ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")] * (
+        max_batch_size - len(kv_dict)
+    )  # Non-exist key
+    vs = list(kv_dict.values()) + [10] * (max_batch_size - len(kv_dict))
+    assert r_map_batch_getter.get(ks, 10).tolist() == vs
+    # Cannot test for max_batch_size < num of key, will result in segmentation fault
+
 
 def test_int2int_mmap_hashmap(tmpdir):
-    from pecos.utils.mmap_hashmap_util import MmapHashmap
+    from pecos.utils.mmap_hashmap_util import MmapHashmap, MmapHashmapBatchGetter
+    import numpy as np
 
     map_dir = tmpdir.join("int2int_mmap").realpath().strpath
     kv_dict = {10: 2, 20: 3}
@@ -79,3 +95,16 @@ def test_int2int_mmap_hashmap(tmpdir):
     assert not (1000 in r_map.map)
     # Size
     assert r_map.map.size() == len(kv_dict)
+
+    # Batch get with default
+    max_batch_size = 5
+    # max_batch_size > num of key
+    r_map_batch_getter = MmapHashmapBatchGetter(r_map.map, max_batch_size)
+    ks = list(kv_dict.keys()) + [1000]  # Non-exist key
+    vs = list(kv_dict.values()) + [10]
+    assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs
+    # max_batch_size = num of key
+    ks = list(kv_dict.keys()) + [1000] * (max_batch_size - len(kv_dict))  # Non-exist key
+    vs = list(kv_dict.values()) + [10] * (max_batch_size - len(kv_dict))
+    assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs
+    # Cannot test for max_batch_size < num of key, will result in segmentation fault

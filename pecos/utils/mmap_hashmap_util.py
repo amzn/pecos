@@ -11,8 +11,10 @@
 import logging
 from abc import abstractmethod
 from pecos.core import clib
-from typing import Optional
-
+from typing import Optional, Tuple
+from ctypes import c_char_p, c_uint32, c_uint64, POINTER
+import numpy as np
+import os
 
 LOGGER = logging.getLogger(__name__)
 
@@ -88,6 +90,53 @@ class MmapHashmap(object):
             self.close()
 
 
+class MmapHashmapBatchGetter(object):
+    """
+    Batch getter for MmapHashmap opened for readonly.
+    """
+
+    def __init__(self, mmap_r, max_batch_size: int, threads: int = 1):
+        if not isinstance(mmap_r, _MmapHashmapReadOnly):
+            raise ValueError(f"Should get from readonly MmapHashmap, got {type(mmap_r)}")
+        if max_batch_size <= 0:
+            raise ValueError(f"Max batch size should >0, got {max_batch_size}")
+        if threads <= 0 and threads != -1:
+            raise ValueError(f"Number of threads should >0 or =-1, got {threads}")
+
+        self.mmap_r: Optional[_MmapHashmapReadOnly] = mmap_r
+        self.max_batch_size = max_batch_size
+        self.key_prealloc = mmap_r.get_keyalloc(max_batch_size)
+
+        # `os.cpu_count()` is not equivalent to the number of CPUs the current process can use.
+        # The number of usable CPUs can be obtained with len(os.sched_getaffinity(0))
+        n_usable_cpu = len(os.sched_getaffinity(0))
+        self.threads_c_uint32 = c_uint32(
+            min(n_usable_cpu, n_usable_cpu if threads == -1 else threads)
+        )
+
+        # Pre-allocated space for returns
+        self.vals = np.zeros(max_batch_size, dtype=np.uint64)
+
+    def get(self, keys, default_val):
+        """
+        Batch get multiple keys' values. For non-exist keys, `default_val` is returned.
+
+        NOTE:
+            1) Make sure keys given is compatible with the `MmapHashmap` `batch_get` type.
+                i) str2int: List of UTF8 encoded strings
+                ii) int2int: 1D numpy array of int64
+            2) The return is a reused buffer, use or copy the data once you get it. It is not guaranteed to last.
+        """
+        self.mmap_r.batch_get(
+            len(keys),
+            self.key_prealloc.get_key_prealloc(keys),
+            default_val,
+            self.vals,
+            self.threads_c_uint32,
+        )
+        return memoryview(self.vals)[: len(keys)]
+
+
 class _MmapHashmapBase(object):
     """Base class for methods shared by all modes"""
 
@@ -117,6 +166,15 @@ class _MmapHashmapReadOnly(_MmapHashmapBase):
     def __contains__(self, key):
         pass
 
+    @abstractmethod
+    def batch_get(self, n_keys, keys, default_val, vals, threads_c_uint32):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def get_keyalloc(cls, max_batch_size):
+        pass
+
     @classmethod
     def init(cls, map_type, map_dir, lazy_load):
         fn_dict = clib.mmap_hashmap_init(map_type)
@@ -135,6 +193,7 @@ class _MmapHashmapStr2IntReadOnly(_MmapHashmapReadOnly):
         """
         Args:
             key_utf8: UTF8 encoded bytes string key
+            default_val: Default value for key not found
         """
         return self.fn_dict["get_w_default"](
             self.map_ptr,
@@ -149,6 +208,59 @@ class _MmapHashmapStr2IntReadOnly(_MmapHashmapReadOnly):
     def __contains__(self, key_utf8):
         return self.fn_dict["contains"](self.map_ptr, key_utf8, len(key_utf8))
 
+    def batch_get(
+        self, n_keys: int, keys_utf8: Tuple, default_val: int, vals, threads_c_uint32: c_uint32
+    ):
+        """
+        Batch get values for UTF8 encoded bytes string keys.
+        Return values are stored in vals.
+
+        How to make inputs from UTF8 encoded bytes string keys List `keys_utf8`:
+            > keys_ptr = (c_char_p * n_keys)()
+            > keys_ptr[:] = keys_utf8
+            > keys_lens = np.array([len(k) for k in keys_utf8], dtype=np.uint32)
+
+        Args:
+            n_keys: int. Number of keys to get.
+            keys_utf8: Tuple of (keys_ptr, keys_lens)
+                keys_ptr: List of UTF8 encoded bytes string keys' pointers
+                keys_lens: 1D Int32 Numpy array of string keys' lengths
+            default_val: Default value for key not found
+            vals: 1D Int64 Numpy array to return results
+            threads_c_uint32: Number of threads to use.
+        """
+        keys_ptr, keys_lens = keys_utf8
+        self.fn_dict["batch_get_w_default"](
+            self.map_ptr,
+            n_keys,
+            keys_ptr,
+            keys_lens.ctypes.data_as(POINTER(c_uint32)),
+            default_val,
+            vals.ctypes.data_as(POINTER(c_uint64)),
+            threads_c_uint32,
+        )
+        return vals
+
+    @classmethod
+    def get_keyalloc(cls, max_batch_size):
+        return _Str2IntBatchGetterKeyPreAlloc(max_batch_size)
+
+
+class _Str2IntBatchGetterKeyPreAlloc(object):
+    """
+    Key pre-allocate for Str2Int MmapHashmap.
+    """
+
+    def __init__(self, max_batch_size: int):
+        self.keys_ptr = (c_char_p * max_batch_size)()
+        self.keys_lens = np.zeros(max_batch_size, dtype=np.uint32)
+
+    def get_key_prealloc(self, keys_utf8):
+        self.keys_ptr[: len(keys_utf8)] = keys_utf8
+        self.keys_lens.flat[: len(keys_utf8)] = [len(k) for k in keys_utf8]
+
+        return (self.keys_ptr, self.keys_lens)
+
 
 class _MmapHashmapInt2IntReadOnly(_MmapHashmapReadOnly):
     def get(self, key, default_val):
@@ -159,6 +271,44 @@ class _MmapHashmapInt2IntReadOnly(_MmapHashmapReadOnly):
 
     def __contains__(self, key):
         return self.fn_dict["contains"](self.map_ptr, key)
+
+    def batch_get(self, n_keys: int, keys, default_val: int, vals, threads_c_uint32: c_uint32):
+        """
+        Batch get values for Int64 keys.
+        Return values are stored in vals.
+
+        Args:
+            n_keys: int. Number of keys to get.
+            keys: 1D Int64 Numpy array
+            default_val: Default value for key not found
+            vals: 1D Int64 Numpy array to return results
+            threads_c_uint32: Number of threads to use.
+        """
+        self.fn_dict["batch_get_w_default"](
+            self.map_ptr,
+            n_keys,
+            keys.ctypes.data_as(POINTER(c_uint64)),
+            default_val,
+            vals.ctypes.data_as(POINTER(c_uint64)),
+            threads_c_uint32,
+        )
+        return vals
+
+    @classmethod
+    def get_keyalloc(cls, max_batch_size):
+        return _Int2IntBatchGetterKeyPreAlloc(max_batch_size)
+
+
+class _Int2IntBatchGetterKeyPreAlloc(object):
+    """
+    Dummy key pre-allocate for Int2Int MmapHashmap.
+    """
+
+    def __init__(self, max_batch_size: int):
+        pass
+
+    def get_key_prealloc(self, keys):
+        return keys
 
 
 class _MmapHashmapWrite(_MmapHashmapBase):
