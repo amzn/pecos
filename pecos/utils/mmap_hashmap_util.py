@@ -95,27 +95,27 @@ class MmapHashmapBatchGetter(object):
     Batch getter for MmapHashmap opened for readonly.
     """
 
-    def __init__(self, mmap_r: MmapHashmap, batch_size: int):
+    def __init__(self, mmap_r: MmapHashmap, max_batch_size: int):
         if not isinstance(mmap_r, MmapHashmap):
             raise ValueError(f"Should get from MmapHashmap, got {type(mmap_r)}")
         if mmap_r.mode not in ["r", "r_lazy"]:
             raise ValueError(f"MmapHashmap should opened for readonly, got {mmap_r.mode}")
-        if batch_size <= 0:
-            raise ValueError(f"Batch size should >0, got {batch_size}")
+        if max_batch_size <= 0:
+            raise ValueError(f"Max batch size should >0, got {max_batch_size}")
 
         self.mmap_r = mmap_r
-        self.batch_size = batch_size
+        self.max_batch_size = max_batch_size
 
         self.key_prealloc = None  # type: Any
         if mmap_r.map_type == "str2int":
-            self.key_prealloc = _Str2IntBatchGetterKeyPreAlloc(batch_size)
+            self.key_prealloc = _Str2IntBatchGetterKeyPreAlloc(max_batch_size)
         elif mmap_r.map_type == "int2int":
-            self.key_prealloc = _Int2IntBatchGetterKeyPreAlloc(batch_size)
+            self.key_prealloc = _Int2IntBatchGetterKeyPreAlloc(max_batch_size)
         else:
             raise NotImplementedError(f"map_type={mmap_r.map_type} is not implemented.")
 
         # Pre-allocated space for returns
-        self.vals = np.zeros(batch_size, dtype=np.uint64)
+        self.vals = np.zeros(max_batch_size, dtype=np.uint64)
 
     def get(self, keys, default_val):
         """
@@ -127,22 +127,22 @@ class MmapHashmapBatchGetter(object):
                 ii) int2int: 1D numpy array of int64
             2) The return is a reused buffer, use or copy the data once you get it. It is not guaranteed to last.
         """
-        self.mmap_r.map.batch_get(self.key_prealloc.get_key_prealloc(keys), default_val, self.vals)
-        return self.vals
+        self.mmap_r.map.batch_get(len(keys), self.key_prealloc.get_key_prealloc(keys), default_val, self.vals)
+        return memoryview(self.vals)[:len(keys)]
 
 
 class _Str2IntBatchGetterKeyPreAlloc(object):
     """
-    Batch getter for Str2Int MmapHashmap opened for readonly.
+    Key pre-allocate for Str2Int MmapHashmap.
     """
 
-    def __init__(self, batch_size: int):
-        self.keys_ptr = (c_char_p * batch_size)()
-        self.keys_lens = np.zeros(batch_size, dtype=np.uint32)
+    def __init__(self, max_batch_size: int):
+        self.keys_ptr = (c_char_p * max_batch_size)()
+        self.keys_lens = np.zeros(max_batch_size, dtype=np.uint32)
 
     def get_key_prealloc(self, keys_utf8):
-        self.keys_ptr[:] = keys_utf8
-        self.keys_lens.flat[:] = [len(k) for k in keys_utf8]
+        self.keys_ptr[:len(keys_utf8)] = keys_utf8
+        self.keys_lens.flat[:len(keys_utf8)] = [len(k) for k in keys_utf8]
 
         return (self.keys_ptr, self.keys_lens)
 
@@ -152,7 +152,7 @@ class _Int2IntBatchGetterKeyPreAlloc(object):
     Dummy key pre-allocate for Int2Int MmapHashmap.
     """
 
-    def __init__(self, batch_size: int):
+    def __init__(self, max_batch_size: int):
         pass
 
     def get_key_prealloc(self, keys):
@@ -221,7 +221,7 @@ class _MmapHashmapStr2IntReadOnly(_MmapHashmapReadOnly):
     def __contains__(self, key_utf8):
         return self.fn_dict["contains"](self.map_ptr, key_utf8, len(key_utf8))
 
-    def batch_get(self, keys_utf8: Tuple, default_val: int, vals):
+    def batch_get(self, n_keys: int, keys_utf8: Tuple, default_val: int, vals):
         """
         Batch get values for UTF8 encoded bytes string keys.
         Return values are stored in vals.
@@ -232,6 +232,7 @@ class _MmapHashmapStr2IntReadOnly(_MmapHashmapReadOnly):
             > keys_lens = np.array([len(k) for k in keys_utf8], dtype=np.uint32)
 
         Args:
+            n_keys: int. Number of keys to get.
             keys_utf8: Tuple of (keys_ptr, keys_lens)
                 keys_ptr: List of UTF8 encoded bytes string keys' pointers
                 keys_lens: 1D Int32 Numpy array of string keys' lengths
@@ -241,7 +242,7 @@ class _MmapHashmapStr2IntReadOnly(_MmapHashmapReadOnly):
         keys_ptr, keys_lens = keys_utf8
         self.fn_dict["batch_get_w_default"](
             self.map_ptr,
-            len(keys_ptr),
+            n_keys,
             keys_ptr,
             keys_lens.ctypes.data_as(POINTER(c_uint32)),
             default_val,
@@ -260,19 +261,20 @@ class _MmapHashmapInt2IntReadOnly(_MmapHashmapReadOnly):
     def __contains__(self, key):
         return self.fn_dict["contains"](self.map_ptr, key)
 
-    def batch_get(self, keys, default_val, vals):
+    def batch_get(self, n_keys: int, keys, default_val: int, vals):
         """
         Batch get values for Int64 keys.
         Return values are stored in vals.
 
         Args:
+            n_keys: int. Number of keys to get.
             keys: 1D Int64 Numpy array
             default_val: Default value for key not found
             vals: 1D Int64 Numpy array to return results
         """
         self.fn_dict["batch_get_w_default"](
             self.map_ptr,
-            len(keys),
+            n_keys,
             keys.ctypes.data_as(POINTER(c_uint64)),
             default_val,
             vals.ctypes.data_as(POINTER(c_uint64)),
