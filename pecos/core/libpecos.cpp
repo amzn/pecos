@@ -14,6 +14,7 @@
 #include "utils/clustering.hpp"
 #include "utils/matrix.hpp"
 #include "utils/mmap_hashmap.hpp"
+#include "utils/mmap_valstore.hpp"
 #include "utils/tfidf.hpp"
 #include "utils/parallel.hpp"
 #include "xmc/inference.hpp"
@@ -550,4 +551,73 @@ extern "C" {
         return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->contains(FUNC_CALL_KEY); }
     MMAP_MAP_CONTAINS(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
     MMAP_MAP_CONTAINS(int2int, uint64_t key, key)
+
+
+    // ==== C Interface of Memory-mappable Value Store ====
+
+    typedef pecos::mmap_valstore::Float32Store mmap_valstore_float32;
+    typedef pecos::mmap_valstore::row_type row_type;
+    typedef pecos::mmap_valstore::col_type col_type;
+
+    // New
+    #define MMAP_VALSTORE_NEW(SUFFIX) \
+    void* mmap_valstore_new_ ## SUFFIX () { \
+    return static_cast<void*>(new mmap_valstore_ ## SUFFIX()); }
+    MMAP_VALSTORE_NEW(float32)
+
+    // Destruct
+    #define MMAP_VALSTORE_DESTRUCT(SUFFIX) \
+    void mmap_valstore_destruct_ ## SUFFIX (void* map_ptr) { \
+    delete static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr); }
+    MMAP_VALSTORE_DESTRUCT(float32)
+
+    // Number of rows
+    #define MMAP_MAP_N_ROW(SUFFIX) \
+    row_type mmap_valstore_n_row_ ## SUFFIX (void* map_ptr) { \
+    return static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr)->n_row(); }
+    MMAP_MAP_N_ROW(float32)
+
+    // Number of columns
+    #define MMAP_MAP_N_COL(SUFFIX) \
+    col_type mmap_valstore_n_col_ ## SUFFIX (void* map_ptr) { \
+    return static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr)->n_col(); }
+    MMAP_MAP_N_COL(float32)
+
+    // Save
+    #define MMAP_VALSTORE_SAVE(SUFFIX) \
+    void mmap_valstore_save_ ## SUFFIX (void* map_ptr, const char* map_dir) { \
+    static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr)->save(map_dir); }
+    MMAP_VALSTORE_SAVE(float32)
+
+    // Load
+    #define MMAP_VALSTORE_LOAD(SUFFIX) \
+    void* mmap_valstore_load_ ## SUFFIX (const char* map_dir, const bool lazy_load) { \
+    mmap_valstore_ ## SUFFIX * map_ptr = new mmap_valstore_ ## SUFFIX(); \
+    map_ptr->load(map_dir, lazy_load); \
+    return static_cast<void *>(map_ptr); }
+    MMAP_VALSTORE_LOAD(float32)
+
+    // Create view from external values pointer
+    void mmap_valstore_from_vals_float32 (
+        void* map_ptr,
+        const row_type n_row,
+        const col_type n_col,
+        const mmap_valstore_float32::value_type* vals
+    ) {
+        static_cast<mmap_valstore_float32 *>(map_ptr)->from_vals(n_row, n_col, vals);
+    }
+
+    // Get sub-matrix
+    void mmap_valstore_get_submatrix_float32 (
+        void* map_ptr,
+        const uint32_t n_sub_row,
+        const uint32_t n_sub_col,
+        const row_type* sub_rows,
+        const col_type* sub_cols,
+        mmap_valstore_float32::value_type* ret,
+        const int threads
+    ) {
+        static_cast<mmap_valstore_float32 *>(map_ptr)->get_submatrix(
+            n_sub_row, n_sub_col, sub_rows, sub_cols, ret, threads);
+    }
 }
