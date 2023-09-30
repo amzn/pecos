@@ -1861,7 +1861,62 @@ class corelib(object):
         """
         Specify C-lib's numerical Memory-mappable value store methods arguments and return types.
         """
-        return {}
+        fn_prefix = "mmap_valstore"
+        store_type = "str"
+
+        local_fn_dict = {}
+
+        fn_name = "new"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_void_p, None)
+
+        fn_name = "destruct"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p])
+
+        fn_name = "n_row"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint64, [c_void_p])
+
+        fn_name = "n_col"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint32, [c_void_p])
+
+        fn_name = "save"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p, c_char_p])
+
+        fn_name = "load"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_void_p, [c_char_p, c_bool])
+
+        fn_name = "from_vals"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(
+            local_fn_dict[fn_name],
+            None,
+            [c_void_p, c_uint64, c_uint32, c_void_p, POINTER(c_uint32)],
+        )
+
+        fn_name = "get_submatrix"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(
+            local_fn_dict[fn_name],
+            None,
+            [
+                c_void_p,
+                c_uint32,  # n_sub_row
+                c_uint32,  # n_sub_col
+                POINTER(c_uint64),  # sub_rows
+                POINTER(c_uint32),  # sub_cols
+                c_uint32,  # trunc_val_len
+                c_char_p,  # ret
+                POINTER(c_uint32),  # ret_lens
+                c_uint32,  # threads
+            ],
+        )
+
+        return local_fn_dict
 
     def link_mmap_valstore_methods(self):
         """
@@ -1870,7 +1925,7 @@ class corelib(object):
 
         self.mmap_valstore_fn_dict = {
             "num_f32": self._get_num_f32_mmap_valstore_methods(),
-            "string": self._get_str_mmap_valstore_methods(),
+            "str": self._get_str_mmap_valstore_methods(),
         }
 
     def mmap_valstore_init(self, store_type):

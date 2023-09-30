@@ -16,6 +16,7 @@
 
 #include <omp.h>
 #include "mmap_util.hpp"
+// #include <iostream>
 
 
 namespace pecos {
@@ -94,6 +95,102 @@ class Float32Store {
 };
 
 
+class StringStore {
+    public:
+        typedef uint32_t str_len_type;
+
+        StringStore():
+            n_row_(0),
+            n_col_(0)
+        {}
+
+        row_type n_row() {
+            return n_row_;
+        }
+
+        col_type n_col() {
+            return n_col_;
+        }
+
+        // In memory. Allocate and assign values
+        void from_vals(const row_type n_row, const col_type n_col, const char* const* vals, const str_len_type* vals_lens) {
+            n_row_ = n_row;
+            n_col_ = n_col;
+
+            // Allocation
+            row_type n_total = n_row * n_col;
+            row_type n_total_char = 0;
+            for (row_type i=0; i<n_total; ++i) {
+                n_total_char += vals_lens[i];
+            }
+            vals_.resize(n_total_char);
+            vals_lens_.resize(n_total);
+            vals_starts_.resize(n_total);
+
+            // Assign the MmapVector
+            row_type cur_start = 0;
+            for (row_type i=0; i<n_total; ++i) {
+                vals_lens_[i] = vals_lens[i];
+                vals_starts_[i] = cur_start;
+                std::memcpy(vals_.data() + cur_start, vals[i], vals_lens[i]);
+                cur_start += vals_lens[i];
+            }
+        }
+
+        void get_submatrix(const uint32_t n_sub_row, const uint32_t n_sub_col, const row_type* sub_rows, const col_type* sub_cols,
+            const str_len_type trunc_val_len, char* ret, str_len_type* ret_lens, const int threads=1) {
+            #pragma omp parallel for schedule(static, 1) num_threads(threads)
+            for (uint32_t i=0; i<n_sub_row; ++i) {
+                for (uint32_t j=0; j<n_sub_col; ++j) {
+                    uint32_t sub_idx = i * n_sub_col + j;
+                    row_type idx = sub_rows[i] * n_col_ + sub_cols[j];
+                    uint32_t ret_start_idx = sub_idx * trunc_val_len;
+                    str_len_type cur_ret_len = std::min(trunc_val_len, vals_lens_[idx]);
+                    ret_lens[sub_idx] = cur_ret_len;
+                    std::memcpy(ret + ret_start_idx, vals_.data() + vals_starts_[idx], cur_ret_len);
+                }
+            }
+        }
+
+        void save(const std::string& folderpath) {
+            auto mmap_s = pecos::mmap_util::MmapStore();
+            mmap_s.open(mmap_file_name(folderpath), "w");
+
+            mmap_s.fput_one<row_type>(n_row_);
+            mmap_s.fput_one<col_type>(n_col_);
+
+            vals_.save_to_mmap_store(mmap_s);
+            vals_lens_.save_to_mmap_store(mmap_s);
+            vals_starts_.save_to_mmap_store(mmap_s);
+
+            mmap_s.close();
+        }
+
+        void load(const std::string& folderpath, const bool lazy_load) {
+            mmap_store_.open(mmap_file_name(folderpath), lazy_load?"r_lazy":"r");
+
+            n_row_ = mmap_store_.fget_one<row_type>();
+            n_col_ = mmap_store_.fget_one<col_type>();
+
+            vals_.load_from_mmap_store(mmap_store_);
+            vals_lens_.load_from_mmap_store(mmap_store_);
+            vals_starts_.load_from_mmap_store(mmap_store_);
+        }
+
+
+    private:
+        row_type n_row_;
+        col_type n_col_;
+        mmap_util::MmapableVector<char> vals_;  // Concatenated big string
+        mmap_util::MmapableVector<str_len_type> vals_lens_;  // Length for each string
+        mmap_util::MmapableVector<row_type> vals_starts_;  // Start for each string in the concatenated big string
+
+        pecos::mmap_util::MmapStore mmap_store_;
+
+        inline std::string mmap_file_name(const std::string& folderpath) const {
+            return folderpath + "/string_2d.mmap_store";
+        }
+};
 
 } // end namespace mmap_valstore
 } // end namespace pecos
