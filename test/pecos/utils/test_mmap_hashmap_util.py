@@ -58,7 +58,12 @@ def test_str2int_mmap_hashmap(tmpdir):
     )  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
-    # Cannot test for max_batch_size < num of key, will result in segmentation fault
+    # max_batch_size = num of key * 3
+    ks = list(kv_dict.keys()) + ["ccccc".encode("utf-8")] * (
+        3 * max_batch_size - len(kv_dict)
+    )  # Non-exist key
+    vs = list(kv_dict.values()) + [10] * (3 * max_batch_size - len(kv_dict))
+    assert r_map_batch_getter.get(ks, 10).tolist() == vs
 
 
 def test_int2int_mmap_hashmap(tmpdir):
@@ -107,4 +112,7 @@ def test_int2int_mmap_hashmap(tmpdir):
     ks = list(kv_dict.keys()) + [1000] * (max_batch_size - len(kv_dict))  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs
-    # Cannot test for max_batch_size < num of key, will result in segmentation fault
+    # max_batch_size = num of key * 3
+    ks = list(kv_dict.keys()) + [1000] * (3 * max_batch_size - len(kv_dict))  # Non-exist key
+    vs = list(kv_dict.values()) + [10] * (3 * max_batch_size - len(kv_dict))
+    assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs

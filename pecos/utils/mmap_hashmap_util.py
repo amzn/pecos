@@ -127,6 +127,13 @@ class MmapHashmapBatchGetter(object):
                 ii) int2int: 1D numpy array of int64
             2) The return is a reused buffer, use or copy the data once you get it. It is not guaranteed to last.
         """
+
+        if len(keys) > self.max_batch_size:
+            self.max_batch_size = max(len(keys), 2 * self.max_batch_size)
+            self.key_prealloc = self.mmap_r.get_keyalloc(self.max_batch_size)
+            self.vals = np.zeros(self.max_batch_size, dtype=np.uint64)
+            LOGGER.info(f"Increased the max batch size to {self.max_batch_size}")
+
         self.mmap_r.batch_get(
             len(keys),
             self.key_prealloc.get_key_prealloc(keys),
