@@ -533,6 +533,7 @@ class corelib(object):
         self.link_tfidf_vectorizer()
         self.link_ann_hnsw_methods()
         self.link_mmap_hashmap_methods()
+        self.link_mmap_valstore_methods()
 
     def link_xlinear_methods(self):
         """
@@ -1798,6 +1799,145 @@ class corelib(object):
         if map_type not in self.mmap_map_fn_dict:
             raise NotImplementedError(f"map_type={map_type} is not implemented.")
         return self.mmap_map_fn_dict[map_type]
+
+    def _get_num_f32_mmap_valstore_methods(self):
+        """
+        Specify C-lib's numerical float32 Memory-mappable store methods arguments and return types.
+        """
+        fn_prefix = "mmap_valstore"
+        store_type = "float32"
+
+        local_fn_dict = {}
+
+        fn_name = "new"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_void_p, None)
+
+        fn_name = "destruct"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p])
+
+        fn_name = "n_row"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint64, [c_void_p])
+
+        fn_name = "n_col"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint32, [c_void_p])
+
+        fn_name = "save"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p, c_char_p])
+
+        fn_name = "load"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_void_p, [c_char_p, c_bool])
+
+        fn_name = "from_vals"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(
+            local_fn_dict[fn_name], None, [c_void_p, c_uint64, c_uint32, POINTER(c_float)]
+        )
+
+        fn_name = "get_submatrix"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(
+            local_fn_dict[fn_name],
+            None,
+            [
+                c_void_p,
+                c_uint32,
+                c_uint32,
+                POINTER(c_uint64),
+                POINTER(c_uint32),
+                POINTER(c_float),
+                c_uint32,
+            ],
+        )
+
+        return local_fn_dict
+
+    def _get_str_mmap_valstore_methods(self):
+        """
+        Specify C-lib's numerical Memory-mappable value store methods arguments and return types.
+        """
+        fn_prefix = "mmap_valstore"
+        store_type = "str"
+
+        local_fn_dict = {}
+
+        fn_name = "new"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_void_p, None)
+
+        fn_name = "destruct"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p])
+
+        fn_name = "n_row"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint64, [c_void_p])
+
+        fn_name = "n_col"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint32, [c_void_p])
+
+        fn_name = "save"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], None, [c_void_p, c_char_p])
+
+        fn_name = "load"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(local_fn_dict[fn_name], c_void_p, [c_char_p, c_bool])
+
+        fn_name = "from_vals"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(
+            local_fn_dict[fn_name],
+            None,
+            [c_void_p, c_uint64, c_uint32, c_void_p, POINTER(c_uint32)],
+        )
+
+        fn_name = "get_submatrix"
+        local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
+        corelib.fillprototype(
+            local_fn_dict[fn_name],
+            None,
+            [
+                c_void_p,
+                c_uint32,  # n_sub_row
+                c_uint32,  # n_sub_col
+                POINTER(c_uint64),  # sub_rows
+                POINTER(c_uint32),  # sub_cols
+                c_uint32,  # trunc_val_len
+                c_char_p,  # ret
+                POINTER(c_uint32),  # ret_lens
+                c_uint32,  # threads
+            ],
+        )
+
+        return local_fn_dict
+
+    def link_mmap_valstore_methods(self):
+        """
+        Specify C-lib's Memory-mappable value store methods arguments and return types.
+        """
+
+        self.mmap_valstore_fn_dict = {
+            "num_f32": self._get_num_f32_mmap_valstore_methods(),
+            "str": self._get_str_mmap_valstore_methods(),
+        }
+
+    def mmap_valstore_init(self, store_type):
+        """Python to C/C++ interface for Memory-mappable store initialization
+        Args:
+            store_type (string): Type of store.
+        Returns:
+            mmap_valstore_fn_dict (dict): a dictionary that holds clib's C/C++ functions for Python to call
+        """
+        if store_type not in self.mmap_valstore_fn_dict:
+            raise NotImplementedError(f"store_type={store_type} is not implemented.")
+        return self.mmap_valstore_fn_dict[store_type]
 
 
 clib = corelib(os.path.join(os.path.dirname(os.path.abspath(pecos.__file__)), "core"), "libpecos")
