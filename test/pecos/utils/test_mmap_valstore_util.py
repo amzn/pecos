@@ -12,7 +12,7 @@ import pytest  # noqa: F401; pylint: disable=unused-variable
 
 
 def test_num_mmap_valstore(tmpdir):
-    from pecos.utils.mmap_valstore_util import MmapValStore, MmapValStoreSubMatGetter
+    from pecos.utils.mmap_valstore_util import MmapValStore, MmapValStoreBatchGetter
     import numpy as np
 
     store_dir = tmpdir.join("num_valstore").realpath().strpath
@@ -25,7 +25,7 @@ def test_num_mmap_valstore(tmpdir):
     arr = np.arange(15, dtype=np.float32).reshape(5, 3)
 
     # Write-only Mode
-    w_store = MmapValStore("num_f32")
+    w_store = MmapValStore("float32")
     w_store.open("w", store_dir)
     # from array
     w_store.store.from_vals(arr)
@@ -34,20 +34,19 @@ def test_num_mmap_valstore(tmpdir):
     w_store.close()
 
     # Read-only Mode
-    r_store = MmapValStore("num_f32")
+    r_store = MmapValStore("float32")
     r_store.open("r", store_dir)
     # Get sub-matrix
-    vs_getter = MmapValStoreSubMatGetter(r_store.store, max_row_size=10, max_col_size=10)
-    assert np.array(vs_getter.get_submat([0], [0])).tolist() == [[0.0]]
-    assert np.array(vs_getter.get_submat([0, 1], [0, 1])).tolist() == [[0.0, 1.0], [3.0, 4.0]]
-    assert np.array(vs_getter.get_submat([2, 3, 4], [1])).tolist() == [[7.0], [10.0], [13.0]]
-    assert np.array(vs_getter.get_submat([3, 1], [0, 2])).tolist() == [[9.0, 11.0], [3.0, 5.0]]
-    assert np.array(vs_getter.get_submat([4], [1, 0, 2])).tolist() == [[13.0, 12.0, 14.0]]
+    vs_getter = MmapValStoreBatchGetter(r_store.store, max_row_size=10, max_col_size=10)
+    assert np.array(vs_getter.get([0], [0])).tolist() == [[0.0]]
+    assert np.array(vs_getter.get([0, 1], [0, 1])).tolist() == [[0.0, 1.0], [3.0, 4.0]]
+    assert np.array(vs_getter.get([2, 3, 4], [1])).tolist() == [[7.0], [10.0], [13.0]]
+    assert np.array(vs_getter.get([3, 1], [0, 2])).tolist() == [[9.0, 11.0], [3.0, 5.0]]
+    assert np.array(vs_getter.get([4], [1, 0, 2])).tolist() == [[13.0, 12.0, 14.0]]
 
 
 def test_str_mmap_valstore(tmpdir):
-    from pecos.utils.mmap_valstore_util import MmapValStore, MmapValStoreSubMatGetter
-    import numpy as np
+    from pecos.utils.mmap_valstore_util import MmapValStore, MmapValStoreBatchGetter
 
     store_dir = tmpdir.join("str_valstore").realpath().strpath
 
@@ -62,7 +61,7 @@ def test_str_mmap_valstore(tmpdir):
     flat_str_list = [item for sublist in str_list for item in sublist]
 
     # Write-only Mode
-    w_store = MmapValStore("str")
+    w_store = MmapValStore("bytes")
     w_store.open("w", store_dir)
     # from array
     w_store.store.from_vals((n_row, n_col, flat_str_list))
@@ -71,20 +70,15 @@ def test_str_mmap_valstore(tmpdir):
     w_store.close()
 
     # Read-only Mode
-    r_store = MmapValStore("str")
+    r_store = MmapValStore("bytes")
     r_store.open("r", store_dir)
     # Get sub-matrix
-    vs_getter = MmapValStoreSubMatGetter(
+    vs_getter = MmapValStoreBatchGetter(
         r_store.store, max_row_size=10, max_col_size=10, trunc_val_len=10
     )
 
     sub_rows, sub_cols = [3, 1], [0, 2]
-    str_sub_mat, str_len_sub_mat = vs_getter.get_submat(sub_rows, sub_cols)
-    str_sub_mat_np = np.array(str_sub_mat)
-    str_len_sub_mat_np = np.array(str_len_sub_mat)
+    str_sub_mat = vs_getter.get(sub_rows, sub_cols)
     for i in range(len(sub_rows)):
         for j in range(len(sub_cols)):
-            assert (
-                str_sub_mat_np[i][j][: str_len_sub_mat_np[i][j]].tobytes()
-                == str_list[sub_rows[i]][sub_cols[j]]  # noqa: W503
-            )
+            assert str_sub_mat[i][j].tobytes() == str_list[sub_rows[i]][sub_cols[j]]  # noqa: W503

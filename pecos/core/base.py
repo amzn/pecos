@@ -1800,7 +1800,7 @@ class corelib(object):
             raise NotImplementedError(f"map_type={map_type} is not implemented.")
         return self.mmap_map_fn_dict[map_type]
 
-    def _get_num_f32_mmap_valstore_methods(self):
+    def _get_float32_mmap_valstore_methods(self):
         """
         Specify C-lib's numerical float32 Memory-mappable store methods arguments and return types.
         """
@@ -1823,7 +1823,7 @@ class corelib(object):
 
         fn_name = "n_col"
         local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
-        corelib.fillprototype(local_fn_dict[fn_name], c_uint32, [c_void_p])
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint64, [c_void_p])
 
         fn_name = "save"
         local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
@@ -1839,17 +1839,17 @@ class corelib(object):
             local_fn_dict[fn_name], None, [c_void_p, c_uint64, c_uint32, POINTER(c_float)]
         )
 
-        fn_name = "get_submatrix"
+        fn_name = "batch_get"
         local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
         corelib.fillprototype(
             local_fn_dict[fn_name],
             None,
             [
                 c_void_p,
-                c_uint32,
-                c_uint32,
+                c_uint64,
+                c_uint64,
                 POINTER(c_uint64),
-                POINTER(c_uint32),
+                POINTER(c_uint64),
                 POINTER(c_float),
                 c_uint32,
             ],
@@ -1857,12 +1857,12 @@ class corelib(object):
 
         return local_fn_dict
 
-    def _get_str_mmap_valstore_methods(self):
+    def _get_bytes_mmap_valstore_methods(self):
         """
-        Specify C-lib's numerical Memory-mappable value store methods arguments and return types.
+        Specify C-lib's bytes Memory-mappable value store methods arguments and return types.
         """
         fn_prefix = "mmap_valstore"
-        store_type = "str"
+        store_type = "bytes"
 
         local_fn_dict = {}
 
@@ -1880,7 +1880,7 @@ class corelib(object):
 
         fn_name = "n_col"
         local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
-        corelib.fillprototype(local_fn_dict[fn_name], c_uint32, [c_void_p])
+        corelib.fillprototype(local_fn_dict[fn_name], c_uint64, [c_void_p])
 
         fn_name = "save"
         local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
@@ -1895,20 +1895,20 @@ class corelib(object):
         corelib.fillprototype(
             local_fn_dict[fn_name],
             None,
-            [c_void_p, c_uint64, c_uint32, c_void_p, POINTER(c_uint32)],
+            [c_void_p, c_uint64, c_uint64, c_void_p, POINTER(c_uint32)],
         )
 
-        fn_name = "get_submatrix"
+        fn_name = "batch_get"
         local_fn_dict[fn_name] = getattr(self.clib_float32, f"{fn_prefix}_{fn_name}_{store_type}")
         corelib.fillprototype(
             local_fn_dict[fn_name],
             None,
             [
                 c_void_p,
-                c_uint32,  # n_sub_row
-                c_uint32,  # n_sub_col
+                c_uint64,  # n_sub_row
+                c_uint64,  # n_sub_col
                 POINTER(c_uint64),  # sub_rows
-                POINTER(c_uint32),  # sub_cols
+                POINTER(c_uint64),  # sub_cols
                 c_uint32,  # trunc_val_len
                 c_char_p,  # ret
                 POINTER(c_uint32),  # ret_lens
@@ -1924,8 +1924,8 @@ class corelib(object):
         """
 
         self.mmap_valstore_fn_dict = {
-            "num_f32": self._get_num_f32_mmap_valstore_methods(),
-            "str": self._get_str_mmap_valstore_methods(),
+            "float32": self._get_float32_mmap_valstore_methods(),
+            "bytes": self._get_bytes_mmap_valstore_methods(),
         }
 
     def mmap_valstore_init(self, store_type):

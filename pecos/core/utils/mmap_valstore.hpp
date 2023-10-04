@@ -23,7 +23,7 @@ namespace pecos {
 namespace mmap_valstore {
 
 typedef uint64_t row_type;
-typedef uint32_t col_type;
+typedef uint64_t col_type;
 
 
 class Float32Store {
@@ -53,10 +53,10 @@ class Float32Store {
             vals_ = vals;
         }
 
-        void get_submatrix(const uint32_t n_sub_row, const uint32_t n_sub_col, const row_type* sub_rows, const col_type* sub_cols, value_type* ret, const int threads=1) {
+        void batch_get(const uint64_t n_sub_row, const uint64_t n_sub_col, const row_type* sub_rows, const col_type* sub_cols, value_type* ret, const int threads=1) {
             #pragma omp parallel for schedule(static, 1) num_threads(threads)
-            for (uint32_t i=0; i<n_sub_row; ++i) {
-                for (uint32_t j=0; j<n_sub_col; ++j) {
+            for (uint64_t i=0; i<n_sub_row; ++i) {
+                for (uint64_t j=0; j<n_sub_col; ++j) {
                     ret[i * n_sub_col + j] = vals_[sub_rows[i] * n_col_ + sub_cols[j]];
                 }
             }
@@ -95,11 +95,11 @@ class Float32Store {
 };
 
 
-class StringStore {
+class BytesStore {
     public:
-        typedef uint32_t str_len_type;
+        typedef uint32_t bytes_len_type;
 
-        StringStore():
+        BytesStore():
             n_row_(0),
             n_col_(0)
         {}
@@ -113,7 +113,7 @@ class StringStore {
         }
 
         // In memory. Allocate and assign values
-        void from_vals(const row_type n_row, const col_type n_col, const char* const* vals, const str_len_type* vals_lens) {
+        void from_vals(const row_type n_row, const col_type n_col, const char* const* vals, const bytes_len_type* vals_lens) {
             n_row_ = n_row;
             n_col_ = n_col;
 
@@ -137,15 +137,15 @@ class StringStore {
             }
         }
 
-        void get_submatrix(const uint32_t n_sub_row, const uint32_t n_sub_col, const row_type* sub_rows, const col_type* sub_cols,
-            const str_len_type trunc_val_len, char* ret, str_len_type* ret_lens, const int threads=1) {
+        void batch_get(const uint64_t n_sub_row, const uint64_t n_sub_col, const row_type* sub_rows, const col_type* sub_cols,
+            const bytes_len_type trunc_val_len, char* ret, bytes_len_type* ret_lens, const int threads=1) {
             #pragma omp parallel for schedule(static, 1) num_threads(threads)
-            for (uint32_t i=0; i<n_sub_row; ++i) {
-                for (uint32_t j=0; j<n_sub_col; ++j) {
-                    uint32_t sub_idx = i * n_sub_col + j;
+            for (uint64_t i=0; i<n_sub_row; ++i) {
+                for (uint64_t j=0; j<n_sub_col; ++j) {
+                    uint64_t sub_idx = i * n_sub_col + j;
                     row_type idx = sub_rows[i] * n_col_ + sub_cols[j];
-                    uint32_t ret_start_idx = sub_idx * trunc_val_len;
-                    str_len_type cur_ret_len = std::min(trunc_val_len, vals_lens_[idx]);
+                    uint64_t ret_start_idx = sub_idx * trunc_val_len;
+                    bytes_len_type cur_ret_len = std::min(trunc_val_len, vals_lens_[idx]);
                     ret_lens[sub_idx] = cur_ret_len;
                     std::memcpy(ret + ret_start_idx, vals_.data() + vals_starts_[idx], cur_ret_len);
                 }
@@ -182,7 +182,7 @@ class StringStore {
         row_type n_row_;
         col_type n_col_;
         mmap_util::MmapableVector<char> vals_;  // Concatenated big string
-        mmap_util::MmapableVector<str_len_type> vals_lens_;  // Length for each string
+        mmap_util::MmapableVector<bytes_len_type> vals_lens_;  // Length for each string
         mmap_util::MmapableVector<row_type> vals_starts_;  // Start for each string in the concatenated big string
 
         pecos::mmap_util::MmapStore mmap_store_;
