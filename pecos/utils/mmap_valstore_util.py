@@ -80,14 +80,14 @@ class MmapValStore(object):
             self.close()
 
 
-class MmapValStoreSubMatGetter(object):
+class MmapValStoreBatchGetter(object):
     """
-    Sub-matrix getter for MmapValStore opened for readonly.
+    Batch getter for MmapValStore opened for readonly.
 
     Args:
         max_row_size: Maximum row size
         max_col_size: Maximum column size
-        trunc_val_len (Optional): Applicable for string value only. Truncated max string length.
+        trunc_val_len (Optional): Applicable for bytes value only. Truncated max length.
         threads (Optional): Number of threads to use.
     """
 
@@ -118,17 +118,19 @@ class MmapValStoreSubMatGetter(object):
         )
 
         # Pre-allocated space for sub-matrix row & col indices
+        self.max_row_size = max_row_size
+        self.max_col_size = max_col_size
         self.sub_rows = np.zeros(max_row_size, dtype=np.uint64)
-        self.sub_cols = np.zeros(max_col_size, dtype=np.uint32)
+        self.sub_cols = np.zeros(max_col_size, dtype=np.uint64)
         self.sub_rows_ptr = self.sub_rows.ctypes.data_as(POINTER(c_uint64))
-        self.sub_cols_ptr = self.sub_cols.ctypes.data_as(POINTER(c_uint32))
+        self.sub_cols_ptr = self.sub_cols.ctypes.data_as(POINTER(c_uint64))
 
         # Pre-allocated space for return values sub-matrix
         self.val_prealloc = store_r.get_val_alloc(max_row_size, max_col_size, trunc_val_len)
 
-    def get_submat(self, rows, cols):
+    def get(self, rows, cols):
         """
-        Get sub-matrix of the value store with given indices of rows and columns.
+        Get the batch as a sub-matrix of the value store with given indices of rows and columns.
 
         NOTE:
             1) `rows` & `cols` are list-like objects,
@@ -137,9 +139,20 @@ class MmapValStoreSubMatGetter(object):
         """
         n_rows = len(rows)
         n_cols = len(cols)
+
+        if n_rows > self.max_row_size:
+            self.max_row_size = max(n_rows, 2 * self.max_row_size)
+            self.sub_rows = np.zeros(self.max_row_size, dtype=np.uint64)
+            self.sub_rows_ptr = self.sub_rows.ctypes.data_as(POINTER(c_uint64))
+
+        if n_cols > self.max_col_size:
+            self.max_col_size = max(n_cols, 2 * self.max_col_size)
+            self.sub_cols = np.zeros(self.max_col_size, dtype=np.uint64)
+            self.sub_cols_ptr = self.sub_cols.ctypes.data_as(POINTER(c_uint64))
+
         self.sub_rows.flat[:n_rows] = rows
         self.sub_cols.flat[:n_cols] = cols
-        self.store_r.get_submatrix(
+        self.store_r.batch_get(
             n_rows,
             n_cols,
             self.sub_rows_ptr,
@@ -171,7 +184,7 @@ class _MmapValStoreReadOnly(_MmapValStoreBase):
     """Base class for methods shared by all read modes"""
 
     @abstractmethod
-    def get_submatrix(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals: Tuple, threads_c_uint32):
+    def batch_get(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals: Tuple, threads_c_uint32):
         pass
 
     @classmethod
@@ -187,32 +200,32 @@ class _MmapValStoreReadOnly(_MmapValStoreBase):
         fn_dict = clib.mmap_valstore_init(store_type)
         store_ptr = fn_dict["load"](store_dir.encode("utf-8"), lazy_load)
 
-        if store_type == "num_f32":
-            return _MmapValStoreNumF32ReadOnly(store_ptr, fn_dict)
-        elif store_type == "str":
-            return _MmapValStoreStrReadOnly(store_ptr, fn_dict)
+        if store_type == "float32":
+            return _MmapValStoreFloat32ReadOnly(store_ptr, fn_dict)
+        elif store_type == "bytes":
+            return _MmapValStoreBytesReadOnly(store_ptr, fn_dict)
         else:
             raise NotImplementedError(f"{store_type}")
 
 
-class _MmapValStoreNumF32ReadOnly(_MmapValStoreReadOnly):
+class _MmapValStoreFloat32ReadOnly(_MmapValStoreReadOnly):
     """
     Numerical float32 value store read only implementation.
     """
 
-    def get_submatrix(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals, threads_c_uint32):
-        self.fn_dict["get_submatrix"](
+    def batch_get(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals, threads_c_uint32):
+        self.fn_dict["batch_get"](
             self.store_ptr, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals, threads_c_uint32
         )
 
     @classmethod
     def get_val_alloc(cls, max_row_size: int, max_col_size: int, trunc_val_len: int = 0):
-        return _NumF32SubMatGetterValPreAlloc(max_row_size, max_col_size)
+        return _Float32BatchGetterValPreAlloc(max_row_size, max_col_size)
 
 
-class _NumF32SubMatGetterValPreAlloc(object):
+class _Float32BatchGetterValPreAlloc(object):
     """
-    Sub-matrix return value pre-allocate for float32 Numerical MmapValStore.
+    Batch return value pre-allocate for float32 Numerical MmapValStore.
     """
 
     def __init__(self, max_row_size: int, max_col_size: int):
@@ -241,14 +254,14 @@ class _NumF32SubMatGetterValPreAlloc(object):
         return memoryview(self.vals)[: n_rows * n_cols].cast("c").cast("f", shape=[n_rows, n_cols])
 
 
-class _MmapValStoreStrReadOnly(_MmapValStoreReadOnly):
+class _MmapValStoreBytesReadOnly(_MmapValStoreReadOnly):
     """
-    String value store read only implementation.
+    Bytes value store read only implementation.
     """
 
-    def get_submatrix(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals, threads_c_uint32):
+    def batch_get(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals, threads_c_uint32):
         trunc_val_len, ret_ptr, ret_lens_ptr = ret_vals
-        self.fn_dict["get_submatrix"](
+        self.fn_dict["batch_get"](
             self.store_ptr,
             n_rows,
             n_cols,
@@ -262,12 +275,12 @@ class _MmapValStoreStrReadOnly(_MmapValStoreReadOnly):
 
     @classmethod
     def get_val_alloc(cls, max_row_size: int, max_col_size: int, trunc_val_len: int = 256):
-        return _StrSubMatGetterValPreAlloc(max_row_size, max_col_size, trunc_val_len)
+        return _BytesBatchGetterValPreAlloc(max_row_size, max_col_size, trunc_val_len)
 
 
-class _StrSubMatGetterValPreAlloc(object):
+class _BytesBatchGetterValPreAlloc(object):
     """
-    Sub-matrix return value pre-allocate for String MmapValStore.
+    Batch return value pre-allocate for Bytes MmapValStore.
     """
 
     def __init__(self, max_row_size: int, max_col_size: int, trunc_val_len: int):
@@ -284,17 +297,21 @@ class _StrSubMatGetterValPreAlloc(object):
         """
         Reshape return into memoryview of bytes matrix
         """
-        ret_sub_mat = (
-            memoryview(self.vals)[: n_rows * n_cols * self.trunc_val_len]
-            .cast("c")
-            .cast("c", shape=[n_rows, n_cols, self.trunc_val_len])
-        )
-        len_sub_mat = (
-            memoryview(self.vals_lens)[: n_rows * n_cols]
-            .cast("c")
-            .cast("I", shape=[n_rows, n_cols])
-        )
-        return (ret_sub_mat, len_sub_mat)
+        mat_mv = memoryview(self.vals)
+        len_mv = memoryview(self.vals_lens)
+
+        def start_loc(i, j):
+            return i * n_cols * self.trunc_val_len + j * self.trunc_val_len
+
+        ret_mat_mv = [
+            [
+                mat_mv[start_loc(i, j) : start_loc(i, j) + len_mv[i * n_cols + j]]
+                for j in range(n_cols)
+            ]
+            for i in range(n_rows)
+        ]
+
+        return ret_mat_mv
 
 
 class _MmapValStoreWrite(_MmapValStoreBase):
@@ -325,15 +342,15 @@ class _MmapValStoreWrite(_MmapValStoreBase):
         fn_dict = clib.mmap_valstore_init(store_type)
         store_ptr = fn_dict["new"]()
 
-        if store_type == "num_f32":
-            return _MmapValStoreNumF32Write(store_ptr, fn_dict, store_dir)
-        elif store_type == "str":
-            return _MmapValStoreStrWrite(store_ptr, fn_dict, store_dir)
+        if store_type == "float32":
+            return _MmapValStoreFloat32Write(store_ptr, fn_dict, store_dir)
+        elif store_type == "bytes":
+            return _MmapValStoreBytesWrite(store_ptr, fn_dict, store_dir)
         else:
             raise NotImplementedError(f"{store_type}")
 
 
-class _MmapValStoreNumF32Write(_MmapValStoreWrite):
+class _MmapValStoreFloat32Write(_MmapValStoreWrite):
     def from_vals(self, vals):
         """
         Args:
@@ -341,6 +358,10 @@ class _MmapValStoreNumF32Write(_MmapValStoreWrite):
         """
         if not vals.flags["C_CONTIGUOUS"]:
             raise ValueError("Array is not row-major, cannot write.")
+
+        if vals.dtype != np.float32:
+            raise TypeError("Array should be NumPy float32.")
+
         n_row, n_col = vals.shape
         self.fn_dict["from_vals"](
             self.store_ptr, n_row, n_col, vals.ctypes.data_as(POINTER(c_float))
@@ -349,23 +370,23 @@ class _MmapValStoreNumF32Write(_MmapValStoreWrite):
         self.vals = vals
 
 
-class _MmapValStoreStrWrite(_MmapValStoreWrite):
+class _MmapValStoreBytesWrite(_MmapValStoreWrite):
     def from_vals(self, vals):
         """
         Args:
-            vals: Tuple (n_row, n_col, str_list)
+            vals: Tuple (n_row, n_col, bytes_list)
                 n_row: Number of rows
                 n_col: Number of columns
-                str_list: List of UTF-8 encoded strings
+                bytes_list: List of UTF-8 encoded strings
         """
-        n_row, n_col, str_list = vals
+        n_row, n_col, bytes_list = vals
         n_total = n_row * n_col
-        if len(str_list) != n_total:
-            raise ValueError(f"Should get length {n_total} string list, got: {len(str_list)}")
+        if len(bytes_list) != n_total:
+            raise ValueError(f"Should get length {n_total} bytes list, got: {len(bytes_list)}")
 
-        str_ptr = (c_char_p * n_total)()
-        str_ptr[:] = str_list
-        str_lens = np.array([len(s) for s in str_list], dtype=np.uint32)
-        str_lens_ptr = str_lens.ctypes.data_as(POINTER(c_uint32))
+        bytes_ptr = (c_char_p * n_total)()
+        bytes_ptr[:] = bytes_list
+        bytes_lens = np.array([len(s) for s in bytes_list], dtype=np.uint32)
+        bytes_lens_ptr = bytes_lens.ctypes.data_as(POINTER(c_uint32))
 
-        self.fn_dict["from_vals"](self.store_ptr, n_row, n_col, str_ptr, str_lens_ptr)
+        self.fn_dict["from_vals"](self.store_ptr, n_row, n_col, bytes_ptr, bytes_lens_ptr)

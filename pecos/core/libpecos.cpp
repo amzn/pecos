@@ -556,7 +556,7 @@ extern "C" {
     // ==== C Interface of Memory-mappable Value Store ====
 
     typedef pecos::mmap_valstore::Float32Store mmap_valstore_float32;
-    typedef pecos::mmap_valstore::StringStore mmap_valstore_str;
+    typedef pecos::mmap_valstore::BytesStore mmap_valstore_bytes;
     typedef pecos::mmap_valstore::row_type row_type;
     typedef pecos::mmap_valstore::col_type col_type;
 
@@ -565,35 +565,35 @@ extern "C" {
     void* mmap_valstore_new_ ## SUFFIX () { \
     return static_cast<void*>(new mmap_valstore_ ## SUFFIX()); }
     MMAP_VALSTORE_NEW(float32)
-    MMAP_VALSTORE_NEW(str)
+    MMAP_VALSTORE_NEW(bytes)
 
     // Destruct
     #define MMAP_VALSTORE_DESTRUCT(SUFFIX) \
     void mmap_valstore_destruct_ ## SUFFIX (void* map_ptr) { \
     delete static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr); }
     MMAP_VALSTORE_DESTRUCT(float32)
-    MMAP_VALSTORE_DESTRUCT(str)
+    MMAP_VALSTORE_DESTRUCT(bytes)
 
     // Number of rows
     #define MMAP_MAP_N_ROW(SUFFIX) \
     row_type mmap_valstore_n_row_ ## SUFFIX (void* map_ptr) { \
     return static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr)->n_row(); }
     MMAP_MAP_N_ROW(float32)
-    MMAP_MAP_N_ROW(str)
+    MMAP_MAP_N_ROW(bytes)
 
     // Number of columns
     #define MMAP_MAP_N_COL(SUFFIX) \
     col_type mmap_valstore_n_col_ ## SUFFIX (void* map_ptr) { \
     return static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr)->n_col(); }
     MMAP_MAP_N_COL(float32)
-    MMAP_MAP_N_COL(str)
+    MMAP_MAP_N_COL(bytes)
 
     // Save
     #define MMAP_VALSTORE_SAVE(SUFFIX) \
     void mmap_valstore_save_ ## SUFFIX (void* map_ptr, const char* map_dir) { \
     static_cast<mmap_valstore_ ## SUFFIX *>(map_ptr)->save(map_dir); }
     MMAP_VALSTORE_SAVE(float32)
-    MMAP_VALSTORE_SAVE(str)
+    MMAP_VALSTORE_SAVE(bytes)
 
     // Load
     #define MMAP_VALSTORE_LOAD(SUFFIX) \
@@ -602,7 +602,7 @@ extern "C" {
     map_ptr->load(map_dir, lazy_load); \
     return static_cast<void *>(map_ptr); }
     MMAP_VALSTORE_LOAD(float32)
-    MMAP_VALSTORE_LOAD(str)
+    MMAP_VALSTORE_LOAD(bytes)
 
     // Create view from external values pointer
     void mmap_valstore_from_vals_float32 (
@@ -614,41 +614,41 @@ extern "C" {
         static_cast<mmap_valstore_float32 *>(map_ptr)->from_vals(n_row, n_col, vals);
     }
     // Allocate and Init
-    void mmap_valstore_from_vals_str (
+    void mmap_valstore_from_vals_bytes (
         void* map_ptr,
         const row_type n_row,
         const col_type n_col,
         const char* const* vals,
-        const mmap_valstore_str::str_len_type* vals_lens
+        const mmap_valstore_bytes::bytes_len_type* vals_lens
     ) {
-        static_cast<mmap_valstore_str *>(map_ptr)->from_vals(n_row, n_col, vals, vals_lens);
+        static_cast<mmap_valstore_bytes *>(map_ptr)->from_vals(n_row, n_col, vals, vals_lens);
     }
 
     // Get sub-matrix
-    void mmap_valstore_get_submatrix_float32 (
+    void mmap_valstore_batch_get_float32 (
         void* map_ptr,
-        const uint32_t n_sub_row,
-        const uint32_t n_sub_col,
+        const uint64_t n_sub_row,
+        const uint64_t n_sub_col,
         const row_type* sub_rows,
         const col_type* sub_cols,
         mmap_valstore_float32::value_type* ret,
         const int threads
     ) {
-        static_cast<mmap_valstore_float32 *>(map_ptr)->get_submatrix(
+        static_cast<mmap_valstore_float32 *>(map_ptr)->batch_get(
             n_sub_row, n_sub_col, sub_rows, sub_cols, ret, threads);
     }
-    void mmap_valstore_get_submatrix_str (
+    void mmap_valstore_batch_get_bytes (
         void* map_ptr,
-        const uint32_t n_sub_row,
-        const uint32_t n_sub_col,
+        const uint64_t n_sub_row,
+        const uint64_t n_sub_col,
         const row_type* sub_rows,
         const col_type* sub_cols,
-        const mmap_valstore_str::str_len_type trunc_val_len,
+        const mmap_valstore_bytes::bytes_len_type trunc_val_len,
         char* ret,
-        mmap_valstore_str::str_len_type* ret_lens,
+        mmap_valstore_bytes::bytes_len_type* ret_lens,
         const int threads
     ) {
-        static_cast<mmap_valstore_str *>(map_ptr)->get_submatrix(
+        static_cast<mmap_valstore_bytes *>(map_ptr)->batch_get(
             n_sub_row, n_sub_col, sub_rows, sub_cols, trunc_val_len, ret, ret_lens, threads);
     }
 }
