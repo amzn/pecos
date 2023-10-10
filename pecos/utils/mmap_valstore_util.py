@@ -120,6 +120,7 @@ class MmapValStoreBatchGetter(object):
         # Pre-allocated space for sub-matrix row & col indices
         self.max_row_size = max_row_size
         self.max_col_size = max_col_size
+        self.trunc_val_len = trunc_val_len
         self.sub_rows = np.zeros(max_row_size, dtype=np.uint64)
         self.sub_cols = np.zeros(max_col_size, dtype=np.uint64)
         self.sub_rows_ptr = self.sub_rows.ctypes.data_as(POINTER(c_uint64))
@@ -139,16 +140,26 @@ class MmapValStoreBatchGetter(object):
         """
         n_rows = len(rows)
         n_cols = len(cols)
+        is_realloc = False
 
         if n_rows > self.max_row_size:
             self.max_row_size = max(n_rows, 2 * self.max_row_size)
             self.sub_rows = np.zeros(self.max_row_size, dtype=np.uint64)
             self.sub_rows_ptr = self.sub_rows.ctypes.data_as(POINTER(c_uint64))
+            is_realloc = True
 
         if n_cols > self.max_col_size:
             self.max_col_size = max(n_cols, 2 * self.max_col_size)
             self.sub_cols = np.zeros(self.max_col_size, dtype=np.uint64)
             self.sub_cols_ptr = self.sub_cols.ctypes.data_as(POINTER(c_uint64))
+            is_realloc = True
+
+        if is_realloc:
+            self.val_prealloc = self.store_r.get_val_alloc(
+                self.max_row_size,
+                self.max_col_size,
+                self.trunc_val_len,
+            )
 
         self.sub_rows.flat[:n_rows] = rows
         self.sub_cols.flat[:n_cols] = cols
