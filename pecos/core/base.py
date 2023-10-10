@@ -1925,7 +1925,7 @@ class corelib(object):
 
         self.mmap_valstore_fn_dict = {
             "float32": self._get_float32_mmap_valstore_methods(),
-            "bytes": self._get_bytes_mmap_valstore_methods(),
+            "str": self._get_bytes_mmap_valstore_methods(),
         }
 
     def mmap_valstore_init(self, store_type):
