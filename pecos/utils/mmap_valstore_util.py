@@ -87,7 +87,7 @@ class MmapValStoreBatchGetter(object):
     Args:
         max_row_size: Maximum row size
         max_col_size: Maximum column size
-        trunc_val_len (Optional): Applicable for bytes value only. Truncated max length.
+        trunc_val_len (Optional): Applicable for str value only. Truncated max length.
         threads (Optional): Number of threads to use.
     """
 
@@ -171,7 +171,7 @@ class MmapValStoreBatchGetter(object):
             self.val_prealloc.ret_vals,
             self.threads_c_uint32,
         )
-        return self.val_prealloc.get_ret_memoryview(n_rows, n_cols)
+        return self.val_prealloc.format_ret(n_rows, n_cols)
 
 
 class _MmapValStoreBase(object):
@@ -213,8 +213,8 @@ class _MmapValStoreReadOnly(_MmapValStoreBase):
 
         if store_type == "float32":
             return _MmapValStoreFloat32ReadOnly(store_ptr, fn_dict)
-        elif store_type == "bytes":
-            return _MmapValStoreBytesReadOnly(store_ptr, fn_dict)
+        elif store_type == "str":
+            return _MmapValStoreStrReadOnly(store_ptr, fn_dict)
         else:
             raise NotImplementedError(f"{store_type}")
 
@@ -245,29 +245,17 @@ class _Float32BatchGetterValPreAlloc(object):
 
         self.ret_vals = self.vals_ptr
 
-    def get_ret_memoryview(self, n_rows, n_cols):
+    def format_ret(self, n_rows, n_cols):
         """
-        Reshape return into desired shape (row-major), so elements could be retrieved by indices:
-            ret[i, j], 0<=i<n_rows, 0<=j<n_cols
-
-        Return can also be assigned to row-major Numpy array of same shape:
-            arr = np.zeros((n_rows, n_cols), dtype=np.float32)
-            arr.flat[:] = ret
-        This also works:
-            arr = np.array(ret)
-
-        Casting/Reshaping a memoryview does not copy data.
-        See: https://docs.python.org/3/library/stdtypes.html#memoryview.cast
+        Reshape return into desired shape (row-major), so elements could be retrieved by indices.
+        Numpy array slice & reshape does not copy.
         """
-        # Casting to bytes first then cast to float32 with desired shape.
-        # 'f' = float32
-        # For types, see: https://docs.python.org/3/library/struct.html#format-characters
-        return memoryview(self.vals)[: n_rows * n_cols].cast("c").cast("f", shape=[n_rows, n_cols])
+        return self.vals[: n_rows * n_cols].reshape(n_rows, n_cols)
 
 
-class _MmapValStoreBytesReadOnly(_MmapValStoreReadOnly):
+class _MmapValStoreStrReadOnly(_MmapValStoreReadOnly):
     """
-    Bytes value store read only implementation.
+    Str value store read only implementation.
     """
 
     def batch_get(self, n_rows, n_cols, rows_ptr, cols_ptr, ret_vals, threads_c_uint32):
@@ -286,12 +274,12 @@ class _MmapValStoreBytesReadOnly(_MmapValStoreReadOnly):
 
     @classmethod
     def get_val_alloc(cls, max_row_size: int, max_col_size: int, trunc_val_len: int = 256):
-        return _BytesBatchGetterValPreAlloc(max_row_size, max_col_size, trunc_val_len)
+        return _StrBatchGetterValPreAlloc(max_row_size, max_col_size, trunc_val_len)
 
 
-class _BytesBatchGetterValPreAlloc(object):
+class _StrBatchGetterValPreAlloc(object):
     """
-    Batch return value pre-allocate for Bytes MmapValStore.
+    Batch return value pre-allocate for Str MmapValStore.
     """
 
     def __init__(self, max_row_size: int, max_col_size: int, trunc_val_len: int):
@@ -304,25 +292,26 @@ class _BytesBatchGetterValPreAlloc(object):
         self.trunc_val_len = trunc_val_len
         self.ret_vals = (c_uint32(trunc_val_len), self.vals_ptr, self.vals_lens_ptr)
 
-    def get_ret_memoryview(self, n_rows, n_cols):
-        """
-        Reshape return into memoryview of bytes matrix
-        """
-        mat_mv = memoryview(self.vals)
-        len_mv = memoryview(self.vals_lens)
-
-        def start_loc(i, j):
-            return i * n_cols * self.trunc_val_len + j * self.trunc_val_len
-
-        ret_mat_mv = [
-            [
-                mat_mv[start_loc(i, j) : start_loc(i, j) + len_mv[i * n_cols + j]]
-                for j in range(n_cols)
-            ]
-            for i in range(n_rows)
+        # Pre-calculated memory view of each string
+        # For str decoding, from memory view is faster than from Numpy view
+        bytes_start_loc = [idx * self.trunc_val_len for idx in range(max_row_size * max_col_size)]
+        self.byte_mem_views = [
+            memoryview(self.vals[start_idx : start_idx + self.trunc_val_len])
+            for start_idx in bytes_start_loc
         ]
 
-        return ret_mat_mv
+        # Buffer for return string objects
+        self.ret_obj = np.zeros(max_row_size * max_col_size, dtype=np.object_)
+
+    def format_ret(self, n_rows, n_cols):
+        """
+        Reshape return into decoded string matrix
+        """
+        for idx in range(n_rows * n_cols):
+            self.ret_obj[idx] = str(
+                self.byte_mem_views[idx][: self.vals_lens[idx]], "utf-8", "ignore"
+            )
+        return self.ret_obj[: n_rows * n_cols].reshape(n_rows, n_cols).tolist()
 
 
 class _MmapValStoreWrite(_MmapValStoreBase):
@@ -355,8 +344,8 @@ class _MmapValStoreWrite(_MmapValStoreBase):
 
         if store_type == "float32":
             return _MmapValStoreFloat32Write(store_ptr, fn_dict, store_dir)
-        elif store_type == "bytes":
-            return _MmapValStoreBytesWrite(store_ptr, fn_dict, store_dir)
+        elif store_type == "str":
+            return _MmapValStoreStrWrite(store_ptr, fn_dict, store_dir)
         else:
             raise NotImplementedError(f"{store_type}")
 
@@ -381,20 +370,21 @@ class _MmapValStoreFloat32Write(_MmapValStoreWrite):
         self.vals = vals
 
 
-class _MmapValStoreBytesWrite(_MmapValStoreWrite):
+class _MmapValStoreStrWrite(_MmapValStoreWrite):
     def from_vals(self, vals):
         """
         Args:
-            vals: Tuple (n_row, n_col, bytes_list)
+            vals: Tuple (n_row, n_col, str_list)
                 n_row: Number of rows
                 n_col: Number of columns
-                bytes_list: List of UTF-8 encoded strings
+                str_list: List of strings
         """
-        n_row, n_col, bytes_list = vals
+        n_row, n_col, str_list = vals
         n_total = n_row * n_col
-        if len(bytes_list) != n_total:
-            raise ValueError(f"Should get length {n_total} bytes list, got: {len(bytes_list)}")
+        if len(str_list) != n_total:
+            raise ValueError(f"Should get length {n_total} string list, got: {len(str_list)}")
 
+        bytes_list = [ss.encode("utf-8") for ss in str_list]
         bytes_ptr = (c_char_p * n_total)()
         bytes_ptr[:] = bytes_list
         bytes_lens = np.array([len(s) for s in bytes_list], dtype=np.uint32)

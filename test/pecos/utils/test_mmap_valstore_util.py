@@ -57,11 +57,11 @@ def test_str_mmap_valstore(tmpdir):
     #  ['4', '44', '444']]
     n_row = 5
     n_col = 3
-    str_list = [[f"{j}".encode("UTF-8") * (i + 1) for i in range(n_col)] for j in range(n_row)]
+    str_list = [[f"{j}" * (i + 1) for i in range(n_col)] for j in range(n_row)]
     flat_str_list = [item for sublist in str_list for item in sublist]
 
     # Write-only Mode
-    w_store = MmapValStore("bytes")
+    w_store = MmapValStore("str")
     w_store.open("w", store_dir)
     # from array
     w_store.store.from_vals((n_row, n_col, flat_str_list))
@@ -70,7 +70,7 @@ def test_str_mmap_valstore(tmpdir):
     w_store.close()
 
     # Read-only Mode
-    r_store = MmapValStore("bytes")
+    r_store = MmapValStore("str")
     r_store.open("r", store_dir)
     # Get sub-matrix
     vs_getter = MmapValStoreBatchGetter(
@@ -81,4 +81,10 @@ def test_str_mmap_valstore(tmpdir):
     str_sub_mat = vs_getter.get(sub_rows, sub_cols)
     for i in range(len(sub_rows)):
         for j in range(len(sub_cols)):
-            assert str_sub_mat[i][j].tobytes() == str_list[sub_rows[i]][sub_cols[j]]  # noqa: W503
+            assert str_sub_mat[i][j] == str_list[sub_rows[i]][sub_cols[j]]  # noqa: W503
+
+    sub_rows, sub_cols = [4, 4, 1, 2], [1, 2, 0]
+    str_sub_mat = vs_getter.get(sub_rows, sub_cols)
+    for i in range(len(sub_rows)):
+        for j in range(len(sub_cols)):
+            assert str_sub_mat[i][j] == str_list[sub_rows[i]][sub_cols[j]]  # noqa: W503
