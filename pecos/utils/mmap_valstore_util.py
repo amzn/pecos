@@ -300,18 +300,17 @@ class _StrBatchGetterValPreAlloc(object):
             for start_idx in bytes_start_loc
         ]
 
-        # Buffer for return string objects
-        self.ret_obj = np.zeros(max_row_size * max_col_size, dtype=np.object_)
-
     def format_ret(self, n_rows, n_cols):
         """
         Reshape return into decoded string matrix
         """
-        for idx in range(n_rows * n_cols):
-            self.ret_obj[idx] = str(
-                self.byte_mem_views[idx][: self.vals_lens[idx]], "utf-8", "ignore"
-            )
-        return self.ret_obj[: n_rows * n_cols].reshape(n_rows, n_cols).tolist()
+        ret_len = n_rows * n_cols
+        ret = [
+            str(mem_view[:val_len], "utf-8", "ignore")
+            for mem_view, val_len in zip(self.byte_mem_views[:ret_len], self.vals_lens[:ret_len])
+        ]
+
+        return [ret[i : i + n_cols] for i in range(0, ret_len, n_cols)]
 
 
 class _MmapValStoreWrite(_MmapValStoreBase):
