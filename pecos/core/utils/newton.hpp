@@ -272,5 +272,117 @@ namespace pecos {
             return cg_iter;
         };
     };
+
+
+    // Platt scale with given target curve.
+    // Reference Implementation:
+    //  https://github.com/cjlin1/libsvm/blob/master/svm.cpp
+
+    template <typename value_type>
+    static void fit_platt_transform(size_t num_samples, const value_type *logits, const value_type *tgt_probs, double& A, double& B) {
+        // hyper parameters
+        int max_iter = 100; // Maximal number of iterations
+        double min_step = 1e-10;    // Minimal step taken in line search
+        double sigma = 1e-12; // For numerically strict PD of Hessian
+        double eps = 1e-6;
+
+	int iter;
+
+        // Initial Point and Initial Fun Value
+        A = 0.0; B = 1.0;
+        double fval = 0.0;
+
+        // check for out of bound in tgt_probs
+	for (size_t i = 0; i < num_samples; i++) {
+	    if (tgt_probs[i] > 1.0 || tgt_probs[i] < 0) {
+                throw std::runtime_error("fit_platt_transform: target probability out of bound\n");
+	    }
+        }
+
+
+        for (size_t i = 0; i < num_samples; i++) {
+            double fApB = logits[i] * A + B;
+            if (fApB >= 0) {
+                fval += tgt_probs[i] * fApB + log(1 + exp(-fApB));
+            } else {
+                fval += (tgt_probs[i] - 1) * fApB + log(1 + exp(fApB));
+            }
+        }
+        for (iter = 0; iter < max_iter; iter++) {
+            // Update Gradient and Hessian (use H' = H + sigma I)
+            double h11 = sigma;
+            double h22 = sigma; // numerically ensures strict PD
+            double h21 = 0.0;
+            double g1 = 0.0;
+            double g2 = 0.0;
+
+            for (size_t i = 0; i < num_samples; i++) {
+                double fApB = logits[i] * A + B;
+		double p = 0, q = 0;
+                if (fApB >= 0) {
+                    p = exp(-fApB) / (1.0 + exp(-fApB));
+                    q = 1.0 / (1.0 + exp(-fApB));
+                } else {
+                    p = 1.0 / (1.0 + exp(fApB));
+                    q = exp(fApB) / (1.0 + exp(fApB));
+                }
+                double d1 = tgt_probs[i] - p;
+                double d2 = p * q;
+
+                h11 += d2 * logits[i] * logits[i];
+                h22 += d2;
+                h21 += logits[i] * d2;
+                g1 += logits[i] * d1;
+                g2 += d1;
+            }
+
+            // Stopping Criteria
+            if (fabs(g1) < eps && fabs(g2) < eps)
+                break;
+
+            // Finding Newton direction: -inv(H') * g
+            double det = h11 * h22 - h21 * h21;
+            double dA = -(h22 * g1 - h21 * g2) / det;
+            double dB = -(-h21 * g1 + h11 * g2) / det;
+            double gd = g1 * dA + g2 * dB;
+
+            // Line Search
+            double stepsize = 1.0;
+
+            while (stepsize >= min_step) {
+                double newA = A + stepsize * dA;
+                double newB = B + stepsize * dB;
+
+                // New function value
+                double newf = 0.0;
+                for (size_t i = 0; i < num_samples; i++) {
+                    double fApB = logits[i] * newA + newB;
+                    if (fApB >= 0) {
+                        newf += tgt_probs[i] * fApB + log(1 + exp(-fApB));
+                    } else {
+                        newf += (tgt_probs[i] - 1) * fApB + log(1 + exp(fApB));
+                    }
+                }
+                // Check sufficient decrease
+                if (newf < fval + 0.0001 * stepsize * gd)
+                {
+                    A = newA;
+                    B = newB;
+                    fval = newf;
+                    break;
+                } else {
+                    stepsize = stepsize / 2.0;
+                }
+            }
+
+            if (stepsize < min_step) {
+                throw std::runtime_error("fit_platt_transform: Line search fails\n");
+            }
+        }
+
+        if (iter >= max_iter) {
+            throw std::runtime_error("fit_platt_transform: Reaching maximal iterations\n");
+        }
+    }
 } // namespace pecos
 #endif

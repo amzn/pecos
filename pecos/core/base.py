@@ -534,6 +534,7 @@ class corelib(object):
         self.link_ann_hnsw_methods()
         self.link_mmap_hashmap_methods()
         self.link_mmap_valstore_methods()
+        self.link_calibrator_methods()
 
     def link_xlinear_methods(self):
         """
@@ -1938,6 +1939,61 @@ class corelib(object):
         if store_type not in self.mmap_valstore_fn_dict:
             raise NotImplementedError(f"store_type={store_type} is not implemented.")
         return self.mmap_valstore_fn_dict[store_type]
+
+    def link_calibrator_methods(self):
+        """
+        Specify C-lib's score calibration methods arguments and return types.
+        """
+        corelib.fillprototype(
+            self.clib_float32.c_fit_platt_transform_f32,
+            None,
+            [c_uint64, POINTER(c_float), POINTER(c_float), POINTER(c_double)],
+        )
+        corelib.fillprototype(
+            self.clib_float32.c_fit_platt_transform_f64,
+            None,
+            [c_uint64, POINTER(c_double), POINTER(c_double), POINTER(c_double)],
+        )
+
+    def fit_platt_transform(self, logits, tgt_prob):
+        """Python to C/C++ interface for platt transfrom fit.
+
+        Ref: https://www.csie.ntu.edu.tw/~cjlin/papers/plattprob.pdf
+
+        Args:
+            logits (ndarray): 1-d array of logit with length N.
+            tgt_prob (ndarray): 1-d array of target probability scores within [0, 1] with length N.
+        Returns:
+            A, B: coefficients for Platt's scale.
+        """
+        assert isinstance(logits, np.ndarray)
+        assert isinstance(tgt_prob, np.ndarray)
+        assert len(logits) == len(tgt_prob)
+        assert logits.dtype == tgt_prob.dtype
+
+        if tgt_prob.min() < 0 or tgt_prob.max() > 1.0:
+            raise ValueError("Target probability out of bound!")
+
+        AB = np.array([0, 0], dtype=np.float64)
+
+        if tgt_prob.dtype == np.float32:
+            clib.clib_float32.c_fit_platt_transform_f32(
+                len(logits),
+                logits.ctypes.data_as(POINTER(c_float)),
+                tgt_prob.ctypes.data_as(POINTER(c_float)),
+                AB.ctypes.data_as(POINTER(c_double)),
+            )
+        elif tgt_prob.dtype == np.float64:
+            clib.clib_float32.c_fit_platt_transform_f64(
+                len(logits),
+                logits.ctypes.data_as(POINTER(c_double)),
+                tgt_prob.ctypes.data_as(POINTER(c_double)),
+                AB.ctypes.data_as(POINTER(c_double)),
+            )
+        else:
+            raise ValueError(f"Unsupported dtype: {tgt_prob.dtype}")
+
+        return AB[0], AB[1]
 
 
 clib = corelib(os.path.join(os.path.dirname(os.path.abspath(pecos.__file__)), "core"), "libpecos")

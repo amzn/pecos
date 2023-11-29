@@ -67,3 +67,23 @@ def test_sparse_inner_products():
     assert true_vals == approx(
         pred_vals, abs=1e-9
     ), f"true_vals != pred_vals, where X/Y are drm/dcm"
+
+
+def test_platt_scale():
+    import numpy as np
+    from pecos.core import clib
+
+    A = 0.25
+    B = 3.14
+
+    orig = np.arange(-15, 15, 1, dtype=np.float32)
+    tgt = np.array([1.0 / (1 + np.exp(A * t + B)) for t in orig], dtype=np.float32)
+    At, Bt = clib.fit_platt_transform(orig, tgt)
+    assert B == approx(Bt, abs=1e-6), f"Platt_scale B error: {B} != {Bt}"
+    assert A == approx(At, abs=1e-6), f"Platt_scale A error: {A} != {At}"
+
+    orig = np.arange(-15, 15, 1, dtype=np.float64)
+    tgt = np.array([1.0 / (1 + np.exp(A * t + B)) for t in orig], dtype=np.float64)
+    At, Bt = clib.fit_platt_transform(orig, tgt)
+    assert B == approx(Bt, abs=1e-6), f"Platt_scale B error: {B} != {Bt}"
+    assert A == approx(At, abs=1e-6), f"Platt_scale A error: {A} != {At}"

@@ -651,4 +651,18 @@ extern "C" {
         static_cast<mmap_valstore_bytes *>(map_ptr)->batch_get(
             n_sub_row, n_sub_col, sub_rows, sub_cols, trunc_val_len, ret, ret_lens, threads);
     }
+
+    // ==== C Interface of Score Calibrator ====
+
+    #define C_FIT_PLATT_TRANSFORM(SUFFIX, VAL_TYPE) \
+    void c_fit_platt_transform ## SUFFIX( \
+        size_t num_samples, \
+	const VAL_TYPE* logits, \
+	const VAL_TYPE* tgt_probs, \
+	double* AB \
+    ) { \
+        pecos::fit_platt_transform(num_samples, logits, tgt_probs, AB[0], AB[1]); \
+    }
+    C_FIT_PLATT_TRANSFORM(_f32, float32_t)
+    C_FIT_PLATT_TRANSFORM(_f64, float64_t)
 }
