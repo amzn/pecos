@@ -11,6 +11,9 @@
  * and limitations under the License.
  */
 
+#ifndef __HNSW_H__
+#define __HNSW_H__
+
 #include <sys/stat.h>
 #include <algorithm>
 #include <cmath>
@@ -1333,3 +1336,6 @@ namespace ann {
 
 }  // end of namespace ann
 }  // end of namespace pecos
+
+#endif // end of __HNSW_H__
+

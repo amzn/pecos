@@ -93,7 +93,7 @@ class HNSW(pecos.BaseClass):
         self.pred_params = self.PredParams.from_dict(pred_params)
 
     def __del__(self):
-        if self.model_ptr and type(self.model_ptr) == c_void_p:
+        if self.model_ptr and isinstance(self.model_ptr, c_void_p):
             self.fn_dict["destruct"](self.model_ptr)
 
     @property

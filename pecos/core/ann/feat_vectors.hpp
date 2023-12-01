@@ -11,6 +11,9 @@
  * and limitations under the License.
  */
 
+#ifndef __FEAT_VECTORS_H__
+#define __FEAT_VECTORS_H__
+
 #pragma once
 #if defined(__GNUC__)
 #define PORTABLE_ALIGN32 __attribute__((aligned(32)))
@@ -334,3 +337,6 @@ namespace ann {
 } // end of namespace ann
 
 } // end of namespace pecos
+
+#endif // end of __FEAT_VECTORS_H__
+

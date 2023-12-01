@@ -87,18 +87,18 @@ def test_stack_csr():
     X_hstack = smat_util.hstack_csr([X1, X2])
     assert X_hstack.todense() == approx(np.hstack([X0, X0]))
     assert X_hstack.dtype == X1.dtype
-    assert type(X_hstack) == smat.csr_matrix
+    assert isinstance(X_hstack, smat.csr_matrix)
     X_vstack = smat_util.vstack_csr([X1, X2])
     assert X_vstack.todense() == approx(np.vstack([X0, X0]))
     assert X_vstack.dtype == X1.dtype
-    assert type(X_vstack) == smat.csr_matrix
+    assert isinstance(X_vstack, smat.csr_matrix)
     X_block_diag = smat_util.block_diag_csr([X1, X2])
     X_np_block_diag = np.hstack(
         [np.vstack([X0, np.zeros_like(X0)]), np.vstack([np.zeros_like(X0), X0])]
     )
     assert X_block_diag.todense() == approx(X_np_block_diag)
     assert X_block_diag.dtype == X1.dtype
-    assert type(X_block_diag) == smat.csr_matrix
+    assert isinstance(X_block_diag, smat.csr_matrix)
 
 
 def test_stack_csc():
@@ -112,18 +112,18 @@ def test_stack_csc():
     X_hstack = smat_util.hstack_csc([X1, X2])
     assert X_hstack.todense() == approx(np.hstack([X0, X0]))
     assert X_hstack.dtype == X1.dtype
-    assert type(X_hstack) == smat.csc_matrix
+    assert isinstance(X_hstack, smat.csc_matrix)
     X_vstack = smat_util.vstack_csc([X1, X2])
     assert X_vstack.todense() == approx(np.vstack([X0, X0]))
     assert X_vstack.dtype == X1.dtype
-    assert type(X_vstack) == smat.csc_matrix
+    assert isinstance(X_vstack, smat.csc_matrix)
     X_block_diag = smat_util.block_diag_csc([X1, X2])
     X_np_block_diag = np.hstack(
         [np.vstack([X0, np.zeros_like(X0)]), np.vstack([np.zeros_like(X0), X0])]
     )
     assert X_block_diag.todense() == approx(X_np_block_diag)
     assert X_block_diag.dtype == X1.dtype
-    assert type(X_block_diag) == smat.csc_matrix
+    assert isinstance(X_block_diag, smat.csc_matrix)
 
 
 def test_get_col_row_nonzero():
@@ -205,9 +205,9 @@ def test_get_row_submatrices():
 
     X0_sub, X1_sub = smat_util.get_row_submatrices([X0, X1], row_indices)
 
-    assert type(X0_sub) == type(X0)
+    assert type(X0_sub) == type(X0)  # noqa: E721
     assert X0_sub == approx(Xres)
-    assert type(X1_sub) == type(X1)
+    assert type(X1_sub) == type(X1)  # noqa: E721
     assert X1_sub.todense() == approx(Xres)
 
 

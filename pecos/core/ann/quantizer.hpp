@@ -11,6 +11,8 @@
  * and limitations under the License.
  */
 
+#ifndef __QUANTIZER_H__
+#define __QUANTIZER_H__
 
 #if defined(__x86_64__) || defined(__amd64__)
     #include "quantizer_impl/x86.hpp"
@@ -19,4 +21,6 @@
 #else
     #include "quantizer_impl/default.hpp"
 #endif
+
+#endif // end of __QUANTIZER_H__
 
