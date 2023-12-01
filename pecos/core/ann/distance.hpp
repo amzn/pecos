@@ -11,6 +11,9 @@
  * and limitations under the License.
  */
 
+#ifndef __DISTANCE_H__
+#define __DISTANCE_H__
+
 namespace pecos {
 
 namespace ann {
@@ -23,6 +26,8 @@ namespace ann {
     #include "distance_impl/default.hpp"
 #endif
 
-}
+} // end of namespace ann
+} // end of namespace pecos
 
-}
+#endif // end of __DISTANCE_H__
+

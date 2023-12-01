@@ -29,7 +29,7 @@ hashing_tgt_input_file = "test/tst-data/utils/data/train.hashing.tgt.npz"
 
 
 def assert_matrix_equal(Xtgt, X, tolerance=1e-6):
-    assert type(X) == type(Xtgt)
+    assert type(X) == type(Xtgt)  # noqa: E721
     if isinstance(Xtgt, np.ndarray):
         assert Xtgt == approx(X, abs=tolerance)
     elif isinstance(Xtgt, smat.spmatrix):

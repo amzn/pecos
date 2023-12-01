@@ -296,7 +296,7 @@ class _StrBatchGetterValPreAlloc(object):
         # For str decoding, from memory view is faster than from Numpy view
         bytes_start_loc = [idx * self.trunc_val_len for idx in range(max_row_size * max_col_size)]
         self.byte_mem_views = [
-            memoryview(self.vals[start_idx : start_idx + self.trunc_val_len])
+            memoryview(self.vals[start_idx : start_idx + self.trunc_val_len])  # type: ignore[arg-type]
             for start_idx in bytes_start_loc
         ]
 
