@@ -21,6 +21,7 @@
 #include "xmc/linear_solver.hpp"
 #include "ann/feat_vectors.hpp"
 #include "ann/hnsw.hpp"
+#include "ann/pairwise.hpp"
 
 // ===== C Interface of Functions ======
 // C Interface of Types/Structures can be found in utils/matrix.hpp
@@ -475,6 +476,102 @@ extern "C" {
     C_ANN_HNSW_PREDICT(_drm_l2_f32, ScipyDrmF32, pecos::drm_t, hnsw_drm_l2_t)
     C_ANN_HNSW_PREDICT(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_ip_t)
     C_ANN_HNSW_PREDICT(_csr_l2_f32, ScipyCsrF32, pecos::csr_t, hnsw_csr_l2_t)
+
+
+    // ==== C Interface of PairwiseANN ====
+
+    typedef pecos::ann::PairwiseANN<pecos::ann::FeatVecSparseIPSimd<uint32_t, float>, pecos::csr_t> pairwise_ann_csr_ip_t;
+    typedef pecos::ann::PairwiseANN<pecos::ann::FeatVecDenseIPSimd<float>, pecos::drm_t> pairwise_ann_drm_ip_t;
+
+    #define C_PAIRWISE_ANN_TRAIN(SUFFIX, PY_MAT, C_MAT, PAIRWISE_ANN_T) \
+    void* c_pairwise_ann_train ## SUFFIX(const PY_MAT* pX, const ScipyCscF32* pY) { \
+        C_MAT X_trn(pX); \
+        pecos::csc_t Y_csc(pY); \
+        PAIRWISE_ANN_T *model_ptr = new PAIRWISE_ANN_T(); \
+        model_ptr->train(X_trn, Y_csc); \
+        return static_cast<void*>(model_ptr); \
+    }
+    C_PAIRWISE_ANN_TRAIN(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, pairwise_ann_csr_ip_t)
+    C_PAIRWISE_ANN_TRAIN(_drm_ip_f32, ScipyDrmF32, pecos::drm_t, pairwise_ann_drm_ip_t)
+
+    #define C_PAIRWISE_ANN_LOAD(SUFFIX, PAIRWISE_ANN_T) \
+    void* c_pairwise_ann_load ## SUFFIX(const char* model_dir, const bool lazy_load) { \
+        PAIRWISE_ANN_T *model_ptr = new PAIRWISE_ANN_T(); \
+        model_ptr->load(model_dir, lazy_load); \
+        return static_cast<void*>(model_ptr); \
+    }
+    C_PAIRWISE_ANN_LOAD(_drm_ip_f32, pairwise_ann_drm_ip_t)
+    C_PAIRWISE_ANN_LOAD(_csr_ip_f32, pairwise_ann_csr_ip_t)
+
+    #define C_PAIRWISE_ANN_SAVE(SUFFIX, PAIRWISE_ANN_T) \
+    void c_pairwise_ann_save ## SUFFIX(void* model_ptr, const char* model_dir) { \
+        const auto &model = *static_cast<PAIRWISE_ANN_T*>(model_ptr); \
+        model.save(model_dir); \
+    }
+    C_PAIRWISE_ANN_SAVE(_drm_ip_f32, pairwise_ann_drm_ip_t)
+    C_PAIRWISE_ANN_SAVE(_csr_ip_f32, pairwise_ann_csr_ip_t)
+
+    #define C_PAIRWISE_ANN_DESTRUCT(SUFFIX, PAIRWISE_ANN_T) \
+    void c_pairwise_ann_destruct ## SUFFIX(void* model_ptr) { \
+        delete static_cast<PAIRWISE_ANN_T*>(model_ptr); \
+    }
+    C_PAIRWISE_ANN_DESTRUCT(_drm_ip_f32, pairwise_ann_drm_ip_t)
+    C_PAIRWISE_ANN_DESTRUCT(_csr_ip_f32, pairwise_ann_csr_ip_t)
+
+    #define C_PAIRWISE_ANN_SEARCHERS_CREATE(SUFFIX, PAIRWISE_ANN_T) \
+    void* c_pairwise_ann_searchers_create ## SUFFIX(void* model_ptr, uint32_t num_searcher) { \
+	    typedef typename PAIRWISE_ANN_T::Searcher searcher_t; \
+        const auto &model = *static_cast<PAIRWISE_ANN_T*>(model_ptr); \
+        auto searchers_ptr = new std::vector<searcher_t>(); \
+        for (uint32_t t = 0; t < num_searcher; t++) { \
+            searchers_ptr->emplace_back(model.create_searcher()); \
+        } \
+        return static_cast<void*>(searchers_ptr); \
+    }
+    C_PAIRWISE_ANN_SEARCHERS_CREATE(_drm_ip_f32, pairwise_ann_drm_ip_t)
+    C_PAIRWISE_ANN_SEARCHERS_CREATE(_csr_ip_f32, pairwise_ann_csr_ip_t)
+
+    #define C_PAIRWISE_ANN_SEARCHERS_DESTRUCT(SUFFIX, PAIRWISE_ANN_T) \
+    void c_pairwise_ann_searchers_destruct ## SUFFIX(void* searchers_ptr) { \
+        typedef typename PAIRWISE_ANN_T::Searcher searcher_t; \
+        delete static_cast<std::vector<searcher_t>*>(searchers_ptr); \
+    }
+    C_PAIRWISE_ANN_SEARCHERS_DESTRUCT(_drm_ip_f32, pairwise_ann_drm_ip_t)
+    C_PAIRWISE_ANN_SEARCHERS_DESTRUCT(_csr_ip_f32, pairwise_ann_csr_ip_t)
+
+    #define C_PAIRWISE_ANN_PREDICT(SUFFIX, PY_MAT, C_MAT, PAIRWISE_ANN_T) \
+    void c_pairwise_ann_predict ## SUFFIX( \
+        void* searchers_ptr, \
+        uint32_t batch_size, \
+        uint32_t topk, \
+        const PY_MAT* pQ, \
+        uint32_t* label_keys, \
+        uint32_t* ret_Imat, \
+        uint32_t* ret_Mmat, \
+        float* ret_Dmat, \
+        float* ret_Vmat, \
+        const bool is_same_input) { \
+        C_MAT Q_tst(pQ); \
+        auto& searchers = *static_cast<std::vector<PAIRWISE_ANN_T::Searcher>*>(searchers_ptr); \
+        omp_set_num_threads(searchers.size()); \
+    OMP_PARA_FOR \
+        for (uint32_t bidx=0; bidx < batch_size; bidx++) { \
+            int tid = omp_get_thread_num(); \
+            auto input_key = (is_same_input ? 0 : bidx); \
+            auto label_key = label_keys[bidx]; \
+            auto& ret_pairs = searchers[tid].predict_single(Q_tst.get_row(input_key), label_key, topk); \
+            for (uint32_t k=0; k < ret_pairs.size(); k++) { \
+                uint64_t offset = static_cast<uint64_t>(bidx) * topk; \
+                ret_Imat[offset + k] = ret_pairs[k].input_key_idx; \
+                ret_Dmat[offset + k] = ret_pairs[k].input_key_dist; \
+                ret_Vmat[offset + k] = ret_pairs[k].input_label_val; \
+                ret_Mmat[offset + k] = 1; \
+            } \
+        } \
+    }
+    C_PAIRWISE_ANN_PREDICT(_drm_ip_f32, ScipyDrmF32, pecos::drm_t, pairwise_ann_drm_ip_t)
+    C_PAIRWISE_ANN_PREDICT(_csr_ip_f32, ScipyCsrF32, pecos::csr_t, pairwise_ann_csr_ip_t)
+
 
     // ==== C Interface of Memory-mappable Hashmap ====
 
