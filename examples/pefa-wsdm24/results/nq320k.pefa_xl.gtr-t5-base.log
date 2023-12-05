@@ -1,0 +1,7 @@
+2023-12-04 07:15:53 - Loading input-to-label matrix..
+2023-12-04 07:15:53 - Loading input embedding matrix..
+2023-12-04 07:16:04 - Gathering data augmentation..
+2023-12-04 07:16:08 - Running PEFA-XL..
+2023-12-04 07:16:08 - Building HNSW Index for f_erm
+2023-12-04 07:16:43 - Building HSNW Index for f_knn
+2023-12-04 07:42:34 - topk_q  16 lambda_erm 0.10 knn_type v0 | R@10,20,100 0.8871 0.9128 0.9436
