@@ -1,0 +1,5 @@
+2023-12-04 18:38:53 - Loading input-to-label matrix..
+2023-12-04 18:38:53 - Loading input embedding matrix..
+2023-12-04 18:39:35 - Gathering data augmentation..
+2023-12-04 18:39:41 - Running PEFA-XS..
+2023-12-04 18:40:15 - lambda_erm 0.50 | R@10,20,100 0.8667 0.8995 0.9453
