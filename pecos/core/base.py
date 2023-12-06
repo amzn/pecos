@@ -2049,12 +2049,12 @@ class corelib(object):
         """
         corelib.fillprototype(
             self.clib_float32.c_fit_platt_transform_f32,
-            None,
+            c_uint32,
             [c_uint64, POINTER(c_float), POINTER(c_float), POINTER(c_double)],
         )
         corelib.fillprototype(
             self.clib_float32.c_fit_platt_transform_f64,
-            None,
+            c_uint32,
             [c_uint64, POINTER(c_double), POINTER(c_double), POINTER(c_double)],
         )
 
@@ -2080,14 +2080,14 @@ class corelib(object):
         AB = np.array([0, 0], dtype=np.float64)
 
         if tgt_prob.dtype == np.float32:
-            clib.clib_float32.c_fit_platt_transform_f32(
+            return_code = clib.clib_float32.c_fit_platt_transform_f32(
                 len(logits),
                 logits.ctypes.data_as(POINTER(c_float)),
                 tgt_prob.ctypes.data_as(POINTER(c_float)),
                 AB.ctypes.data_as(POINTER(c_double)),
             )
         elif tgt_prob.dtype == np.float64:
-            clib.clib_float32.c_fit_platt_transform_f64(
+            return_code = clib.clib_float32.c_fit_platt_transform_f64(
                 len(logits),
                 logits.ctypes.data_as(POINTER(c_double)),
                 tgt_prob.ctypes.data_as(POINTER(c_double)),
@@ -2096,7 +2096,20 @@ class corelib(object):
         else:
             raise ValueError(f"Unsupported dtype: {tgt_prob.dtype}")
 
-        return AB[0], AB[1]
+        PLATT_RETURN_CODE = {
+            "SUCCESS": 0,
+            "LINE_SEARCH_FAIL": 1,
+            "MAX_ITER_REACHED": 2,
+        }
+
+        if return_code == PLATT_RETURN_CODE["SUCCESS"]:
+            return AB[0], AB[1]
+        elif return_code == PLATT_RETURN_CODE["LINE_SEARCH_FAIL"]:
+            raise RuntimeError("fit_platt_transform: Line search fails")
+        elif return_code == PLATT_RETURN_CODE["MAX_ITER_REACHED"]:
+            raise RuntimeError("fit_platt_transform: Reaching maximal iterations")
+        else:
+            raise ValueError(f"Unknown return code {return_code}")
 
 
 clib = corelib(os.path.join(os.path.dirname(os.path.abspath(pecos.__file__)), "core"), "libpecos")

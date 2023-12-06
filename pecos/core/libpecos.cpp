@@ -752,13 +752,13 @@ extern "C" {
     // ==== C Interface of Score Calibrator ====
 
     #define C_FIT_PLATT_TRANSFORM(SUFFIX, VAL_TYPE) \
-    void c_fit_platt_transform ## SUFFIX( \
+    uint32_t c_fit_platt_transform ## SUFFIX( \
         size_t num_samples, \
 	const VAL_TYPE* logits, \
 	const VAL_TYPE* tgt_probs, \
 	double* AB \
     ) { \
-        pecos::fit_platt_transform(num_samples, logits, tgt_probs, AB[0], AB[1]); \
+        return pecos::fit_platt_transform(num_samples, logits, tgt_probs, AB[0], AB[1]); \
     }
     C_FIT_PLATT_TRANSFORM(_f32, float32_t)
     C_FIT_PLATT_TRANSFORM(_f64, float64_t)
