@@ -543,7 +543,7 @@ extern "C" {
     void c_pairwise_ann_predict ## SUFFIX( \
         void* searchers_ptr, \
         uint32_t batch_size, \
-        uint32_t topk, \
+        uint32_t only_topk, \
         const PY_MAT* pQ, \
         uint32_t* label_keys, \
         uint32_t* ret_Imat, \
@@ -559,9 +559,9 @@ extern "C" {
             int tid = omp_get_thread_num(); \
             auto input_key = (is_same_input ? 0 : bidx); \
             auto label_key = label_keys[bidx]; \
-            auto& ret_pairs = searchers[tid].predict_single(Q_tst.get_row(input_key), label_key, topk); \
+            auto& ret_pairs = searchers[tid].predict_single(Q_tst.get_row(input_key), label_key, only_topk); \
             for (uint32_t k=0; k < ret_pairs.size(); k++) { \
-                uint64_t offset = static_cast<uint64_t>(bidx) * topk; \
+                uint64_t offset = static_cast<uint64_t>(bidx) * only_topk; \
                 ret_Imat[offset + k] = ret_pairs[k].input_key_idx; \
                 ret_Dmat[offset + k] = ret_pairs[k].input_key_dist; \
                 ret_Vmat[offset + k] = ret_pairs[k].input_label_val; \
