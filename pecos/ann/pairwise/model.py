@@ -48,13 +48,15 @@ class PairwiseANN(pecos.BaseClass):
         """Prediction Parameters of PairwiseANN class
 
         Attributes:
-            topk (int): maximum number of candidates (sorted by distances, nearest first) return by the searcher per query
+            batch_size (int): maximum number of (input, label) pairs te be inference on for the Searchers
+            only_topk (int): maximum number of candidates (sorted by distances, nearest first) return by kNN
         """
 
-        topk: int = 10
+        batch_size: int = 1024
+        only_topk: int = 10
 
     class Searchers(object):
-        def __init__(self, model, max_batch_size=256, max_only_topk=10, num_searcher=1):
+        def __init__(self, model, pred_params, num_searcher=1):
             self.searchers_ptr = model.fn_dict["searchers_create"](
                 model.model_ptr,
                 num_searcher,
@@ -62,9 +64,8 @@ class PairwiseANN(pecos.BaseClass):
             self.destruct_fn = model.fn_dict["searchers_destruct"]
 
             # searchers also hold the memory of returned np.ndarray
-            self.max_batch_size = max_batch_size
-            self.max_only_topk = max_only_topk
-            max_nnz = max_batch_size * max_only_topk
+            self.pred_params = pred_params
+            max_nnz = pred_params.batch_size * pred_params.only_topk
             self.Imat = np.zeros(max_nnz, dtype=np.uint32)
             self.Mmat = np.zeros(max_nnz, dtype=np.uint32)
             self.Dmat = np.zeros(max_nnz, dtype=np.float32)
@@ -214,21 +215,6 @@ class PairwiseANN(pecos.BaseClass):
         c_model_dir = f"{model_folder}/c_model"
         self.fn_dict["save"](self.model_ptr, c_char_p(c_model_dir.encode("utf-8")))
 
-    def searchers_create(self, max_batch_size=256, max_only_topk=10, num_searcher=1):
-        """create searchers that pre-allocate intermediate variables (e.g., topk_queue)
-        Args:
-            max_batch_size (int): the maximum batch size for the input/label pairs to be inference
-            max_only_topk (int): the maximum only topk for the kNN to return
-            num_searcher: number of searcher for multi-thread inference
-        Returns:
-            PairwiseANN.Searchers: the pre-allocated PairwiseANN.Searchers (class object)
-        """
-        if not self.model_ptr:
-            raise ValueError("self.model_ptr must exist before using searchers_create()")
-        if num_searcher <= 0:
-            raise ValueError("num_searcher={} <= 0 is NOT valid".format(num_searcher))
-        return PairwiseANN.Searchers(self, max_batch_size, max_only_topk, num_searcher)
-
     def get_pred_params(self):
         """Return a deep copy of prediction parameters
 
@@ -237,21 +223,37 @@ class PairwiseANN(pecos.BaseClass):
         """
         return copy.deepcopy(self.pred_params)
 
-    def predict(self, input_feat, label_keys, searchers, pred_params=None, is_same_input=False):
+    def searchers_create(self, pred_params=None, num_searcher=1):
+        """create searchers that pre-allocate intermediate variables (e.g., topk_queue)
+        Args:
+            pred_params (Pairwise.PredParams, optional): instance of pecos.ann.pairwise.Pairwise.PredParams
+            num_searcher: number of searcher for multi-thread inference
+        Returns:
+            PairwiseANN.Searchers: the pre-allocated PairwiseANN.Searchers (class object)
+        """
+        if not self.model_ptr:
+            raise ValueError("self.model_ptr must exist before using searchers_create()")
+        if num_searcher <= 0:
+            raise ValueError("num_searcher={} <= 0 is NOT valid".format(num_searcher))
+        pred_params = self.get_pred_params() if pred_params is None else pred_params
+        return PairwiseANN.Searchers(self, pred_params, num_searcher)
+
+    def predict(self, input_feat, label_keys, searchers, is_same_input=False):
         """predict with multi-thread. The searchers are required to be provided.
         Args:
             input_feat (numpy.array or smat.csr_matrix): input feature matrix (first key) to find kNN.
-                if is_same_input == False, the shape should be (batch_size, feat_dim)
-                if is_same_input == True, the shape should be (1, feat_dim)
-            label_keys (numpy.array): the label keys (second key) to find kNN. The shape should be (batch_size, ).
-            searchers (c_void_p): pointer to C/C++ vector<pecos::ann::PairwiseANN:Searcher>. Created by PairwiseANN.searchers_create().
-            pred_params (Pairwise.PredParams, optional): instance of pecos.ann.pairwise.Pairwise.PredParams.
+                if is_same_input == False, the shape should be (batch_size, feat_dim).
+                if is_same_input == True, the shape should be (1, feat_dim).
+            label_keys (numpy.array): the label keys (second key) to find kNN.
+                The shape should be (batch_size, ).
+            searchers (c_void_p): pointer to C/C++ vector<pecos::ann::PairwiseANN:Searcher>.
+                Created by PairwiseANN.searchers_create().
             is_same_input (bool): whether to use the same first row of X to do prediction.
                 For real-time inference with same input query, set is_same_input = True.
                 For batch prediction with varying input querues, set is_same_input = False.
         Returns:
             Imat (np.array): returned kNN input key indices. Shape of (batch_size, topk)
-            Mmat (np.array): returned kNN masking array. 1/0 mean value is or is not presented. Shape of (batch_size, topk)
+            Mmat (np.array): returned kNN masking array. 1/0 mean value IS/ISNOT presented. Shape of (batch_size, topk)
             Dmat (np.array): returned kNN distance array. Shape of (batch_size, topk)
             Vmat (np.array): returned kNN value array. Shape of (batch_size, topk)
         """
@@ -273,19 +275,16 @@ class PairwiseANN(pecos.BaseClass):
         if not is_same_input and input_feat_py.rows != label_keys.shape[0]:
             raise ValueError(f"input_feat_py.rows != label_keys.shape[0]")
 
-        batch_size = label_keys.shape[0]
-        pred_params = self.get_pred_params() if pred_params is None else pred_params
-        only_topk = pred_params.topk
-        cur_nnz = batch_size * only_topk
-        if batch_size > searchers.max_batch_size:
-            raise ValueError(f"cur_batch_size > searchers.max_batch_size")
-        if only_topk > searchers.max_only_topk:
-            raise ValueError(f"cur_only_topk > searchers.max_only_topk")
+        cur_bsz = label_keys.shape[0]
+        if cur_bsz > searchers.pred_params.batch_size:
+            raise ValueError(f"cur_batch_size > searchers.batch_size!")
+        only_topk = searchers.pred_params.only_topk
+        cur_nnz = cur_bsz * only_topk
 
         searchers.reset(cur_nnz)
         self.fn_dict["predict"](
             searchers.ctypes(),
-            batch_size,
+            cur_bsz,
             only_topk,
             input_feat_py,
             label_keys.ctypes.data_as(POINTER(c_uint32)),
@@ -295,8 +294,8 @@ class PairwiseANN(pecos.BaseClass):
             searchers.Vmat.ctypes.data_as(POINTER(c_float)),
             c_bool(is_same_input),
         )
-        Imat = searchers.Imat[:cur_nnz].reshape(batch_size, only_topk)
-        Mmat = searchers.Mmat[:cur_nnz].reshape(batch_size, only_topk)
-        Dmat = searchers.Dmat[:cur_nnz].reshape(batch_size, only_topk)
-        Vmat = searchers.Vmat[:cur_nnz].reshape(batch_size, only_topk)
+        Imat = searchers.Imat[:cur_nnz].reshape(cur_bsz, only_topk)
+        Mmat = searchers.Mmat[:cur_nnz].reshape(cur_bsz, only_topk)
+        Dmat = searchers.Dmat[:cur_nnz].reshape(cur_bsz, only_topk)
+        Vmat = searchers.Vmat[:cur_nnz].reshape(cur_bsz, only_topk)
         return Imat, Mmat, Dmat, Vmat

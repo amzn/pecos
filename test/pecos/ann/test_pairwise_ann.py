@@ -22,44 +22,36 @@ def test_importable():
 def test_save_and_load(tmpdir):
     from pecos.ann.pairwise import PairwiseANN  # noqa: F401
 
-    # train data
-    X_trn = np.array([[1, 0], [0, 0], [-1, 0]]).astype(np.float32)
-    Y_csr = smat.csr_matrix(
-        np.array(
-            [
-                [1.1, 0.0, 0.0],
-                [0.0, 2.2, 2.4],
-                [3.1, 3.2, 0.0],
-            ]
-        ).astype(np.float32)
-    )
-    # test data, noqa
-    X_tst = X_trn
-    label_keys = np.array([0, 1, 2]).astype(np.uint32)
-    # train & predict
+    # constant
+    N = 10000
+    D = 64
+    max_bsz, only_topk = 250, 10
+    X_drm = np.random.randn(N, D).astype(np.float32)
+    Y_csc = smat.eye(N, dtype=np.float32, format="csc")
     train_params = PairwiseANN.TrainParams(metric_type="ip")
-    model = PairwiseANN.train(X_trn, Y_csr, train_params=train_params)
-    pred_params = PairwiseANN.PredParams(topk=2)
-    searchers = model.searchers_create(max_batch_size=250, max_only_topk=10, num_searcher=1)
+    pred_params = PairwiseANN.PredParams(batch_size=max_bsz, only_topk=only_topk)
+    label_keys = np.arange(max_bsz).astype(np.uint32)
+
+    # train, predict and save
+    model = PairwiseANN.train(X_drm, Y_csc, train_params=train_params)
+    searchers = model.searchers_create(pred_params=pred_params, num_searcher=1)
     It, Mt, Dt, Vt = model.predict(
-        X_tst,
+        X_drm[:max_bsz],
         label_keys,
         searchers,
-        pred_params=pred_params,
         is_same_input=False,
     )
-    # save model
-    model_folder = tmpdir.join("hnsw_model_dir")
+    model_folder = tmpdir.join("pairwise_ann_dir")
     model.save(model_folder)
     del model, searchers
-    # load back and predict again
-    model = PairwiseANN.load(model_folder)
-    searchers = model.searchers_create(max_batch_size=250, max_only_topk=10, num_searcher=1)
+
+    # load w/ mmap and predict again
+    model = PairwiseANN.load(model_folder, lazy_load=True)
+    searchers = model.searchers_create(pred_params=pred_params, num_searcher=2)
     Ip, Mp, Dp, Vp = model.predict(
-        X_tst,
+        X_drm[:max_bsz],
         label_keys,
         searchers,
-        pred_params=pred_params,
         is_same_input=False,
     )
     assert Ip == approx(It, abs=0.0), f"pred faield: Ip != It"
@@ -67,103 +59,166 @@ def test_save_and_load(tmpdir):
     assert Dp == approx(Dt, abs=0.0), f"pred faield: Dp != Dt"
     assert Vp == approx(Vt, abs=0.0), f"pred faield: Vp != Vt"
     del model, searchers
+
+
+def test_consistency_between_drm_and_csr():
+    from pecos.ann.pairwise import PairwiseANN  # noqa: F401
+
+    # constant
+    N = D = 128
+    max_bsz, only_topk = 3, 2
+    X_drm = np.random.randn(N, D).astype(np.float32)
+    X_spr = smat.csr_matrix(X_drm)
+    Y_csc = smat.eye(N, dtype=np.float32, format="csc")
+    train_params = PairwiseANN.TrainParams(metric_type="ip")
+    pred_params = PairwiseANN.PredParams(batch_size=max_bsz, only_topk=only_topk)
+    label_keys = np.arange(max_bsz).astype(np.uint32)
+
+    # case 1: dense input feat
+    model_dns = PairwiseANN.train(X_drm, Y_csc, train_params=train_params)
+    searchers = model_dns.searchers_create(pred_params=pred_params, num_searcher=1)
+    I_dns, M_dns, D_dns, V_dns = model_dns.predict(
+        X_drm[:max_bsz],
+        label_keys,
+        searchers,
+        is_same_input=False,
+    )
+
+    # test outcome accuracy
+    assert I_dns == approx(
+        np.array([[0, 0], [1, 0], [2, 0]]),
+        abs=0.0,
+    ), f"pred failed: I_dns != I_true"
+    assert M_dns == approx(
+        np.array([[1, 0], [1, 0], [1, 0]]),
+        abs=0.0,
+    ), f"pred failed: M_dns != M_true"
+    assert V_dns == approx(
+        np.array([[1, 0], [1, 0], [1, 0]]),
+        abs=0.0,
+    ), f"pred failed: V_dns != V_true"
+
+    # case 2: sparse input feat
+    model_spr = PairwiseANN.train(X_spr, Y_csc, train_params=train_params)
+    searchers = model_spr.searchers_create(pred_params=pred_params, num_searcher=2)
+    I_spr, M_spr, D_spr, V_spr = model_spr.predict(
+        X_spr[:max_bsz],
+        label_keys,
+        searchers,
+        is_same_input=False,
+    )
+
+    # test outcome consistency between sparse/dense
+    assert I_dns == approx(I_spr, abs=0.0), f"pred failed: I_dns != I_spr"
+    assert M_dns == approx(M_spr, abs=0.0), f"pred failed: M_dns != M_spr"
+    assert D_dns == approx(D_spr, abs=1e-4), f"pred failed: D_dns != D_spr"
+    assert V_dns == approx(V_spr, abs=0.0), f"pred failed: V_dns != V_spr"
+    del model_dns, model_spr, searchers
 
 
 def test_predict_with_same_input():
-    from pecos.ann.pairwise import PairwiseANN
+    from pecos.ann.pairwise import PairwiseANN  # noqa: F401
 
-    # train data
-    X_trn = np.array([[1, 0], [0, 0], [-1, 0]]).astype(np.float32)
-    Y_csr = smat.csr_matrix(
+    # constant
+    X_drm = np.array(
+        [
+            [1, 0],
+            [2, 0],
+            [3, 0],
+            [4, 0],
+            [5, 0],
+        ]
+    ).astype(np.float32)
+    Y_csc = smat.csr_matrix(
         np.array(
             [
-                [1.1, 0.0, 0.0],
-                [0.0, 2.2, 2.4],
-                [3.1, 3.2, 0.0],
+                [1.1, 0.0, 0.0, 0.0],
+                [2.1, 2.2, 0.0, 0.0],
+                [0.0, 3.2, 3.3, 0.0],
+                [0.0, 0.0, 4.3, 4.4],
+                [0.0, 0.0, 0.0, 5.4],
             ]
         ).astype(np.float32)
     )
-    # test data, noqa
-    X_tst = np.array([[2, 0]]).astype(np.float32)
-    label_keys = np.array([0, 1, 2]).astype(np.uint32)
-    # train
+    max_bsz, only_topk = 4, 3
+    label_keys = np.arange(max_bsz).astype(np.uint32)
     train_params = PairwiseANN.TrainParams(metric_type="ip")
-    model = PairwiseANN.train(X_trn, Y_csr, train_params=train_params)
-    # predict
-    pred_params = PairwiseANN.PredParams(topk=2)
-    searchers = model.searchers_create(max_batch_size=250, max_only_topk=10, num_searcher=1)
+    pred_params = PairwiseANN.PredParams(batch_size=max_bsz, only_topk=only_topk)
+    label_keys = np.arange(max_bsz).astype(np.uint32)
+
+    # train & predict
+    model = PairwiseANN.train(X_drm, Y_csc, train_params=train_params)
+    searchers = model.searchers_create(pred_params=pred_params, num_searcher=1)
     Ip, Mp, Dp, Vp = model.predict(
-        X_tst,
+        X_drm[:max_bsz],
         label_keys,
         searchers,
-        pred_params=pred_params,
-        is_same_input=True,
+        is_same_input=False,
     )
-    # compare to expected ground truth
-    It = np.array([[0, 2], [1, 2], [1, 0]]).astype(np.uint32)
-    Mt = np.array([[1, 1], [1, 1], [1, 0]]).astype(np.uint32)
-    Dt = np.array([[-1, 3], [1, 3], [1.0, 0.0]]).astype(np.float32)
-    Vt = np.array([[1.1, 3.1], [2.2, 3.2], [2.4, 0.0]]).astype(np.float32)
-    assert Ip == approx(It, abs=0.0), f"pred faield: Ip != It"
-    assert Mp == approx(Mt, abs=0.0), f"pred faield: Mp != Mt"
-    assert Dp == approx(Dt, abs=0.0), f"pred faield: Dp != Dt"
-    assert Vp == approx(Vt, abs=0.0), f"pred faield: Vp != Vt"
-    del model, searchers
+    assert Ip == approx(
+        np.array([[1, 0, 0], [2, 1, 0], [3, 2, 0], [4, 3, 0]]),
+        abs=0.0,
+    ), f"pred failed: Ip != I_true"
+    assert Mp == approx(
+        np.array([[1, 1, 0], [1, 1, 0], [1, 1, 0], [1, 1, 0]]),
+        abs=0.0,
+    ), f"pred failed: Mp != M_true"
+    assert Dp == approx(
+        np.array([[-1, 0, 0], [-5, -3, 0], [-11, -8, 0], [-19, -15, 0]]),
+        abs=0.0,
+    ), f"pred failed: Dp != D_true"
+    assert Vp == approx(
+        np.array([[2.1, 1.1, 0], [3.2, 2.2, 0], [4.3, 3.3, 0], [5.4, 4.4, 0]]),
+        abs=1e-6,
+    ), f"pred failed: Vp != V_true"
 
 
 def test_predict_with_multiple_calls():
     from pecos.ann.pairwise import PairwiseANN
 
-    # train data
-    X_trn = np.array([[1, 0], [0, 2], [-1, 0]]).astype(np.float32)
-    Y_csr = smat.csr_matrix(
-        np.array(
-            [
-                [1.1, 0.0, 0.0],
-                [0.0, 2.2, 2.4],
-                [3.1, 3.2, 0.0],
-            ]
-        ).astype(np.float32)
-    )
-    # test data, noqa
-    batch_size = 3
-    X_tst = X_trn
-    label_keys = np.array(range(batch_size)).astype(np.uint32)
-    # train
+    # constant
+    N = L = 8192
+    D = 64
+    X_drm = np.random.randn(N, D).astype(np.float32)
+    Y_csc = smat.random(N, L, density=3e-4, format="csc", dtype=np.float32)
+    max_bsz, only_topk = 10, 3
+    label_keys = np.arange(max_bsz).astype(np.uint32)
     train_params = PairwiseANN.TrainParams(metric_type="ip")
-    model = PairwiseANN.train(X_trn, Y_csr, train_params=train_params)
-    # batch predict
-    pred_params = PairwiseANN.PredParams(topk=2)
-    searchers = model.searchers_create(max_batch_size=250, max_only_topk=10, num_searcher=1)
+    pred_params = PairwiseANN.PredParams(batch_size=max_bsz, only_topk=only_topk)
+    label_keys = np.arange(max_bsz).astype(np.uint32)
+
+    # case 1: is_same_input = False
+    X_tst = np.random.randn(2, D).astype(np.float32)
+    X_tst_dup = np.repeat(X_tst, 5, axis=0)  # [x1,x2] => [x1,...,x1,x2,...,x2]
+    model = PairwiseANN.train(X_drm, Y_csc, train_params=train_params)
+    searchers = model.searchers_create(pred_params=pred_params, num_searcher=1)
     Ip, Mp, Dp, Vp = model.predict(
-        X_tst,
+        X_tst_dup,
         label_keys,
         searchers,
-        pred_params=pred_params,
         is_same_input=False,
     )
-    It = np.array([[0, 2], [1, 2], [1, 0]]).astype(np.uint32)
-    Mt = np.array([[1, 1], [1, 1], [1, 0]]).astype(np.uint32)
-    Dt = np.array([[0, 2], [-3, 1], [1, 0]]).astype(np.float32)
-    Vt = np.array([[1.1, 3.1], [2.2, 3.2], [2.4, 0.0]]).astype(np.float32)
-    assert Ip == approx(It, abs=0.0), f"pred failed: Ip != It"
-    assert Mp == approx(Mt, abs=0.0), f"pred failed: Mp != Mt"
-    assert Dp == approx(Dt, abs=0.0), f"pred failed: Dp != Dt"
-    assert Vp == approx(Vt, abs=0.0), f"pred failed: Vp != Vt"
 
-    # make predict on single (q,a) pair with multiple calls
-    # to test if we properly reset the memory buffer
-    for bidx in range(batch_size):
-        Ip_b, Mp_b, Dp_b, Vp_b = model.predict(
-            X_tst[bidx, :].reshape(1, -1),
-            np.array([label_keys[bidx]]),
-            searchers,
-            pred_params=pred_params,
-            is_same_input=True,
-        )
-        assert Ip_b == approx(It[bidx, :].reshape(1, -1), abs=0.0), f"bidx={bidx} failed: Ip != It"
-        assert Mp_b == approx(Mt[bidx, :].reshape(1, -1), abs=0.0), f"bidx={bidx} failed: Mp != Mt"
-        assert Dp_b == approx(Dt[bidx, :].reshape(1, -1), abs=0.0), f"bidx={bidx} failed: Dp != Dt"
-        assert Vp_b == approx(Vt[bidx, :].reshape(1, -1), abs=0.0), f"bidx={bidx} failed: Vp != Vt"
+    # case 2: 1st half and is_same_input = True
+    Ip1, Mp1, Dp1, Vp1 = model.predict(
+        X_tst[0, :].reshape(1, -1),
+        label_keys[:5],
+        searchers,
+        is_same_input=True,
+    )
+    assert Ip1 == approx(Ip[:5, :], abs=0.0), f"pred failed: Ip1 != Ip"
+    assert Mp1 == approx(Mp[:5, :], abs=0.0), f"pred failed: Mp1 != Mp"
+    assert Dp1 == approx(Dp[:5, :], abs=0.0), f"pred failed: Dp1 != Dp"
+    assert Vp1 == approx(Vp[:5, :], abs=0.0), f"pred failed: Vp1 != Vp"
 
-    del model, searchers
+    # case 3: 2nd half and is_same_input = True
+    Ip2, Mp2, Dp2, Vp2 = model.predict(
+        X_tst[1, :].reshape(1, -1),
+        label_keys[5:],
+        searchers,
+        is_same_input=True,
+    )
+    assert Ip2 == approx(Ip[5:, :], abs=0.0), f"pred failed: Ip2 != Ip"
+    assert Mp2 == approx(Mp[5:, :], abs=0.0), f"pred failed: Mp2 != Mp"
+    assert Dp2 == approx(Dp[5:, :], abs=0.0), f"pred failed: Dp2 != Dp"
+    assert Vp2 == approx(Vp[5:, :], abs=0.0), f"pred failed: Vp2 != Vp"

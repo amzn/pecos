@@ -81,7 +81,7 @@ namespace ann {
         mmap_s.fput_one<index_type>(X.cols);
         mmap_s.fput_one<mem_index_type>(nnz);
         mmap_s.fput_multiple<value_type>(X.val, nnz);
-    } 
+    }
 
     template<class MAT_T>
     void load_mat(MAT_T &X, mmap_util::MmapStore& mmap_s) {
@@ -99,7 +99,7 @@ namespace ann {
         X.cols = mmap_s.fget_one<index_type>();
         auto nnz = mmap_s.fget_one<mem_index_type>();
         X.val = mmap_s.fget_multiple<value_type>(nnz);
-    } 
+    }
 
     template <typename T1, typename T2>
     struct KeyValPair {
@@ -111,8 +111,8 @@ namespace ann {
         bool operator<(const KeyValPair<T1, T2>& other) const { return input_key_dist < other.input_key_dist; }
         bool operator>(const KeyValPair<T1, T2>& other) const { return input_key_dist > other.input_key_dist; }
     };
- 
-	// PairwiseANN Interface
+
+    // PairwiseANN Interface
     template<class FeatVec_T, class MAT_T>
     struct PairwiseANN {
         typedef FeatVec_T feat_vec_t;
@@ -120,7 +120,7 @@ namespace ann {
         typedef pecos::ann::KeyValPair<index_type, value_type> pair_t;
         typedef pecos::ann::heap_t<pair_t, std::less<pair_t>> max_heap_t;
 
-	struct Searcher {
+        struct Searcher {
             typedef PairwiseANN<feat_vec_t, mat_t> pairwise_ann_t;
 
             const pairwise_ann_t* pairwise_ann;
@@ -132,8 +132,8 @@ namespace ann {
 
             max_heap_t& predict_single(const feat_vec_t& query_vec, const index_type label_key, index_type topk) {
                 return pairwise_ann->predict_single(query_vec, label_key, topk, *this);
-            } 
-	};
+            }
+        };
 
         Searcher create_searcher() const {
             return Searcher(this);
@@ -143,7 +143,7 @@ namespace ann {
         index_type num_input_keys;  // N
         index_type num_label_keys;  // L
         index_type feat_dim;        // d
-        
+
         // matrices
         pecos::csc_t Y_csc;         // shape of [N, L]
         mat_t X_trn;                // shape of [N, d]
@@ -152,7 +152,14 @@ namespace ann {
         pecos::mmap_util::MmapStore mmap_store;
 
         // destructor
-        ~PairwiseANN() {}
+        ~PairwiseANN() {
+            // If mmap_store is not open for read, then the memory of Y/X is owned by this class
+            // Thus, we need to explicitly free the underlying memory of Y/X during destructor
+            if (!mmap_store.is_open_for_read()) {
+                this->Y_csc.free_underlying_memory();
+                this->X_trn.free_underlying_memory();
+            }
+        }
 
         static nlohmann::json load_config(const std::string& filepath) {
             std::ifstream loadfile(filepath);
@@ -215,7 +222,7 @@ namespace ann {
             save_mat(X_trn, mmap_s);
             mmap_s.close();
         }
-        
+
         void load(const std::string& model_dir, bool lazy_load = false) {
             auto config = load_config(model_dir + "/config.json");
             std::string version = config.find("version") != config.end() ? config["version"] : "not found";
@@ -248,9 +255,11 @@ namespace ann {
             this->num_input_keys = Y_csc.rows;
             this->num_label_keys = Y_csc.cols;
             this->feat_dim = X_trn.cols;
-            // matrices
-            this->Y_csc = Y_csc;
-            this->X_trn = X_trn;
+            // Deepcopy the memory of X/Y.
+            // Otherwise, after Python API of PairwiseANN.train(),
+            // the input matrices pX/pY can be modified or deleted.
+            this->Y_csc = Y_csc.deep_copy();
+            this->X_trn = X_trn.deep_copy();
         }
 
         max_heap_t& predict_single(

@@ -106,7 +106,7 @@ namespace pecos {
                         if(touched_indices[i] < len) {
                             touched_indices[write_pos] = touched_indices[i];
                             write_pos += 1;
-                        } 
+                        }
                     }
                     nr_touch = write_pos;
                 }
@@ -540,6 +540,34 @@ namespace pecos {
         mem_index_type get_nnz() const {
             return static_cast<mem_index_type>(rows) * static_cast<mem_index_type>(cols);
         }
+
+        // Frees the underlying memory of the matrix (i.e., col_ptr, row_idx, and val arrays)
+        // Every function in the inference code that returns a matrix has allocated memory, and
+        // therefore one should call this function to free that memory.
+        void free_underlying_memory() {
+            if (val) {
+                delete[] val;
+                val = nullptr;
+            }
+        }
+
+        // Creates a deep copy of this matrix
+        // This allocates memory, so one should call free_underlying_memory on the copy when
+        // one is finished using it.
+        drm_t deep_copy() const {
+            mem_index_type nnz = get_nnz();
+            drm_t res;
+            res.allocate(rows, cols, nnz);
+            std::memcpy(res.val, val, sizeof(value_type) * nnz);
+            return res;
+        }
+
+        void allocate(index_type rows, index_type cols, mem_index_type nnz) {
+            this->rows = rows;
+            this->cols = cols;
+            val = new value_type[nnz];
+        }
+
     };
 
     struct dcm_t { // Dense Column Majored Matrix
