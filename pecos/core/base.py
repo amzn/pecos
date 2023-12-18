@@ -2058,24 +2058,36 @@ class corelib(object):
             [c_uint64, POINTER(c_double), POINTER(c_double), POINTER(c_double)],
         )
 
-    def fit_platt_transform(self, logits, tgt_prob):
+    def fit_platt_transform(self, logits, targets, clip_tgt_prob=True):
         """Python to C/C++ interface for platt transfrom fit.
 
         Ref: https://www.csie.ntu.edu.tw/~cjlin/papers/plattprob.pdf
 
         Args:
             logits (ndarray): 1-d array of logit with length N.
-            tgt_prob (ndarray): 1-d array of target probability scores within [0, 1] with length N.
+            targets (ndarray): 1-d array of target probability scores within [0, 1] with length N.
+            clip_tgt_prob (bool): whether to clip the target probability to
+                [1/(prior0 + 2), 1 - 1/(prior1 + 2)]
+                where prior1 = sum(targets), prior0 = N - prior1
         Returns:
             A, B: coefficients for Platt's scale.
         """
         assert isinstance(logits, np.ndarray)
-        assert isinstance(tgt_prob, np.ndarray)
-        assert len(logits) == len(tgt_prob)
-        assert logits.dtype == tgt_prob.dtype
+        assert isinstance(targets, np.ndarray)
+        assert len(logits) == len(targets)
+        assert logits.dtype == targets.dtype
 
-        if tgt_prob.min() < 0 or tgt_prob.max() > 1.0:
+        if targets.min() < 0 or targets.max() > 1.0:
             raise ValueError("Target probability out of bound!")
+
+        min_prob, max_prob = 0.0, 1.0
+        if clip_tgt_prob:
+            prior1 = np.sum(targets)
+            prior0 = len(targets) - prior1
+            min_prob = 1.0 / (prior0 + 2.0)
+            max_prob = (prior1 + 1.0) / (prior1 + 2.0)
+
+        tgt_prob = np.clip(targets, min_prob, max_prob)
 
         AB = np.array([0, 0], dtype=np.float64)
 
