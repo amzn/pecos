@@ -78,12 +78,12 @@ def test_platt_scale():
 
     orig = np.arange(-15, 15, 1, dtype=np.float32)
     tgt = np.array([1.0 / (1 + np.exp(A * t + B)) for t in orig], dtype=np.float32)
-    At, Bt = clib.fit_platt_transform(orig, tgt)
+    At, Bt = clib.fit_platt_transform(orig, tgt, clip_tgt_prob=False)
     assert B == approx(Bt, abs=1e-6), f"Platt_scale B error: {B} != {Bt}"
     assert A == approx(At, abs=1e-6), f"Platt_scale A error: {A} != {At}"
 
     orig = np.arange(-15, 15, 1, dtype=np.float64)
     tgt = np.array([1.0 / (1 + np.exp(A * t + B)) for t in orig], dtype=np.float64)
-    At, Bt = clib.fit_platt_transform(orig, tgt)
+    At, Bt = clib.fit_platt_transform(orig, tgt, clip_tgt_prob=False)
     assert B == approx(Bt, abs=1e-6), f"Platt_scale B error: {B} != {Bt}"
     assert A == approx(At, abs=1e-6), f"Platt_scale A error: {A} != {At}"
