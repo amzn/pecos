@@ -681,76 +681,114 @@ class MLModel(pecos.BaseClass):
             """Check whether self instance is valid"""
             return self.post_processor in PostProcessor.valid_list()
 
-    def __init__(self, W, C=None, bias=-1.0, pred_params=None, **kwargs):
+    def __init__(self, model_ptr=None, W=None, C=None, bias=-1.0, pred_params=None, **kwargs):
         """Initialization
 
         Args:
-            W(ScipyCscF32 or np.ndarray): Weight matrix.
-            C(ScipyCscF32 or np.ndarray, optional): Clustering matrix
+            model_ptr (c_void_ptr): The pointer to C/C++ of MLModel. Default None.
+            W(ScipyCscF32 or np.ndarray, optional): Weight matrix. Default None.
+            C(ScipyCscF32 or np.ndarray, optional): Clustering matrix. Default None.
             bias(float, optional): The bias of the model. Default to -1.0.
             pred_params(dict): Parameters to initialize `PredParams`.
             **kwargs: Other arguments to override `PredParams`.
         """
-        if C is not None:
-            if isinstance(C, ScipyCscF32):
-                assert C.buf.shape[0] == W.shape[1], "C:{} W:{}".format(C.buf.shape, W.shape)
+        if (model_ptr is None) and (W is None) and (C is None):
+            raise ValueError(f"Initialization Error! Provide either model_ptr or (W/C)!")
+
+        self.model_ptr = model_ptr
+        if not self.is_mmap:
+            if C is not None:
+                if isinstance(C, ScipyCscF32):
+                    assert C.buf.shape[0] == W.shape[1], "C:{} W:{}".format(C.buf.shape, W.shape)
+                else:
+                    assert C.shape[0] == W.shape[1], "C:{} W:{}".format(C.shape, W.shape)
             else:
-                assert C.shape[0] == W.shape[1], "C:{} W:{}".format(C.shape, W.shape)
-        else:
-            C = smat.csc_matrix(np.ones((W.shape[1], 1), dtype=W.dtype))
-        self.pC = ScipyCscF32.init_from(C)
-        self.pW = ScipyCscF32.init_from(W)
-        self.bias = bias
+                C = smat.csc_matrix(np.ones((W.shape[1], 1), dtype=W.dtype))
+            self.pC = ScipyCscF32.init_from(C)
+            self.pW = ScipyCscF32.init_from(W)
+            self.bias = bias
+
         pred_params = self.PredParams.from_dict(pred_params)
         pred_params.override_with_kwargs(kwargs.get("pred_kwargs", None))
         self.pred_params = pred_params
 
     @property
+    def is_mmap(self):
+        if self.model_ptr is not None and isinstance(self.model_ptr, int):
+            return True
+        else:
+            return False
+
+    @property
     def C(self):
         """The clustering matrix"""
-        return self.pC.buf
+        if self.is_mmap:
+            raise Exception("Model is mmap format! C() not supported!")
+        else:
+            return self.pC.buf
 
     @property
     def W(self):
         """The weight matrix"""
-        return None if self.pW is None else self.pW.buf
+        if self.is_mmap:
+            raise Exception("Model is mmap format! W() not supported!")
+        else:
+            return None if self.pW is None else self.pW.buf
 
     @property
     def nr_labels(self):
         """The number of labels"""
-        return self.W.shape[1]
+        if self.is_mmap:
+            return clib.mlmodel_get_int_attr(self.model_ptr, "nr_labels")
+        else:
+            return self.W.shape[1]
 
     @property
     def nr_codes(self):
         """The number of clusters."""
-        return self.C.shape[1]
+        if self.is_mmap:
+            return clib.mlmodel_get_int_attr(self.model_ptr, "nr_codes")
+        else:
+            return self.C.shape[1]
 
     @property
     def nr_features(self):
         """The feature dimension"""
-        return self.W.shape[0] - (1 if self.bias > 0 else 0)
+        if self.is_mmap:
+            return clib.mlmodel_get_int_attr(self.model_ptr, "nr_features")
+        else:
+            return self.W.shape[0] - (1 if self.bias > 0 else 0)
 
     @property
     def dtype(self):
         """The model dtype"""
-        return self.pW.dtype
+        if self.is_mmap:
+            raise Exception("Model is mmap format! dtype() not supported!")
+        else:
+            return self.pW.dtype
 
     @classmethod
-    def load(cls, folder):
+    def load(cls, folder, lazy_load=False):
         """Load MLModel from file
 
         Args:
             folder (str): dir from which the model is loaded.
-
+            lazy_load (bool): lazy load for mmap format of model. Default False.
         Returns:
             MLModel
         """
         param = json.loads(open("{}/param.json".format(folder), "r").read())
         assert param["model"] == cls.__name__
-        W = smat_util.load_matrix("{}/W.npz".format(folder)).tocsc().sorted_indices()
-        C = smat_util.load_matrix("{}/C.npz".format(folder)).tocsc().sorted_indices()
         pred_params = cls.PredParams.from_dict(param["pred_kwargs"])
-        return cls(W, C, param["bias"], pred_params)
+
+        is_mmap = bool(param.get("is_mmap", False))
+        if is_mmap:
+            model_ptr = clib.mlmodel_load_mmap(folder, lazy_load=lazy_load)
+            return cls(model_ptr=model_ptr, pred_params=pred_params)
+        else:
+            W = smat_util.load_matrix("{}/W.npz".format(folder)).tocsc().sorted_indices()
+            C = smat_util.load_matrix("{}/C.npz".format(folder)).tocsc().sorted_indices()
+            return cls(W=W, C=C, bias=param["bias"], pred_params=pred_params)
 
     @classmethod
     def load_pred_params(cls, folder):
@@ -792,6 +830,19 @@ class MLModel(pecos.BaseClass):
         smat_util.save_matrix("{}/C.npz".format(folder), self.C)
 
     @classmethod
+    def compile_mmap_model(cls, npz_folder, mmap_folder):
+        """
+        Compile model from npz format to memory-mapped format
+        for faster loading and referencing.
+        Args:
+            npz_folder (str): The source folder path for mlmodel npz files.
+            mmap_folder (str): The destination folder path for xlinear mmap model.
+        """
+        param = json.loads(open(f"{npz_folder}/param.json", "r", encoding="utf-8").read())
+        assert param["model"] == cls.__name__
+        clib.mlmodel_compile_mmap_model(npz_folder, mmap_folder)
+
+    @classmethod
     def train(cls, prob, train_params=None, pred_params=None, **kwargs):
         """Training method for MLModel
 
@@ -818,7 +869,7 @@ class MLModel(pecos.BaseClass):
         if train_params.solver_type == "L2R_L2LOSS_SVC_PRIMAL":
             train_params.eps = train_params.newton_eps
 
-        model = clib.xlinear_single_layer_train(
+        W = clib.xlinear_single_layer_train(
             prob.pX,
             prob.pY,
             prob.pC,
@@ -826,7 +877,7 @@ class MLModel(pecos.BaseClass):
             prob.pR,
             **train_params.to_dict(),
         )
-        return cls(model, prob.pC, train_params.bias, pred_params)
+        return cls(W=W, C=prob.pC, bias=train_params.bias, pred_params=pred_params)
 
     def get_pred_params(self):
         """Return a deep copy of prediction parameters
@@ -872,17 +923,28 @@ class MLModel(pecos.BaseClass):
 
         pred_alloc = ScipyCompressedSparseAllocator()
 
-        clib.xlinear_single_layer_predict(
-            X,
-            csr_codes,
-            self.W,
-            self.C,
-            pred_params.post_processor,
-            pred_params.only_topk if pred_params.only_topk else 0,
-            kwargs.get("threads", -1),
-            self.bias,
-            pred_alloc,
-        )
+        if self.is_mmap:
+            clib.mlmodel_predict(
+                self.model_ptr,
+                X,
+                csr_codes,
+                pred_params.post_processor,
+                pred_params.only_topk if pred_params.only_topk else 0,
+                kwargs.get("threads", -1),
+                pred_alloc,
+            )
+        else:
+            clib.xlinear_single_layer_predict(
+                X,
+                csr_codes,
+                self.W,
+                self.C,
+                pred_params.post_processor,
+                pred_params.only_topk if pred_params.only_topk else 0,
+                kwargs.get("threads", -1),
+                self.bias,
+                pred_alloc,
+            )
 
         return pred_alloc.get()
 
@@ -927,17 +989,28 @@ class MLModel(pecos.BaseClass):
 
         pred_alloc = ScipyCompressedSparseAllocator()
 
-        clib.xlinear_single_layer_predict_on_selected_outputs(
-            X,
-            selected_outputs_csr,
-            csr_codes,
-            self.W,
-            self.C,
-            pred_params.post_processor,
-            kwargs.get("threads", -1),
-            self.bias,
-            pred_alloc,
-        )
+        if self.is_mmap:
+            clib.mlmodel_predict_on_selected_outputs(
+                self.model_ptr,
+                X,
+                selected_outputs_csr,
+                csr_codes,
+                pred_params.post_processor,
+                kwargs.get("threads", -1),
+                pred_alloc,
+            )
+        else:
+            clib.xlinear_single_layer_predict_on_selected_outputs(
+                X,
+                selected_outputs_csr,
+                csr_codes,
+                self.W,
+                self.C,
+                pred_params.post_processor,
+                kwargs.get("threads", -1),
+                self.bias,
+                pred_alloc,
+            )
 
         return pred_alloc.get()
 
@@ -965,6 +1038,9 @@ class MLModel(pecos.BaseClass):
                 'active_labels': a (sorted) list of labels that are retained
                 }
         """
+        if self.model_ptr:
+            raise Exception("Model is mmap format! get_submodel() not supported!")
+
         if selected_codes is None:
             selected_codes = np.arange(self.nr_codes)
         else:

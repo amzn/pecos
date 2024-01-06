@@ -20,6 +20,39 @@ def test_importable():
     from pecos.xmc import Indexer  # noqa: F401
 
 
+def test_mmap_mlmodel(tmpdir):
+    from pathlib import Path
+    from pecos.utils import smat_util
+    from pecos.xmc import MLProblem, MLModel
+
+    train_X_file = "test/tst-data/xmc/xlinear/X.npz"
+    train_Y_file = "test/tst-data/xmc/xlinear/Y.npz"
+    test_X_file = "test/tst-data/xmc/xlinear/Xt.npz"
+    X = smat_util.load_matrix(train_X_file)
+    Y = smat_util.load_matrix(train_Y_file)
+    Xt = smat_util.load_matrix(test_X_file)
+
+    npz_model_folder = str(tmpdir.join("save_model_npz"))
+    mmap_model_folder = str(tmpdir.join("save_model_mmap"))
+    Path(mmap_model_folder).mkdir(parents=True, exist_ok=True)
+
+    py_model = MLModel.train(
+        MLProblem(X, Y, C=None, M=None, R=None),
+        train_params=MLModel.TrainParams(),
+    )
+    py_model.save(npz_model_folder)
+    MLModel.compile_mmap_model(npz_model_folder, mmap_model_folder)
+    mmap_model = MLModel.load(mmap_model_folder, lazy_load=False)
+
+    assert py_model.nr_features == mmap_model.nr_features
+    assert py_model.nr_labels == mmap_model.nr_labels
+    assert py_model.nr_codes == mmap_model.nr_codes
+
+    py_pred = py_model.predict(Xt, only_topk=2).todense()
+    mmap_pred = mmap_model.predict(Xt, only_topk=2).todense()
+    assert mmap_pred == approx(py_pred, abs=1e-6)
+
+
 def test_hierarchicalkmeans():
     import numpy as np
     import scipy.sparse as smat
