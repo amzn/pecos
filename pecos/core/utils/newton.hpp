@@ -279,7 +279,7 @@ namespace pecos {
     //  https://github.com/cjlin1/libsvm/blob/master/svm.cpp
 
     template <typename value_type>
-    uint32_t fit_platt_transform(size_t num_samples, const value_type *logits, const value_type *tgt_probs, double& A, double& B) {
+    uint32_t fit_platt_transform(size_t num_samples, const value_type *logits, const value_type *tgt_probs, double& A, double& B, size_t max_iter, double eps) {
         // define the return code
         enum {
             SUCCESS=0,
@@ -288,10 +288,8 @@ namespace pecos {
         };
 
         // hyper parameters
-        int max_iter = 100; // Maximal number of iterations
         double min_step = 1e-10;    // Minimal step taken in line search
         double sigma = 1e-12; // For numerically strict PD of Hessian
-        double eps = 1e-5;
 
         // calculate prior of B
         double prior1 = 0;
@@ -299,7 +297,6 @@ namespace pecos {
             prior1 += tgt_probs[i];
         }
         double prior0 = double(num_samples) - prior1;
-
 
         // Initial Point and Initial Fun Value
         A = 0.0; B = log((prior0 + 1.0) / (prior1 + 1.0));
@@ -313,7 +310,7 @@ namespace pecos {
                 fval += (tgt_probs[i] - 1) * fApB + log(1 + exp(fApB));
             }
         }
-        int iter;
+        size_t iter = 0;
         for (iter = 0; iter < max_iter; iter++) {
             // Update Gradient and Hessian (use H' = H + sigma I)
             double h11 = sigma;
@@ -342,15 +339,21 @@ namespace pecos {
                 g2 += d1;
             }
 
-            // Stopping Criteria
-            if (fabs(g1) < eps && fabs(g2) < eps)
-                break;
 
             // Finding Newton direction: -inv(H') * g
             double det = h11 * h22 - h21 * h21;
             double dA = -(h22 * g1 - h21 * g2) / det;
             double dB = -(-h21 * g1 + h11 * g2) / det;
             double gd = g1 * dA + g2 * dB;
+
+	    // Stopping Criteria
+	    if (fabs(g1) < eps && fabs(g2) < eps) {
+                break;
+	    }
+	    // additional stop criteria to handle the case when det is large
+	    if (fabs(dA) < eps && fabs(dB) < eps) {
+                break;
+	    }
 
             // Line Search
             double stepsize = 1.0;
@@ -370,8 +373,7 @@ namespace pecos {
                     }
                 }
                 // Check sufficient decrease
-                if (newf < fval + 0.0001 * stepsize * gd)
-                {
+                if (newf < fval + 0.0001 * stepsize * gd) {
                     A = newA;
                     B = newB;
                     fval = newf;
