@@ -56,7 +56,7 @@ jobs:
       run: |
         if [[ "${{ github.event_name }}" == "push" ]] && \
            [[ "${{ github.event.ref }}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo ::set-output name=match::true
+            echo "match=true" >> $GITHUB_OUTPUT
         fi
 
     - name: Upload to PyPI
