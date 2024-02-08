@@ -2309,15 +2309,36 @@ class corelib(object):
         corelib.fillprototype(
             self.clib_float32.c_fit_platt_transform_f32,
             c_uint32,
-            [c_uint64, POINTER(c_float), POINTER(c_float), POINTER(c_double)],
+            [
+                c_uint64,
+                POINTER(c_float),
+                POINTER(c_float),
+                POINTER(c_double),
+                c_uint64,  # max_iter
+                c_double,  # eps
+            ],
         )
         corelib.fillprototype(
             self.clib_float32.c_fit_platt_transform_f64,
             c_uint32,
-            [c_uint64, POINTER(c_double), POINTER(c_double), POINTER(c_double)],
+            [
+                c_uint64,
+                POINTER(c_double),
+                POINTER(c_double),
+                POINTER(c_double),
+                c_uint64,  # max_iter
+                c_double,  # eps
+            ],
         )
 
-    def fit_platt_transform(self, logits, targets, clip_tgt_prob=True):
+    def fit_platt_transform(
+        self,
+        logits,
+        targets,
+        max_iter=100,
+        eps=1e-5,
+        clip_tgt_prob=True,
+    ):
         """Python to C/C++ interface for platt transfrom fit.
 
         Ref: https://www.csie.ntu.edu.tw/~cjlin/papers/plattprob.pdf
@@ -2325,7 +2346,9 @@ class corelib(object):
         Args:
             logits (ndarray): 1-d array of logit with length N.
             targets (ndarray): 1-d array of target probability scores within [0, 1] with length N.
-            clip_tgt_prob (bool): whether to clip the target probability to
+            max_iter (int, optional): max number of iterations to train. Default 100
+            eps (float, optional): epsilon. Defaults to 1e-5
+            clip_tgt_prob (bool, optional): whether to clip the target probability to
                 [1/(prior0 + 2), 1 - 1/(prior1 + 2)]
                 where prior1 = sum(targets), prior0 = N - prior1
         Returns:
@@ -2356,6 +2379,8 @@ class corelib(object):
                 logits.ctypes.data_as(POINTER(c_float)),
                 tgt_prob.ctypes.data_as(POINTER(c_float)),
                 AB.ctypes.data_as(POINTER(c_double)),
+                max_iter,
+                eps,
             )
         elif tgt_prob.dtype == np.float64:
             return_code = clib.clib_float32.c_fit_platt_transform_f64(
@@ -2363,6 +2388,8 @@ class corelib(object):
                 logits.ctypes.data_as(POINTER(c_double)),
                 tgt_prob.ctypes.data_as(POINTER(c_double)),
                 AB.ctypes.data_as(POINTER(c_double)),
+                max_iter,
+                eps,
             )
         else:
             raise ValueError(f"Unsupported dtype: {tgt_prob.dtype}")
