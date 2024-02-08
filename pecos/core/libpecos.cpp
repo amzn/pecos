@@ -27,7 +27,92 @@
 // C Interface of Types/Structures can be found in utils/matrix.hpp
 
 extern "C" {
-    // ==== C Interface of XMC Models ====
+    // ==== C Interface of MLModels ====
+    // Only implemented for w_matrix_t = pecos::csc_t
+    typedef pecos::csc_t MLMODEL_MAT_T;
+    void c_mlmodel_compile_mmap_model(const char* model_path, const char* mmap_model_path) {
+        auto model = new pecos::MLModel<MLMODEL_MAT_T>(model_path, 0);
+        model->save_mmap(mmap_model_path);
+	delete model;
+    }
+    void* c_mlmodel_load_mmap_model(const char* model_path, const bool lazy_load) {
+        auto mlm = new pecos::MLModel<MLMODEL_MAT_T>(model_path, 0, lazy_load);
+        return static_cast<void*>(mlm);
+    }
+    void c_mlmodel_destruct_model(void* ptr) {
+        pecos::MLModel<MLMODEL_MAT_T>* mlm = static_cast<pecos::MLModel<MLMODEL_MAT_T>*>(ptr);
+        delete mlm;
+    }
+    // Allowed attr: nr_labels, nr_codes, nr_features
+    uint32_t c_mlmodel_get_int_attr(void* ptr, const char* attr) {
+        pecos::MLModel<MLMODEL_MAT_T>* mlm = static_cast<pecos::MLModel<MLMODEL_MAT_T>*>(ptr);
+        return mlm->get_int_attr(attr);
+    }
+
+    #define C_MLMODEL_PREDICT(SUFFIX, PY_MAT, C_MAT) \
+    void c_mlmodel_predict ## SUFFIX( \
+        void* ptr, \
+        const PY_MAT* input_x, \
+        const ScipyCsrF32* csr_codes, \
+        const char* overridden_post_processor, \
+        const uint32_t overridden_only_topk, \
+        const int num_threads, \
+        py_sparse_allocator_t pred_alloc) { \
+        pecos::MLModel<MLMODEL_MAT_T>* mlm = static_cast<pecos::MLModel<MLMODEL_MAT_T>*>(ptr); \
+        C_MAT X(input_x); \
+        pecos::csr_t prev_layer_pred; \
+        bool no_prev_pred; \
+	if (csr_codes) { \
+	    prev_layer_pred = pecos::csr_t(csr_codes).deep_copy(); \
+	    no_prev_pred = false; \
+	} else { \
+	    prev_layer_pred.fill_ones(X.rows, mlm->code_count()); \
+	    no_prev_pred = true; \
+	} \
+        pecos::csr_t cur_layer_pred; \
+        mlm->predict(X, prev_layer_pred, no_prev_pred, \
+            overridden_only_topk, overridden_post_processor, \
+            cur_layer_pred, num_threads); \
+        cur_layer_pred.create_pycsr(pred_alloc); \
+        cur_layer_pred.free_underlying_memory(); \
+        prev_layer_pred.free_underlying_memory(); \
+    }
+    C_MLMODEL_PREDICT(_csr_f32, ScipyCsrF32, pecos::csr_t)
+    C_MLMODEL_PREDICT(_drm_f32, ScipyDrmF32, pecos::drm_t)
+
+    #define C_MLMODEL_PREDICT_ON_SELECTED_OUTPUTS(SUFFIX, PY_MAT, C_MAT) \
+    void c_mlmodel_predict_on_selected_outputs ## SUFFIX( \
+        void* ptr, \
+        const PY_MAT* input_x, \
+        const ScipyCsrF32* selected_outputs_csr, \
+        const ScipyCsrF32* csr_codes, \
+        const char* overridden_post_processor, \
+        const int num_threads, \
+        py_sparse_allocator_t pred_alloc) { \
+        pecos::MLModel<MLMODEL_MAT_T>* mlm = static_cast<pecos::MLModel<MLMODEL_MAT_T>*>(ptr); \
+        C_MAT X(input_x); \
+        pecos::csr_t curr_outputs_csr = pecos::csr_t(selected_outputs_csr).deep_copy(); \
+        pecos::csr_t prev_layer_pred; \
+        bool no_prev_pred; \
+	if (csr_codes) { \
+	    prev_layer_pred = pecos::csr_t(csr_codes).deep_copy(); \
+	    no_prev_pred = false; \
+	} else { \
+	    prev_layer_pred.fill_ones(X.rows, mlm->code_count()); \
+	    no_prev_pred = true; \
+	} \
+        pecos::csr_t cur_layer_pred; \
+        mlm->predict_on_selected_outputs(X, curr_outputs_csr, prev_layer_pred, no_prev_pred, \
+            overridden_post_processor, cur_layer_pred, num_threads); \
+        cur_layer_pred.create_pycsr(pred_alloc); \
+        cur_layer_pred.free_underlying_memory(); \
+        curr_outputs_csr.free_underlying_memory(); \
+        prev_layer_pred.free_underlying_memory(); \
+    }
+    C_MLMODEL_PREDICT_ON_SELECTED_OUTPUTS(_csr_f32, ScipyCsrF32, pecos::csr_t)
+    C_MLMODEL_PREDICT_ON_SELECTED_OUTPUTS(_drm_f32, ScipyDrmF32, pecos::drm_t)
+
+    // ==== C Interface of XLinearModels ====
     void* c_xlinear_load_model_from_disk(const char* model_path) {
         auto model = new pecos::HierarchicalMLModel(model_path);
         return static_cast<void*>(model);
@@ -49,6 +134,7 @@ extern "C" {
         // Only implemented for bin_search_chunked
         auto model = new pecos::HierarchicalMLModel(model_path, pecos::layer_type_t::LAYER_TYPE_BINARY_SEARCH_CHUNKED);
         model->save_mmap(mmap_model_path);
+	delete model;
     }
 
     void c_xlinear_destruct_model(void* ptr) {

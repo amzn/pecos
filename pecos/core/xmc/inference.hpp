@@ -42,7 +42,6 @@
 
 #define DEFAULT_LAYER_TYPE LAYER_TYPE_BINARY_SEARCH_CHUNKED
 
-
 namespace pecos {
 
     using robin_hood::unordered_set;
@@ -104,15 +103,18 @@ namespace pecos {
         float bias;
         int only_topk;
         std::string post_processor;
+        bool is_mmap=false;
 
         MLModelMetadata(
             float bias=1.0,
             int only_topk=10,
-            std::string post_processor="l3-hinge"
+            std::string post_processor="l3-hinge",
+	    bool is_mmap=false
         ) {
             this->bias = bias;
             this->only_topk = only_topk;
             this->post_processor = post_processor;
+	    this->is_mmap = is_mmap;
         }
 
         MLModelMetadata(const std::string& params_filepath) {
@@ -149,9 +151,9 @@ namespace pecos {
                  throw std::runtime_error("model corrupted, does not contain post_processor in pred_kwargs");
             }
 
-
             only_topk = pred_kwargs["only_topk"];
             post_processor = pred_kwargs["post_processor"];
+	    is_mmap = j.value("is_mmap", false);
         }
 
         void dump_json(const std::string& params_filepath) const {
@@ -166,7 +168,8 @@ namespace pecos {
             ofs << "\"pred_kwargs\": {\n";
             ofs << "\t\"only_topk\": " << only_topk << ",\n";
             ofs << "\t\"post_processor\": \"" << post_processor << "\"\n";
-            ofs << "\t}\n";
+            ofs << "\t},\n";
+	    ofs << "\"is_mmap\": " << (is_mmap?"true":"false") << "\n";
             ofs << "}\n";
 
             ofs.close();
@@ -375,11 +378,11 @@ namespace pecos {
         }
 
         void save_mmap(const std::string& file_name) const {
-            throw std::runtime_error("Not implemented yet.");
+            throw std::runtime_error("hash_chunked_matrix_t::save_mmap is Not implemented yet.");
         }
 
         void load_mmap(const std::string& file_name, const bool lazy_load) {
-            throw std::runtime_error("Not implemented yet.");
+            throw std::runtime_error("hash_chunked_matrix_t::load_mmap is Not implemented yet.");
         }
     };
 
@@ -1664,12 +1667,16 @@ namespace pecos {
 
         // Initialize mmap data
         void init_mmap(const std::string& foldername, bool lazy_load, value_type bias) {
-            throw std::runtime_error("Not implemented yet.");
+            this->bias = bias;
+            this->b_assumes_ownership = true; // Always true for mmap
+	    this->W.load_mmap(mmap_W_fn_(foldername), lazy_load);
+	    this->C.load_mmap(mmap_C_fn_(foldername), lazy_load);
         }
 
         // Save layer data to mmap format
         void save_mmap(const std::string& foldername) const {
-            throw std::runtime_error("Not implemented yet.");
+            W.save_mmap(mmap_W_fn_(foldername));
+	    C.save_mmap(mmap_C_fn_(foldername));
         }
 
         // Not necessary for unchuncked layer data
@@ -1683,6 +1690,10 @@ namespace pecos {
                 C.free_underlying_memory();
             }
         }
+    private:
+        // mmap file names
+        inline std::string mmap_W_fn_(const std::string& foldername) const {return foldername + "/W.mmap_store";}
+        inline std::string mmap_C_fn_(const std::string& foldername) const {return foldername + "/C.mmap_store";}
     };
 
     // Chunked layer data
@@ -2008,14 +2019,6 @@ namespace pecos {
             init(csc_t(&W),  csc_t(&C), cur_depth, b_assumes_ownership, metadata);
         }
 
-        // Save mmap
-        void save_mmap(const std::string& folderpath) const {
-            const std::string metadata_path = folderpath + "/param.json";
-            metadata.dump_json(metadata_path);
-
-            layer_data.save_mmap(folderpath);
-        }
-
         // The internal prediction function for a layer, this method is templated to take any
         // supported query matrix type. It is called by both versions of the ModelLayer::predict method
         // X should have the same number of rows as prev_layer_pred
@@ -2239,6 +2242,10 @@ namespace pecos {
             return layer_data.W.cols;
         }
 
+        index_type code_count() const override {
+            return layer_data.C.cols;
+        }
+
         index_type feature_count() const override {
             if (layer_data.bias > 0.0) {
                 return layer_data.W.rows - 1;
@@ -2247,15 +2254,53 @@ namespace pecos {
             }
         }
 
-        index_type code_count() const override {
-            return layer_data.C.cols;
-        }
-
         value_type bias() const override {
             return layer_data.bias;
         }
 
+        inline index_type get_int_attr(const char* attr) {
+            if (std::strcmp(attr, "nr_labels") == 0) {
+                return this->label_count();
+            } else if (std::strcmp(attr, "nr_codes") == 0) {
+                return this->code_count();
+            } else if (std::strcmp(attr, "nr_features") == 0) {
+                return this->feature_count();
+            } else {
+                throw std::runtime_error(std::string(attr) + " is not implemented in get_int_attr.");
+            }
+        }
+
+	// Save mmap
+        void save_mmap(const std::string& folderpath) const {
+            // Create folder
+            if (system(("mkdir -p " + folderpath).c_str()) == -1) {
+                throw std::runtime_error("Cannot create folder: " + folderpath);
+            }
+
+            const std::string metadata_path = folderpath + "/param.json";
+            MLModelMetadata metadata(
+			    this->metadata.bias,
+			    this->metadata.only_topk,
+			    this->metadata.post_processor,
+			    true);
+	    metadata.dump_json(metadata_path);
+
+            layer_data.save_mmap(folderpath);
+        }
+
+        MLModel(const std::string& folderpath, const uint32_t cur_depth, const bool lazy_load) {
+            MLModelMetadata metadata(folderpath + "/param.json");
+	    if (!metadata.is_mmap) {
+	    	throw std::runtime_error("This folder contains npz model. Cannot load in mmap format.");
+	    }
+	    ISpecializedModelLayer::load_mmap(folderpath, cur_depth, lazy_load, this);
+	}
+
         MLModel(const std::string& folderpath, const uint32_t cur_depth) {
+            MLModelMetadata metadata(folderpath + "/param.json");
+	    if (metadata.is_mmap) {
+	    	throw std::runtime_error("This folder contains mmap model. Cannot load in npz format.");
+	    }
             ISpecializedModelLayer::load(folderpath, cur_depth, this);
         }
     };
@@ -2545,9 +2590,6 @@ namespace pecos {
             for (std::size_t d = 0; d < depth; d++) {
                 std::string layer_path = folderpath + "/" + std::to_string(d) + ".model/";
                 // Create folder for layer
-                if (system(("mkdir -p " + layer_path).c_str()) == -1) {
-                    throw std::runtime_error("Cannot create layer folder: " + layer_path);
-                }
                 model_layers[d]->save_mmap(layer_path);
             }
         }
