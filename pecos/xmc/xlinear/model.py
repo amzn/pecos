@@ -95,8 +95,8 @@ class XLinearModel(pecos.BaseClass):
         Args:
             model_folder (str): dir to save the model
         """
-        if not path.exists(model_folder):
-            os.makedirs(model_folder)
+
+        os.makedirs(model_folder, exist_ok=True)
         param = self.append_meta({})
         with open(f"{model_folder}/param.json", "w", encoding="utf-8") as fout:
             fout.write(json.dumps(param, indent=True))
@@ -144,6 +144,7 @@ class XLinearModel(pecos.BaseClass):
         """
         import shutil
 
+        os.makedirs(mmap_folder, exist_ok=True)
         shutil.copyfile(path.join(npz_folder, "param.json"), path.join(mmap_folder, "param.json"))
         HierarchicalMLModel.compile_mmap_model(
             path.join(npz_folder, "ranker"), path.join(mmap_folder, "ranker")

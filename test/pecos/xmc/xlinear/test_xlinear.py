@@ -1138,7 +1138,6 @@ def test_predict_consistency_between_topk_and_selected(tmpdir):
 
 
 def test_mmap(tmpdir):
-    from pathlib import Path
     from pecos.utils import smat_util
     from pecos.xmc.xlinear import XLinearModel
     from pecos.xmc import PostProcessor
@@ -1153,7 +1152,6 @@ def test_mmap(tmpdir):
 
     npz_model_folder = str(tmpdir.join("save_model_npz"))
     mmap_model_folder = str(tmpdir.join("save_model_mmap"))
-    Path(mmap_model_folder).mkdir(parents=True, exist_ok=True)
     py_model.save(npz_model_folder)
     XLinearModel.compile_mmap_model(npz_model_folder, mmap_model_folder)
     mmap_model = XLinearModel.load(mmap_model_folder, is_predict_only=True)
