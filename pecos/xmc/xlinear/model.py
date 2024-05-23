@@ -537,9 +537,11 @@ class XLinearModel(pecos.BaseClass):
                 Ye = self.predict(
                     X[i : i + max_pred_chunk, :],
                     pred_params=pred_params,
-                    selected_outputs_csr=selected_outputs_csr[i : i + max_pred_chunk, :]
-                    if selected_outputs_csr is not None
-                    else None,
+                    selected_outputs_csr=(
+                        selected_outputs_csr[i : i + max_pred_chunk, :]
+                        if selected_outputs_csr is not None
+                        else None
+                    ),
                     **new_kwargs,
                 )
                 Ys.append(Ye)
