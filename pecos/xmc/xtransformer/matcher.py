@@ -784,18 +784,20 @@ class TransformerMatcher(pecos.BaseClass):
                 if not only_embeddings:
                     text_model_W_seq, text_model_b_seq = self.text_model(
                         output_indices=inputs["label_indices"],
-                        num_device=len(self.text_encoder.device_ids)
-                        if hasattr(self.text_encoder, "device_ids")
-                        else 1,
+                        num_device=(
+                            len(self.text_encoder.device_ids)
+                            if hasattr(self.text_encoder, "device_ids")
+                            else 1
+                        ),
                     )
 
                 outputs = self.text_encoder(
                     input_ids=inputs["input_ids"],
                     attention_mask=inputs["attention_mask"],
                     token_type_ids=inputs["token_type_ids"],
-                    label_embedding=None
-                    if only_embeddings
-                    else (text_model_W_seq, text_model_b_seq),
+                    label_embedding=(
+                        None if only_embeddings else (text_model_W_seq, text_model_b_seq)
+                    ),
                 )
 
                 if not only_embeddings:
@@ -1088,9 +1090,11 @@ class TransformerMatcher(pecos.BaseClass):
                 }
                 text_model_W_seq, text_model_b_seq = self.text_model(
                     output_indices=inputs["label_indices"],
-                    num_device=len(self.text_encoder.device_ids)
-                    if hasattr(self.text_encoder, "device_ids")
-                    else 1,
+                    num_device=(
+                        len(self.text_encoder.device_ids)
+                        if hasattr(self.text_encoder, "device_ids")
+                        else 1
+                    ),
                 )
                 outputs = self.text_encoder(
                     input_ids=inputs["input_ids"],
@@ -1119,9 +1123,15 @@ class TransformerMatcher(pecos.BaseClass):
                     scheduler.step()  # update learning rate schedule
                     optimizer.zero_grad()  # clear gradient accumulation
 
-                    torch.nn.utils.clip_grad_norm_(
-                        self.text_model.parameters(), train_params.max_grad_norm
-                    )
+                    if self.text_model.is_sparse:
+                        torch_util.clip_grad_norm_(
+                            self.text_model.parameters(), train_params.max_grad_norm
+                        )
+                    else:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.text_model.parameters(), train_params.max_grad_norm
+                        )
+
                     emb_optimizer.step()  # perform gradient update
                     emb_scheduler.step()  # update learning rate schedule
                     emb_optimizer.zero_grad()  # clear gradient accumulation
