@@ -24,7 +24,7 @@ torch==1.9.1
 tqdm==4.66.3
 transformers==4.11.0
 typing-extensions==3.10.0.2
-urllib3==1.26.7
+urllib3==1.26.19
 yarg==0.1.9
 zipp==3.5.1
 libpecos==0.2.2
