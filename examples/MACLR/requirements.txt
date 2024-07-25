@@ -1,4 +1,4 @@
-torch==1.8.0
+torch==2.2.0
 beir
 accelerate
 nltk
