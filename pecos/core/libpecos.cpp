@@ -661,7 +661,9 @@ extern "C" {
 
     // ==== C Interface of Memory-mappable Hashmap ====
 
-    typedef pecos::mmap_hashmap::Str2IntMap mmap_hashmap_str2int;
+    typedef pecos::mmap_hashmap::Str2IntMap<pecos::mmap_hashmap::details_::AnkerlStr2IntMmapableVector> mmap_hashmap_str2int;
+    typedef pecos::mmap_hashmap::Str2IntMap<pecos::mmap_hashmap::details_::AnkerlFixedLenStr2IntMmapableVector> mmap_hashmap_fixed_len_str2int;
+    typedef pecos::mmap_hashmap::Str2IntMap<pecos::mmap_hashmap::details_::AnkerlAsinStr2IntMmapableVector> mmap_hashmap_asin_str2int;
     typedef pecos::mmap_hashmap::Int2IntMap mmap_hashmap_int2int;
 
     // New
@@ -669,6 +671,8 @@ extern "C" {
     void* mmap_hashmap_new_ ## SUFFIX () { \
     return static_cast<void*>(new mmap_hashmap_ ## SUFFIX()); }
     MMAP_MAP_NEW(str2int)
+    MMAP_MAP_NEW(fixed_len_str2int)
+    MMAP_MAP_NEW(asin_str2int)
     MMAP_MAP_NEW(int2int)
 
     // Destruct
@@ -676,6 +680,8 @@ extern "C" {
     void mmap_hashmap_destruct_ ## SUFFIX (void* map_ptr) { \
     delete static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr); }
     MMAP_MAP_DESTRUCT(str2int)
+    MMAP_MAP_DESTRUCT(fixed_len_str2int)
+    MMAP_MAP_DESTRUCT(asin_str2int)
     MMAP_MAP_DESTRUCT(int2int)
 
     // Save
@@ -683,6 +689,8 @@ extern "C" {
     void mmap_hashmap_save_ ## SUFFIX (void* map_ptr, const char* map_dir) { \
     static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->save(map_dir); }
     MMAP_MAP_SAVE(str2int)
+    MMAP_MAP_SAVE(fixed_len_str2int)
+    MMAP_MAP_SAVE(asin_str2int)
     MMAP_MAP_SAVE(int2int)
 
     // Load
@@ -692,6 +700,8 @@ extern "C" {
     map_ptr->load(map_dir, lazy_load); \
     return static_cast<void *>(map_ptr); }
     MMAP_MAP_LOAD(str2int)
+    MMAP_MAP_LOAD(fixed_len_str2int)
+    MMAP_MAP_LOAD(asin_str2int)
     MMAP_MAP_LOAD(int2int)
 
     // Size
@@ -699,6 +709,8 @@ extern "C" {
     size_t mmap_hashmap_size_ ## SUFFIX (void* map_ptr) { \
     return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->size(); }
     MMAP_MAP_SIZE(str2int)
+    MMAP_MAP_SIZE(fixed_len_str2int)
+    MMAP_MAP_SIZE(asin_str2int)
     MMAP_MAP_SIZE(int2int)
 
     // Insert
@@ -707,6 +719,8 @@ extern "C" {
     void mmap_hashmap_insert_  ## SUFFIX (void* map_ptr, KEY, uint64_t val) { \
         static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->insert(FUNC_CALL_KEY, val); }
     MMAP_MAP_INSERT(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_INSERT(fixed_len_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_INSERT(asin_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
     MMAP_MAP_INSERT(int2int, uint64_t key, key)
 
     // Get
@@ -714,18 +728,24 @@ extern "C" {
     uint64_t mmap_hashmap_get_  ## SUFFIX (void* map_ptr, KEY) { \
         return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->get(FUNC_CALL_KEY); }
     MMAP_MAP_GET(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_GET(fixed_len_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_GET(asin_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
     MMAP_MAP_GET(int2int, uint64_t key, key)
 
     #define MMAP_MAP_GET_W_DEFAULT(SUFFIX, KEY, FUNC_CALL_KEY) \
     uint64_t mmap_hashmap_get_w_default_  ## SUFFIX (void* map_ptr, KEY, uint64_t def_val) { \
         return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->get_w_default(FUNC_CALL_KEY, def_val); }
     MMAP_MAP_GET_W_DEFAULT(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_GET_W_DEFAULT(fixed_len_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_GET_W_DEFAULT(asin_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
     MMAP_MAP_GET_W_DEFAULT(int2int, uint64_t key, key)
 
     #define MMAP_MAP_BATCH_GET_W_DEFAULT(SUFFIX, KEY, FUNC_CALL_KEY) \
     void mmap_hashmap_batch_get_w_default_  ## SUFFIX (void* map_ptr, const uint32_t n_key, KEY, uint64_t def_val, uint64_t* vals, const int threads) { \
         static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->batch_get_w_default(n_key, FUNC_CALL_KEY, def_val, vals, threads); }
     MMAP_MAP_BATCH_GET_W_DEFAULT(str2int, KEY_SINGLE_ARG(const char* const* keys, const uint32_t* keys_lens), KEY_SINGLE_ARG(keys, keys_lens))
+    MMAP_MAP_BATCH_GET_W_DEFAULT(fixed_len_str2int, KEY_SINGLE_ARG(const char* const* keys, const uint32_t* keys_lens), KEY_SINGLE_ARG(keys, keys_lens))
+    MMAP_MAP_BATCH_GET_W_DEFAULT(asin_str2int, KEY_SINGLE_ARG(const char* const* keys, const uint32_t* keys_lens), KEY_SINGLE_ARG(keys, keys_lens))
     MMAP_MAP_BATCH_GET_W_DEFAULT(int2int, const uint64_t* key, key)
 
     // Contains
@@ -733,6 +753,8 @@ extern "C" {
     bool mmap_hashmap_contains_  ## SUFFIX (void* map_ptr, KEY) { \
         return static_cast<mmap_hashmap_ ## SUFFIX *>(map_ptr)->contains(FUNC_CALL_KEY); }
     MMAP_MAP_CONTAINS(str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_CONTAINS(fixed_len_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
+    MMAP_MAP_CONTAINS(asin_str2int, KEY_SINGLE_ARG(const char* key, uint32_t key_len), KEY_SINGLE_ARG(key, key_len))
     MMAP_MAP_CONTAINS(int2int, uint64_t key, key)
 
 
