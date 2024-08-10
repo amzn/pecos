@@ -20,19 +20,14 @@ echo "pip: $($PIP --version)"
 
 # Install dependencies
 echo "Install dependencies..."
-# Temporarily pin setuptools version due to a recent bug, which will be fix in their later updates
-# See: https://github.com/pypa/setuptools/issues/3532
-# https://github.com/numpy/numpy/issues/22135
-$PIP install 'setuptools<=60.0.*' wheel twine auditwheel
+$PIP install setuptools wheel twine auditwheel
 
 # Install OpenBLAS
-# Using Numpy pre-build OpenBLAS lib v0.3.19 hosted on Anaconda
+# Using pre-build OpenBLAS lib v0.3.27 hosted on Anaconda
 # Refer to: https://github.com/MacPython/openblas-libs
 # OpenBLAS64 is for ILP64, which is not our case
-# Details see Numpy OpenBLAS downloader:
-# https://github.com/numpy/numpy/blob/main/tools/openblas_support.py#L19
 if [ "$PLAT" = "manylinux2014_x86_64" ] || [ "$PLAT" = "manylinux2014_aarch64" ]; then
-   OPENBLAS_VER="v0.3.19-22-g5188aede"
+   OPENBLAS_VER="v0.3.27"
    OPENBLAS_LIB="openblas-${OPENBLAS_VER}-${PLAT}.tar.gz"
    OPENBLAS_LIB_URL="https://anaconda.org/multibuild-wheels-staging/openblas-libs/$OPENBLAS_VER/download/$OPENBLAS_LIB"
    yum install wget -y
