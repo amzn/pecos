@@ -187,7 +187,11 @@ class _MmapHashmapReadOnly(_MmapHashmapBase):
         fn_dict = clib.mmap_hashmap_init(map_type)
         map_ptr = fn_dict["load"](map_dir.encode("utf-8"), lazy_load)
 
-        if map_type == "str2int" or map_type == "fixed_len_str2int" or map_type == "asin_str2int":
+        if (
+            map_type == "str2int"
+            or map_type == "fixed_len_str2int"
+            or map_type == "fixed_len_10_str2int"
+        ):
             return _MmapHashmapStr2IntReadOnly(map_ptr, fn_dict)
         elif map_type == "int2int":
             return _MmapHashmapInt2IntReadOnly(map_ptr, fn_dict)
@@ -340,7 +344,11 @@ class _MmapHashmapWrite(_MmapHashmapBase):
         fn_dict = clib.mmap_hashmap_init(map_type)
         map_ptr = fn_dict["new"]()
 
-        if map_type == "str2int" or map_type == "fixed_len_str2int" or map_type == "asin_str2int":
+        if (
+            map_type == "str2int"
+            or map_type == "fixed_len_str2int"
+            or map_type == "fixed_len_10_str2int"
+        ):
             return _MmapHashmapStr2IntWrite(map_ptr, fn_dict, map_dir)
         elif map_type == "int2int":
             return _MmapHashmapInt2IntWrite(map_ptr, fn_dict, map_dir)

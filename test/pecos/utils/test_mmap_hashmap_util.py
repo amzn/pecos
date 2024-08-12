@@ -64,6 +64,8 @@ def test_str2int_mmap_hashmap(tmpdir):
     )  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (3 * max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
+    # check max batch size increased
+    assert r_map_batch_getter.max_batch_size == 15
 
 
 def test_fixed_len_str2int_mmap_hashmap(tmpdir):
@@ -119,19 +121,25 @@ def test_fixed_len_str2int_mmap_hashmap(tmpdir):
     )  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (3 * max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
+    # check max batch size increased
+    assert r_map_batch_getter.max_batch_size == 15
 
 
-def test_asin_str2int_mmap_hashmap(tmpdir):
+def test_fixed_len_10_str2int_mmap_hashmap(tmpdir):
     from pecos.utils.mmap_hashmap_util import MmapHashmap, MmapHashmapBatchGetter
 
-    map_dir = tmpdir.join("asin_str2int").realpath().strpath
-    kv_dict = {"aaaaaaaaaa".encode("utf-8"): 2, "bbbbbbbbbb".encode("utf-8"): 3}
+    len_10_a_string = "a" * 10
+    len_10_b_string = "b" * 10
+    len_10_c_string = "c" * 10
+
+    map_dir = tmpdir.join("fixed_len_10_str2int").realpath().strpath
+    kv_dict = {len_10_a_string.encode("utf-8"): 2, len_10_b_string.encode("utf-8"): 3}
 
     # Write-only Mode
-    w_map = MmapHashmap("asin_str2int")
+    w_map = MmapHashmap("fixed_len_10_str2int")
     w_map.open("w", map_dir)
     # Insert
-    w_map.map.insert("aaaaaaaaaa".encode("utf-8"), 1)  # Test for overwrite later
+    w_map.map.insert(len_10_a_string.encode("utf-8"), 1)  # Test for overwrite later
     for k, v in kv_dict.items():
         w_map.map.insert(k, v)
     # Size
@@ -139,7 +147,7 @@ def test_asin_str2int_mmap_hashmap(tmpdir):
     w_map.close()
 
     # Read-only Mode
-    r_map = MmapHashmap("asin_str2int")
+    r_map = MmapHashmap("fixed_len_10_str2int")
     r_map.open("r", map_dir)
     # Get
     for k, v in kv_dict.items():
@@ -147,11 +155,11 @@ def test_asin_str2int_mmap_hashmap(tmpdir):
     # Get with default
     for k, v in kv_dict.items():
         assert r_map.map.get(k, 10) == v
-    assert r_map.map.get("cccccccccc".encode("utf-8"), 10) == 10
+    assert r_map.map.get(len_10_c_string.encode("utf-8"), 10) == 10
     # Contains
     for k, _ in kv_dict.items():
         assert k in r_map.map
-    assert not ("cccccccccc".encode("utf-8") in r_map.map)
+    assert not (len_10_c_string.encode("utf-8") in r_map.map)
     # Size
     assert r_map.map.size() == len(kv_dict)
 
@@ -159,21 +167,23 @@ def test_asin_str2int_mmap_hashmap(tmpdir):
     max_batch_size = 5
     # max_batch_size > num of key
     r_map_batch_getter = MmapHashmapBatchGetter(r_map.map, max_batch_size)
-    ks = list(kv_dict.keys()) + ["cccccccccc".encode("utf-8")]  # Non-exist key
+    ks = list(kv_dict.keys()) + [len_10_c_string.encode("utf-8")]  # Non-exist key
     vs = list(kv_dict.values()) + [10]
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
     # max_batch_size = num of key
-    ks = list(kv_dict.keys()) + ["cccccccccc".encode("utf-8")] * (
+    ks = list(kv_dict.keys()) + [len_10_c_string.encode("utf-8")] * (
         max_batch_size - len(kv_dict)
     )  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
     # max_batch_size = num of key * 3
-    ks = list(kv_dict.keys()) + ["cccccccccc".encode("utf-8")] * (
+    ks = list(kv_dict.keys()) + [len_10_c_string.encode("utf-8")] * (
         3 * max_batch_size - len(kv_dict)
     )  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (3 * max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(ks, 10).tolist() == vs
+    # check max batch size increased
+    assert r_map_batch_getter.max_batch_size == 15
 
 
 def test_int2int_mmap_hashmap(tmpdir):
@@ -226,3 +236,5 @@ def test_int2int_mmap_hashmap(tmpdir):
     ks = list(kv_dict.keys()) + [1000] * (3 * max_batch_size - len(kv_dict))  # Non-exist key
     vs = list(kv_dict.values()) + [10] * (3 * max_batch_size - len(kv_dict))
     assert r_map_batch_getter.get(np.array(ks, dtype=np.int64), 10).tolist() == vs
+    # check max batch size increased
+    assert r_map_batch_getter.max_batch_size == 15

@@ -285,15 +285,20 @@ class AnkerlFixedLenStr2IntMmapableVector {
                 std::forward_as_tuple(size_),
                 std::forward< std::tuple<Args...> >(args));
 
+            
+            size_type key_length = k.size();
+
             // Length of new key should be the same as previous keys
-            if (fixed_str_len_ != -1 && fixed_str_len_ != k.size()) {
-                throw std::runtime_error("String length differs from previous keys.");
+            if (key_length == 0) {
+                throw std::runtime_error("Key length should be greater than 0.");
+            } else if (fixed_str_len_ != 0 && fixed_str_len_ != key_length) {
+                throw std::runtime_error("Key length differs from previous keys.");
             } else {
-                fixed_str_len_ = k.size();
+                fixed_str_len_ = key_length;
             }
 
             // Append key string
-            str_store_.insert(str_store_.end(), k.data(), k.data() + k.size());
+            str_store_.insert(str_store_.end(), k.data(), k.data() + key_length);
 
             // Update pointers
             size_ = store_.size();
@@ -349,7 +354,7 @@ class AnkerlFixedLenStr2IntMmapableVector {
         value_type* data_ = nullptr;
         char* str_data_ = nullptr;
 
-        size_type fixed_str_len_ = -1;
+        size_type fixed_str_len_ = 0;
 
         // Actual data storage for in-memory case
         std::vector<value_type> store_;
@@ -432,26 +437,31 @@ class AnkerlFixedLenStr2IntMmapableVector {
 };
 
 
-// Memory-mappable vector of std::pair<StrView, uint64_t> for Ankerl
-// This vector takes/gets std::string_view as the key, but emplace back as the special mmap format StrView
+// Memory-mappable vector of std::pair<FixedLen10Str, uint64_t> for Ankerl
+// This vector takes/gets std::string_view as the key, but emplace back as the special mmap format FixedLen10Str
 // The key must be of length 10
-class AnkerlAsinStr2IntMmapableVector {
+class AnkerlFixedLen10Str2IntMmapableVector {
     template <bool IsConst>
     class iter_t;
 
-    struct StrView {
-        char str[10];
+    // Fixed Length of 10 for keys
+    static constexpr std::size_t fixed_str_len = 10;
 
-        StrView(const char* input_str = nullptr) {
+    struct FixedLen10Str {
+        char str[fixed_str_len];
+
+        FixedLen10Str(const char* input_str = nullptr) {
             if (input_str) {
-                std::strncpy(str, input_str, 10);
+                std::memcpy(str, input_str, fixed_str_len);
+            } else {
+                throw std::runtime_error("Illegal initialization of FixLen10Str with nullptr.");
             }
         }
     };
 
     public:
         using key_type = std::string_view;
-        using value_type = std::pair<StrView, uint64_t>;
+        using value_type = std::pair<FixedLen10Str, uint64_t>;
         using size_type = std::size_t;
         using difference_type = std::ptrdiff_t;
         using allocator_type = std::allocator<value_type>;
@@ -463,8 +473,8 @@ class AnkerlAsinStr2IntMmapableVector {
         using iterator = iter_t<false>;
         using const_iterator = iter_t<true>;
 
-        AnkerlAsinStr2IntMmapableVector() = default;
-        AnkerlAsinStr2IntMmapableVector(allocator_type alloc)
+        AnkerlFixedLen10Str2IntMmapableVector() = default;
+        AnkerlFixedLen10Str2IntMmapableVector(allocator_type alloc)
             : store_(alloc) {}
 
         value_type* data() { return data_; }
@@ -487,23 +497,20 @@ class AnkerlAsinStr2IntMmapableVector {
         void shrink_to_fit() { store_.shrink_to_fit(); }
         void reserve(size_t new_capacity) { store_.reserve(new_capacity); }
 
-        /* Emplace string-like key and int value as std::pair<StrView, uint64_t>*/
+        /* Emplace string-like key and int value as std::pair<FixedLen10Str, uint64_t>*/
         template <typename K, typename... Args>
         auto emplace_back(std::piecewise_construct_t, std::tuple<K> key, std::tuple<Args...> args) {
             // Extract key
             key_type key_string = std::get<0>(key);
 
-            if (key_string.size() != 10) {
+            if (key_string.size() != fixed_str_len) {
                 throw std::runtime_error("ASIN string length is not 10.");
             }
 
-            char key_arr[10];
-            std::strncpy(key_arr, key_string.data(), key_string.size());
-
-            // Emplace back std::pair<StrView, uint64_t>
+            // Emplace back std::pair<FixedLen10Str, uint64_t>
             auto eb_val = store_.emplace_back(
                 std::piecewise_construct,
-                std::forward_as_tuple(key_arr),
+                std::forward_as_tuple(key_string.data()),
                 std::forward< std::tuple<Args...> >(args));
 
             // Update pointers
@@ -524,7 +531,7 @@ class AnkerlAsinStr2IntMmapableVector {
 
         /* Get key for given member */
         key_type get_key(value_type const& vt) const {
-            return key_type(vt.first.str, 10);
+            return key_type(vt.first.str, fixed_str_len);
         }
 
         /* Mmap save/load with MmapStore */
@@ -564,7 +571,7 @@ class AnkerlAsinStr2IntMmapableVector {
         template <bool IsConst>
         class iter_t {
             using ptr_t = typename std::conditional_t<IsConst,
-                AnkerlAsinStr2IntMmapableVector::const_pointer, AnkerlAsinStr2IntMmapableVector::pointer>;
+                AnkerlFixedLen10Str2IntMmapableVector::const_pointer, AnkerlFixedLen10Str2IntMmapableVector::pointer>;
             ptr_t iter_data_{};
 
             template <bool B>
@@ -572,12 +579,12 @@ class AnkerlAsinStr2IntMmapableVector {
 
             public:
                 using iterator_category = std::forward_iterator_tag;
-                using difference_type = AnkerlAsinStr2IntMmapableVector::difference_type;
-                using value_type = AnkerlAsinStr2IntMmapableVector::value_type;
+                using difference_type = AnkerlFixedLen10Str2IntMmapableVector::difference_type;
+                using value_type = AnkerlFixedLen10Str2IntMmapableVector::value_type;
                 using reference = typename std::conditional_t<IsConst,
                     value_type const&, value_type&>;
                 using pointer = typename std::conditional_t<IsConst,
-                    AnkerlAsinStr2IntMmapableVector::const_pointer, AnkerlAsinStr2IntMmapableVector::pointer>;
+                    AnkerlFixedLen10Str2IntMmapableVector::const_pointer, AnkerlFixedLen10Str2IntMmapableVector::pointer>;
 
                 iter_t() noexcept = default;
 
