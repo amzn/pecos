@@ -106,8 +106,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 # Requirements
 numpy_requires = [
-    'numpy<1.20.0; python_version<"3.7"', # setup_requires needs correct version for <3.7
-    'numpy>=1.19.5,<2.0.0; python_version>="3.7"'
+    'numpy>=1.19.5,<2.0.0; python_version>="3.8"'
 ]
 setup_requires = numpy_requires + [
     'pytest-runner'
@@ -115,11 +114,11 @@ setup_requires = numpy_requires + [
 install_requires = numpy_requires + [
     'scipy>=1.4.1,<1.14.0',
     'scikit-learn>=0.24.1',
-    'torch==1.13; python_version<"3.8"',
     'torch>=2.0; python_version>="3.8"',
     'sentencepiece>=0.1.86,!=0.1.92', # 0.1.92 results in error for transformers
-    'transformers>=4.1.1; python_version<"3.9"',
-    'transformers>=4.4.2; python_version>="3.9"'
+    'transformers>=4.31.0; python_version>="3.8"',  # the minimal version supporting py3.8
+    'peft>=0.11.0; python_version>="3.8"',
+    'datasets>=2.19.1; python_version>="3.8"',
 ]
 
 # Fetch Numpy before building Numpy-dependent extension, if Numpy required version was not installed
