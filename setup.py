@@ -106,6 +106,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 # Requirements
 numpy_requires = [
+    'setuptools<=73.0.1', # TODO: remove pin on setuptools version after removing numpy.distutils
     'numpy>=1.19.5,<2.0.0; python_version>="3.8"'
 ]
 setup_requires = numpy_requires + [
