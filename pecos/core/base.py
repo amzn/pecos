@@ -2070,9 +2070,17 @@ class corelib(object):
         Specify C-lib's Memory-mappable Hashmap methods arguments and return types.
         """
         fn_prefix = "mmap_hashmap"
-        map_type_list = ["str2int", "int2int"]
+        map_type_list = ["str2int", "fixed_len_str2int", "fixed_len_10_str2int", "int2int"]
         key_args_dict = {
             "str2int": [
+                c_char_p,  # pointer of key string
+                c_uint32,  # length of key string
+            ],
+            "fixed_len_str2int": [
+                c_char_p,  # pointer of key string
+                c_uint32,  # length of key string
+            ],
+            "fixed_len_10_str2int": [
                 c_char_p,  # pointer of key string
                 c_uint32,  # length of key string
             ],
@@ -2082,6 +2090,14 @@ class corelib(object):
         }
         batch_key_args_dict = {
             "str2int": [
+                c_void_p,  # List of pointer of key string
+                POINTER(c_uint32),  # List of length of key string
+            ],
+            "fixed_len_str2int": [
+                c_void_p,  # List of pointer of key string
+                POINTER(c_uint32),  # List of length of key string
+            ],
+            "fixed_len_10_str2int": [
                 c_void_p,  # List of pointer of key string
                 POINTER(c_uint32),  # List of length of key string
             ],
