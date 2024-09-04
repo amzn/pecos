@@ -1,0 +1,21 @@
+{
+    "target_data_folder": "./datasets/ms_marco/eval_aux/target",
+    "input_data_folder":  "./datasets/ms_marco/eval_aux/input",
+    "label_data_folder":  "./datasets/ms_marco/eval_aux/label",
+    "model_path": "./models/ms_marco/qwen2-7B/",
+    "output_dir": "./inference_outputs/ms_marco/qwen2-7B/",
+    "per_device_eval_batch_size": 1024,
+    "dataloader_num_workers": 1,
+    "dataloader_prefetch_factor": 10,
+    "rerank_max_len": 196,
+    "query_prefix": "query: ",
+    "passage_prefix": "document: ",
+    "inp_id_col": "inp_id",
+    "lbl_id_col": "lbl_id",
+    "inp_id_orig_col": "inp_id_orig",
+    "lbl_id_orig_col": "lbl_id_orig",
+    "keyword_col_name": "keywords",
+    "content_col_names": ["title", "contents"],
+    "append_eos_token": false,
+    "pad_to_multiple_of": 8
+}

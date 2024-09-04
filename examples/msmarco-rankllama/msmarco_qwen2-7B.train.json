@@ -1,0 +1,140 @@
+{
+    "train_params": {
+        "__meta__": {
+            "class_fullname": "pecos.xmr.reranker.model###RankingModel.TrainParams"
+        },
+        "target_data_folder": "./datasets/ms_marco/train/target",
+        "input_data_folder":  "./datasets/ms_marco/train/input",
+        "label_data_folder":  "./datasets/ms_marco/train/label",
+        "hf_trainer_args": {
+            "__meta__": {
+                "class_fullname": "pecos.xmr.reranker.trainer###RankingTrainer.TrainingArgs"
+            },
+            "output_dir": "./models/ms_marco/qwen2-7B",
+	    "ddp_find_unused_parameters": false,
+            "loss_fn": "listwise",
+	    "loss_alpha": 1.0,
+	    "group_size": 16,
+            "per_device_train_batch_size": 6,
+            "gradient_accumulation_steps": 8,
+	    "disable_tqdm": false,
+            "logging_strategy": "steps",
+            "logging_first_step": false,
+            "learning_rate": 1e-4,
+            "max_steps": 1500,
+            "save_steps": 50,
+            "logging_steps": 10,
+            "save_strategy": "steps",
+            "save_total_limit": 5,
+            "seed": 42,
+            "data_seed": 42,
+            "bf16": true,
+            "dataloader_num_workers": 2,
+            "dataloader_prefetch_factor": 10,
+            "gradient_checkpointing": true,
+            "deepseed": {
+                "zero_optimization": {
+                    "stage": 3,
+                    "offload_optimizer": {
+                        "device": "none",
+                        "pin_memory": true
+                    },
+                    "offload_param": {
+                        "device": "none",
+                        "pin_memory": true
+                    },
+                    "overlap_comm": true,
+                    "contiguous_gradients": true,
+                    "sub_group_size": 1e9,
+                    "reduce_bucket_size": 1e6,
+                    "stage3_prefetch_bucket_size": "auto",
+                    "stage3_param_persistence_threshold": "auto",
+                    "stage3_max_live_parameters": 1e9,
+                    "stage3_max_reuse_distance": 1e9,
+                    "stage3_gather_16bit_weights_on_model_save": true
+                },
+                "fp16": {
+                    "enabled": "auto",
+                    "loss_scale": 0,
+                    "initial_scale_power": 10,
+                    "loss_scale_window": 1000,
+                    "hysteresis": 2,
+                    "min_loss_scale": 1
+                },
+                "bf16": {
+                    "enabled": "auto",
+                    "loss_scale": 0,
+                    "initial_scale_power": 10,
+                    "loss_scale_window": 1000,
+                    "hysteresis": 2,
+                    "min_loss_scale": 1
+                },
+                "optimizer": {
+                    "type": "AdamW",
+                    "params": {
+                        "lr": "auto",
+                        "betas": "auto",
+                        "eps": "auto",
+                        "weight_decay": "auto",
+                        "torch_adam": true
+                    }
+                },
+                "scheduler": {
+                    "type": "WarmupDecayLR",
+                    "params": {
+                        "warmup_min_lr": "auto",
+                        "warmup_max_lr": "auto",
+                        "warmup_num_steps": "auto",
+                        "total_num_steps": "auto"
+                    }
+                },
+                "gradient_accumulation_steps": "auto",
+                "gradient_clipping": "auto",
+                "steps_per_print": 1000,
+                "train_batch_size": "auto",
+                "train_micro_batch_size_per_gpu": "auto",
+                "wall_clock_breakdown": false
+            }
+        } 
+    },
+    "model_params": {
+        "__meta__": {
+            "class_fullname": "pecos.xmr.reranker.model###RankingModel.ModelParams"
+        },
+        "encoder_config": {
+            "text_config": {
+                "model_type": "qwen2",
+                "name_or_path": "Qwen/Qwen2-7B",
+                "attn_implementation": "sdpa",
+                "trust_remote_code": true,
+                "token": null
+            },
+            "numr_config": null,
+            "text_pooling_type": "last",
+            "head_size_list": [128]
+        },
+        "model_modifier": {
+            "modifier_type": "peft",
+            "config_type": "LoraConfig" ,
+            "config": {
+                "r": 16,
+                "lora_alpha": 32,
+                "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                "modules_to_save": ["head_layers", "scorer"],
+                "lora_dropout": 0.1
+            }
+        },
+        "positive_passage_no_shuffle": false,
+        "negative_passage_no_shuffle": false,
+        "rerank_max_len": 196,
+        "query_prefix": "query: ",
+        "passage_prefix": "document: ",
+        "inp_id_col": "inp_id",
+        "lbl_idxs_col": "ret_idxs",
+        "score_col": "rel",
+        "keyword_col_name": "keywords",
+        "content_col_names": ["title", "contents"],
+        "append_eos_token": false,
+        "pad_to_multiple_of": 16
+    }
+}

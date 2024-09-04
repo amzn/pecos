@@ -2,9 +2,8 @@ import json
 import argparse
 import os
 from datasets import load_dataset
-from .data_utils import RankingDataUtils
-from .model import RankingModel, CrossEncoder
-from transformers import AutoTokenizer
+from pecos.xmr.reranker.data_utils import RankingDataUtils
+from pecos.xmr.reranker.model import RankingModel
 from tqdm import tqdm
 import pandas as pd
 
@@ -38,11 +37,12 @@ def main(config_json_path: str):
     if not os.path.exists(params.output_dir):
         os.makedirs(params.output_dir)
 
-    model = CrossEncoder.from_pretrained(params.model_name_or_path, **params.model_init_kwargs)
+    outer_model = RankingModel.load(params.model_path)
+    inner_model = outer_model.encoder
     if params.bf16:
-        model = model.bfloat16()
+        inner_model = inner_model.bfloat16()
 
-    tokenizer = AutoTokenizer.from_pretrained(model.config.model_shortcut)
+    tokenizer = outer_model.tokenizer
 
     for target_file in tqdm(target_files):
         target_filename = os.path.basename(target_file)
@@ -60,8 +60,8 @@ def main(config_json_path: str):
             eval_dataset,
             table_stores,
             params,
+            encoder=inner_model,
             tokenizer=tokenizer,
-            model=model,
         )
 
         # Save the results to a parquet with (inp_id, lbl_id, score) columns
