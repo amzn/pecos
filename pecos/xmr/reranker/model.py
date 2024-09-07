@@ -1,3 +1,4 @@
+import copy
 import dataclasses as dc
 import json
 import logging
@@ -6,25 +7,77 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Dict, List, Tuple, Any, Optional, Union
 
-import peft
 import torch
-from datasets import IterableDataset, Dataset
+from torch import nn, Tensor
 from torch.utils.data import DataLoader
-from peft import AutoPeftModelForSequenceClassification, get_peft_model
+
+import peft
+from datasets import IterableDataset, Dataset
+from peft import get_peft_model
 from peft.config import PeftConfig
 from peft.mixed_model import PeftMixedModel
 from peft.peft_model import PeftModel
-from transformers import AutoModelForSequenceClassification, PreTrainedModel
-from transformers import AutoTokenizer, PreTrainedTokenizer, PretrainedConfig
+from transformers import (
+    AutoTokenizer,
+    AutoModel,
+    CONFIG_MAPPING,
+    PretrainedConfig,
+    PreTrainedModel,
+    PreTrainedTokenizer,
+)
+from transformers.utils import ModelOutput
 
 import pecos
-from pecos.xmr.reranker.trainer import RankLlamaTrainer, PARAM_FILENAME
-from .data_utils import RankingDataUtils
+from pecos.xmr.reranker.trainer import (
+    RankingTrainer,
+    PARAM_FILENAME,
+)
+from pecos.xmr.reranker.data_utils import RankingDataUtils
+
 
 logger = logging.getLogger(__name__)
 
 
-class CrossEncoderConfig(PretrainedConfig):
+ACT_FCT_DICT = {
+    "identity": nn.Identity,
+    "tanh": nn.Tanh,
+    "relu": nn.ReLU,
+    "relu6": nn.ReLU6,
+    "elu": nn.ELU,
+    "gelu": nn.GELU,
+    "leaky_relu": nn.LeakyReLU,
+}
+
+
+@dc.dataclass
+class RerankerOutput(ModelOutput):
+    text_emb: Optional[Tensor] = None
+    numr_emb: Optional[Tensor] = None
+    scores: Optional[Tensor] = None
+
+
+class NumrMLPEncoderConfig(PretrainedConfig):
+
+    model_type = "numr_mlp_encoder"
+
+    def __init__(
+        self,
+        inp_feat_dim: int = 1,
+        inp_dropout_prob: float = 0.1,
+        hid_dropout_prob: float = 0.1,
+        hid_actv_type: str = "gelu",
+        hid_size_list: list = [64, 128, 256],
+        **kwargs,
+    ):
+        self.inp_feat_dim = inp_feat_dim
+        self.hid_size_list = hid_size_list
+        self.hid_actv_type = hid_actv_type
+        self.inp_dropout_prob = inp_dropout_prob
+        self.hid_dropout_prob = hid_dropout_prob
+        super().__init__(**kwargs)
+
+
+class TextNumrEncoderConfig(PretrainedConfig):
     """
     The configuration class for the cross encoder model. This class contains the model shortcut, model modifier and
     model initialization arguments for the model. The model shortcut is the name of the huggingface model. The
@@ -32,143 +85,218 @@ class CrossEncoderConfig(PretrainedConfig):
     for the model.
     """
 
-    model_type = "reranker_crossencoder"
+    default_text_model_type = "xlm-roberta"
+    model_type = "text_numr_crossencoder"
 
     def __init__(
         self,
-        model_shortcut: str = "",
-        model_modifier: Dict = {},
-        model_init_kwargs: dict = {},
+        text_config=None,
+        numr_config=None,
+        text_pooling_type="cls",
+        head_actv_type="gelu",
+        head_dropout_prob=0.1,
+        head_size_list=[128, 64],
         **kwargs,
     ):
         """
         Initialize the cross encoder configuration
-        Args:
-            model_shortcut: The model shortcut for the huggingface model
-            model_modifier: The model modifier configuration (e.g. PEFT)
-            model_init_kwargs: The model initialization arguments. These are the arguments for the huggingface model
         """
+
+        if text_config is None:
+            pass
+        elif isinstance(text_config, PretrainedConfig):
+            text_config = copy.deepcopy(text_config)
+        elif isinstance(text_config, dict):
+            text_model_type = text_config.get("model_type", self.default_text_model_type)
+            text_config = CONFIG_MAPPING[text_model_type](**text_config)
+        else:
+            raise TypeError(f"Type(text_config) is not valid, got {type(text_config)}!")
+        self.text_config = text_config
+        self.text_pooling_type = text_pooling_type
+
+        if numr_config is None:
+            pass
+        elif isinstance(numr_config, PretrainedConfig):
+            numr_config = copy.deepcopy(numr_config)
+        elif isinstance(numr_config, dict):
+            numr_config = NumrMLPEncoderConfig(**numr_config)
+        else:
+            raise TypeError(f"Type(numr_config) is not valid, got {type(numr_config)}!")
+        self.numr_config = numr_config
+
+        self.head_size_list = head_size_list
+        self.head_actv_type = head_actv_type
+        self.head_dropout_prob = head_dropout_prob
+
         super().__init__(**kwargs)
 
-        self.model_shortcut = model_shortcut
-        self.model_modifier = model_modifier
-        self.model_init_kwargs = model_init_kwargs
+
+class MLPBlock(nn.Module):
+    def __init__(self, inp_size, dropout_prob, actv_type, hid_size_list):
+        super(MLPBlock, self).__init__()
+
+        cur_inp_size = inp_size
+        self.mlp_layers = nn.ModuleList()
+        for cur_hid_size in hid_size_list:
+            self.mlp_layers.append(nn.Linear(cur_inp_size, cur_hid_size, bias=True))
+            self.mlp_layers.append(ACT_FCT_DICT[actv_type]())
+            self.mlp_layers.append(nn.Dropout(dropout_prob))
+            cur_inp_size = cur_hid_size
+
+    def forward(self, x):
+        for cur_layer in self.mlp_layers:
+            x = cur_layer(x)
+        return x
 
 
-class CrossEncoder(PreTrainedModel):
-    """
-    The cross encoder model for ranking tasks (retrieval-based). This model is used for training and evaluation.
-    It is a wrapper around the huggingface transformer model.
-    """
+class NumrMLPEncoder(PreTrainedModel):
 
-    TRANSFORMER_CLS = AutoModelForSequenceClassification
-    TRANSFORMER_PEFT_CLS = AutoPeftModelForSequenceClassification
+    config_class = NumrMLPEncoderConfig
 
-    @dataclass
-    class Config(pecos.BaseParams):
-        """Encoder configuration
-        model_shortcut (str): the model shortcut of the HuggingFace model
-        model_init_kwargs (dict): model initialization kwargs
-        model_modifier (dict): model modifier configuration
-        """
+    def __init__(self, config: NumrMLPEncoderConfig):
+        super().__init__(config)
 
-        model_shortcut: str = ""
-        model_init_kwargs: dict = dc.field(default_factory=lambda: dict())
-        model_modifier: dict = dc.field(default_factory=lambda: dict())
+        self.inp_dropout = nn.Dropout(config.inp_dropout_prob)
+        self.mlp_block = MLPBlock(
+            config.inp_feat_dim,
+            config.hid_dropout_prob,
+            config.hid_actv_type,
+            config.hid_size_list,
+        )
+        self.layer_norm = nn.LayerNorm(config.hid_size_list[-1])
 
-    config_class = CrossEncoderConfig
+    def forward(self, numeric_inputs):
+        numr_emb = self.inp_dropout(numeric_inputs)
+        numr_emb = self.mlp_block(numr_emb)
+        return self.layer_norm(numr_emb)
 
-    def __init__(self, config: CrossEncoderConfig):
+
+class TextNumrEncoder(PreTrainedModel):
+
+    config_class = TextNumrEncoderConfig
+
+    def __init__(self, config: TextNumrEncoderConfig):
         """
         Initialize the cross encoder model
         Args:
             config: The configuration for the cross encoder
         """
-        super().__init__(config)
-        base_model = AutoModelForSequenceClassification.from_pretrained(
-            config.model_shortcut, num_labels=1, **config.model_init_kwargs
-        )
-        base_model.config.pad_token_id = (
-            0 if base_model.config.pad_token_id is None else base_model.config.pad_token_id
-        )
-        self.hf_model = base_model
 
-    @classmethod
-    def from_pretrained(
-        cls,
-        pretrained_model_name_or_path: Union[str, os.PathLike],
-        *model_args,
-        config: Optional[Union[PretrainedConfig, str, os.PathLike]] = None,
-        cache_dir: Optional[Union[str, os.PathLike]] = None,
-        ignore_mismatched_sizes: bool = False,
-        force_download: bool = False,
-        local_files_only: bool = False,
-        token: Optional[Union[str, bool]] = None,
-        revision: str = "main",
-        use_safetensors: Optional[bool] = None,
-        **kwargs,
-    ):
-        """
-        Load the model from the pretrained model name or path. Override the `from_pretrained` method of the
-        `PreTrainedModel` class.
-        """
-        is_local = os.path.isdir(pretrained_model_name_or_path)
-        param_folder = pretrained_model_name_or_path
-
-        def super_return():
-            return PreTrainedModel.from_pretrained(
-                pretrained_model_name_or_path,
-                *model_args,
-                config,
-                cache_dir,
-                ignore_mismatched_sizes,
-                force_download,
-                local_files_only,
-                token,
-                revision,
-                use_safetensors,
-                **kwargs,
+        # sanity check
+        if config.text_pooling_type not in ["cls", "avg", "last"]:
+            raise NotImplementedError(
+                f"text_pooling_type={config.text_pooling_type} is not support!"
             )
+        if config.text_config is None and config.numr_config is None:
+            raise ValueError(f"text_config and numr_config can not be None at the same time!")
+        super().__init__(config)
 
-        if not is_local:
-            raise NotImplementedError(f"{cls} can only load local models")
+        # text encoder
+        if config.text_config:
+            text_encoder = AutoModel.from_pretrained(
+                config.text_config._name_or_path,
+                attn_implementation=config.text_config._attn_implementation,
+                trust_remote_code=config.text_config.trust_remote_code,
+                token=getattr(config.text_config, "token", None),
+            )
+            text_encoder.config.pad_token_id = (
+                0 if text_encoder.config.pad_token_id is None else text_encoder.config.pad_token_id
+            )
+            self.text_encoder = text_encoder
+            self.text_emb_dim = self.text_encoder.config.hidden_size
+            self.text_pooling_type = config.text_pooling_type
+        else:
+            self.text_encoder = None  # type: ignore
+            self.text_emb_dim = 0
 
-        with open(os.path.join(param_folder, PARAM_FILENAME), "r") as param_file:
-            params = json.load(param_file)
+        # numeric encoder
+        if config.numr_config:
+            self.numr_encoder = NumrMLPEncoder(config.numr_config)
+            self.numr_emb_dim = self.numr_encoder.config.hid_size_list[-1]
+        else:
+            self.numr_encoder = None  # type: ignore
+            self.numr_emb_dim = 0
 
-        xe_config = CrossEncoder.Config.from_dict(params["model_params"]["encoder_args"])
-        xe_config = CrossEncoderConfig(**xe_config.to_dict())
-        for k, v in kwargs.items():
-            xe_config.model_init_kwargs[k] = v
-        model = CrossEncoder(xe_config)
+        # head layer
+        cur_feat_dim = self.text_emb_dim + self.numr_emb_dim
+        self.head_layers = MLPBlock(
+            cur_feat_dim,
+            config.head_dropout_prob,
+            config.head_actv_type,
+            config.head_size_list,
+        )
+        self.scorer = nn.Linear(config.head_size_list[-1], 1, bias=True)
 
-        try:
-            if xe_config.model_modifier["modifier_type"] == "peft":
-                model = PeftModel.from_pretrained(model, param_folder)
-            else:
-                super_return()
-        except KeyError:
-            logger.info("No peft configuration found")
-
-        return model
-
-    def forward(self, *args, **kwargs):
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        numeric_inputs=None,
+    ):
         """
         Returns the forward output of the huggingface model
         """
-        return self.hf_model(*args, **kwargs)
+
+        # get text embedding from HF Pretrained Transformers encoder
+        text_emb = None
+        if self.text_encoder:
+            text_input_dict = {"input_ids": input_ids, "attention_mask": attention_mask}
+            if token_type_ids:
+                text_input_dict["token_type_ids"] = token_type_ids
+            text_outputs = self.text_encoder(**text_input_dict, return_dict=True)
+            if hasattr(text_outputs, "pooler_output"):
+                text_emb = text_outputs.pooler_output
+            else:
+                text_emb = self.text_pooler(text_outputs.last_hidden_state, attention_mask)
+
+        # get numr embedding from Numerical MLP Encoder
+        numr_emb = None
+        if self.numr_encoder:
+            numr_emb = self.numr_encoder(numeric_inputs)
+
+        # head layer + scorer
+        if self.text_encoder and self.numr_encoder:
+            head_emb = torch.cat((text_emb, numr_emb), 1)
+        elif self.text_encoder is not None:
+            head_emb = text_emb
+        elif self.numr_encoder is not None:
+            head_emb = numr_emb
+        head_emb = self.head_layers(head_emb)
+        scores = self.scorer(head_emb)
+
+        return RerankerOutput(
+            text_emb=text_emb,
+            numr_emb=numr_emb,
+            scores=scores,
+        )
+
+    def text_pooler(self, last_hidden_states, attention_mask):
+        if self.text_pooling_type == "cls":
+            text_emb = last_hidden_states[:, 0, :]
+        elif self.text_pooling_type == "avg":
+            # https://huggingface.co/intfloat/multilingual-e5-base
+            last_hidden = last_hidden_states.masked_fill(~attention_mask[..., None].bool(), 0.0)
+            text_emb = last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
+        elif self.text_pooling_type == "last":
+            # https://huggingface.co/Alibaba-NLP/gte-Qwen2-1.5B-instruct
+            left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
+            if left_padding:
+                text_emb = last_hidden_states[:, -1]
+            else:
+                sequence_lengths = attention_mask.sum(dim=1) - 1
+                batch_size = last_hidden_states.shape[0]
+                text_emb = last_hidden_states[
+                    torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths
+                ]
+        return text_emb
 
     def gradient_checkpointing_enable(self, **kwargs):
         """
         Enable gradient checkpointing for the model
         """
 
-        try:
-            if self.config.model_modifier["modifier_type"] == "peft":
-                self.hf_model.enable_input_require_grads()
-        except KeyError:
-            pass
-        self.hf_model.gradient_checkpointing_enable(**kwargs)
+        self.text_encoder.gradient_checkpointing_enable(**kwargs)
 
 
 class RankingModel(pecos.BaseClass):
@@ -183,13 +311,13 @@ class RankingModel(pecos.BaseClass):
         """
         The training parameters for the ranking model.
         Args:
-            training_args (RankLlamaTrainer.TrainingArgs): The training arguments for the model
+            hf_trainer_args (RankingTrainer.TrainingArgs): The training arguments for the model
             target_data_folder (str): The path to the target data folder
             input_data_folder (str): The path to the input data folder
             label_data_folder (str): The path to the label data folder
         """
 
-        training_args: RankLlamaTrainer.TrainingArgs
+        hf_trainer_args: RankingTrainer.TrainingArgs
         target_data_folder: str = field(
             metadata={
                 "help": "Path to folder containing target parquet files (inp_id, [lbl_id], [rel_val])"
@@ -210,7 +338,8 @@ class RankingModel(pecos.BaseClass):
         The parameters for the ranking model. This class contains the data, encoder and training arguments for the model.
         """
 
-        encoder_args: CrossEncoder.Config
+        encoder_config: TextNumrEncoderConfig = None  # type: ignore
+        model_modifier: dict = dc.field(default_factory=lambda: dict())
 
         positive_passage_no_shuffle: bool = False
         negative_passage_no_shuffle: bool = False
@@ -232,10 +361,10 @@ class RankingModel(pecos.BaseClass):
         Evaluation parameters
         """
 
-        model_name_or_path: str
         target_data_folder: str
         input_data_folder: str
         label_data_folder: str
+        model_path: str
         output_dir: str
         output_file_prefix: str = "output_"
         output_file_suffix: str = ""
@@ -247,18 +376,18 @@ class RankingModel(pecos.BaseClass):
         passage_prefix: str = "document: "
         inp_id_col: str = "inp_id"
         lbl_id_col: str = "lbl_id"
+        inp_id_orig_col: Optional[str] = None
+        lbl_id_orig_col: Optional[str] = None
         keyword_col_name: str = "keywords"
         content_col_names: List[str] = field(default_factory=lambda: ["title", "contents"])
         content_sep: str = " "
         append_eos_token: bool = False
         pad_to_multiple_of: int = 16
         bf16: bool = True
-        device: str = "cuda"
-        model_init_kwargs: dict = dc.field(default_factory=lambda: dict())
 
     def __init__(
         self,
-        encoder: Union[CrossEncoder, PeftModel, PeftMixedModel],
+        encoder: Union[PreTrainedModel, PeftModel, PeftMixedModel],
         tokenizer: AutoTokenizer,
         model_params: ModelParams,
         train_params: Optional[TrainParams] = None,
@@ -266,38 +395,34 @@ class RankingModel(pecos.BaseClass):
         """
         Initialize the ranking model. The model contains the encoder, tokenizer, model parameters and training parameters.
         Args:
-            encoder (Union[CrossEncoder, PeftModel, PeftMixedModel]): The encoder model
+            encoder (Union[PreTrainedModel, PeftModel, PeftMixedModel]): The encoder model
             tokenizer (AutoTokenizer): The tokenizer for the model
             model_params (RankingModel.ModelParams): The model parameters
             train_params (Optional[RankingModel.TrainParams]): The training parameters
         """
         self.tokenizer = tokenizer
-        self.cross_encoder = encoder
-
+        self.encoder = encoder
         self.model_params = self.ModelParams.from_dict(model_params)
         self.train_params = self.TrainParams.from_dict(train_params) if train_params else None
 
     @classmethod
-    def get_modified_model(cls, model: CrossEncoder, mod_config: Dict):
+    def get_modified_model(cls, model: PreTrainedModel, config: Dict):
         """
         Takes a pretrained Huggingface model and modifies it to include new features. Currently, the `modifier_type`
         supported by this method is limited to the `peft` package.
 
         Args:
-            model (CrossEncoder): A PreTrainedModel from the transformers package.
-            mod_config (Dict): A dictionary containing the configuration for the model modifier.
+            model (PreTrainedModel): A PreTrainedModel from the transformers package.
+            config (Dict): A dictionary containing the configuration for the model modifier.
         Returns: The modified model
         """
-        if mod_config["modifier_type"] == "peft":
-            config_type = getattr(peft, mod_config["config_type"])
-            peft_config: PeftConfig = config_type(**mod_config["config"])
-
-            model = get_peft_model(model, peft_config)
-
-            return model
+        if config["modifier_type"] == "peft":
+            config_cls = getattr(peft, config["config_type"])
+            peft_config: PeftConfig = config_cls(**config["config"])
+            modified_model = get_peft_model(model, peft_config)
+            return modified_model
         else:
-            logger.warn("Using model without modifiers (e.g. LoRA)")
-            return model
+            raise NotImplementedError(f"We only support modifier_type==peft for now!")
 
     @classmethod
     def init_model(cls, model_params: ModelParams, train_params: TrainParams):
@@ -309,34 +434,92 @@ class RankingModel(pecos.BaseClass):
         Returns:
             An instance of RankingModel
         """
-        hf_trainer_args = train_params.training_args
+        hf_trainer_args = train_params.hf_trainer_args
         if hf_trainer_args.local_rank > 0:
             torch.distributed.barrier()
 
-        config = model_params.encoder_args.to_dict()
-        config = CrossEncoderConfig(**config)
-        encoder = CrossEncoder(
-            config=config,
-        )
+        encoder_config = TextNumrEncoderConfig(**model_params.encoder_config)
+        encoder = TextNumrEncoder(encoder_config)
 
         if hf_trainer_args.bf16:
             encoder = encoder.bfloat16()
 
-        if config.model_modifier:
-            encoder = cls.get_modified_model(model=encoder, mod_config=config.model_modifier)
+        if model_params.model_modifier:
+            if hf_trainer_args.gradient_checkpointing:
+                encoder.text_encoder.enable_input_require_grads()
+            encoder = cls.get_modified_model(
+                model=encoder,
+                config=model_params.model_modifier,
+            )
 
         tokenizer = AutoTokenizer.from_pretrained(
-            model_params.encoder_args.model_shortcut,
+            encoder_config.text_config._name_or_path,
+            trust_remote_code=encoder_config.text_config.trust_remote_code,
         )
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.unk_token_id
         tokenizer.padding_side = "right"
 
-        if torch.distributed.is_initialized():
-            if hf_trainer_args.local_rank == 0:
-                torch.distributed.barrier()
+        if hf_trainer_args.local_rank == 0:
+            torch.distributed.barrier()
 
         return cls(encoder, tokenizer, model_params, train_params=train_params)
+
+    @classmethod
+    def load(cls, load_dir):
+        """Load the model from the folder load_dir
+
+        Args:
+            load_dir (str): path of the loading folder
+        """
+
+        param_file = os.path.join(load_dir, PARAM_FILENAME)
+        if not os.path.exists(param_file):
+            raise FileNotFoundError(f"The model {load_dir} does not exists.")
+
+        param = json.loads(open(param_file, "r").read())
+        model_params = cls.ModelParams.from_dict(param.get("model_params", None))
+
+        if model_params.model_modifier:
+            encoder_config = TextNumrEncoderConfig(**model_params.encoder_config)
+            encoder = TextNumrEncoder(encoder_config)
+            encoder = PeftModel.from_pretrained(encoder, load_dir)
+            encoder = encoder.merge_and_unload()
+        else:
+            encoder = TextNumrEncoder.from_pretrained(load_dir)
+
+        tokenizer = AutoTokenizer.from_pretrained(load_dir)
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.unk_token_id
+        tokenizer.padding_side = "right"
+
+        return cls(encoder, tokenizer, model_params)
+
+    def get_param_to_save(self):
+        param = {
+            "model": self.__class__.__name__,
+            "model_params": self.model_params.to_dict(),
+            "train_params": self.train_params.to_dict(),
+        }
+        param = self.append_meta(param)
+        return param
+
+    def save(self, save_dir):
+        """Save the model to the folder save_dir
+
+        Args:
+            save_dir (str): path of the saving folder
+        """
+
+        os.makedirs(save_dir, exist_ok=True)
+        param_file = os.path.join(save_dir, PARAM_FILENAME)
+
+        param_to_save = self.get_param_to_save()
+        with open(param_file, "w", encoding="utf-8") as fout:
+            fout.write(json.dumps(param_to_save, indent=True))
+
+        self.encoder.save_pretrained(save_dir)
+        self.tokenizer.save_pretrained(save_dir)
 
     @classmethod
     def _collate_sharded(
@@ -368,7 +551,7 @@ class RankingModel(pecos.BaseClass):
                     retr_idxs,
                     scores,
                     table_stores,
-                    train_params.training_args.train_group_size,
+                    train_params.hf_trainer_args.group_size,
                     model_params.query_prefix,
                     model_params.passage_prefix,
                     model_params.keyword_col_name,
@@ -431,7 +614,9 @@ class RankingModel(pecos.BaseClass):
         # incorrectly across devices in distributed training.
         m_scores = torch.tensor(scores, dtype=torch.float).flatten()
 
-        return {"input": pairs_collated, "scores": m_scores}
+        ret_dict = dict(target=m_scores)
+        ret_dict.update(pairs_collated)
+        return ret_dict
 
     @classmethod
     def _collate_sharded_eval(
@@ -453,11 +638,17 @@ class RankingModel(pecos.BaseClass):
         fts = []
         inp_idxs = []
         lbl_idxs = []
+        inp_id_orig_col = (
+            eval_params.inp_id_orig_col if eval_params.inp_id_orig_col else eval_params.inp_id_col
+        )
+        lbl_id_orig_col = (
+            eval_params.lbl_id_orig_col if eval_params.lbl_id_orig_col else eval_params.lbl_id_col
+        )
         for s in data:
             inp_id = s[eval_params.inp_id_col]
             retr_id = s[eval_params.lbl_id_col]
-            inp_idxs.append(inp_id)
-            lbl_idxs.append(retr_id)
+            inp_idxs.append(table_stores["input"][inp_id][inp_id_orig_col])
+            lbl_idxs.append(table_stores["label"][retr_id][lbl_id_orig_col])
 
             fts.append(
                 RankingDataUtils._format_sample(
@@ -522,11 +713,9 @@ class RankingModel(pecos.BaseClass):
             return_tensors="pt",
         )
 
-        return {
-            "inp_idxs": inp_idxs,
-            "lbl_idxs": lbl_idxs,
-            "inputs": pairs_collated,
-        }
+        ret_dict = dict(inp_idxs=inp_idxs, lbl_idxs=lbl_idxs)
+        ret_dict.update(pairs_collated)
+        return ret_dict
 
     @classmethod
     def predict(
@@ -534,10 +723,15 @@ class RankingModel(pecos.BaseClass):
         eval_dataset: IterableDataset,
         table_stores: Dict[str, Dataset],
         eval_params: EvalParams,
+        encoder: PreTrainedModel,
         tokenizer: AutoTokenizer,
-        model: CrossEncoder,
     ):
-        model.eval()
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Use pytorch device: {}".format(device))
+        device = torch.device(device)  # type: ignore
+        if torch.cuda.device_count() > 1 and not isinstance(encoder, torch.nn.DataParallel):
+            encoder = torch.nn.DataParallel(encoder)
+        encoder = encoder.to(device)
 
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = 0
@@ -552,16 +746,29 @@ class RankingModel(pecos.BaseClass):
             # To ensure efficiency we prefetch samples in parallel
             prefetch_factor=eval_params.dataloader_prefetch_factor,
             collate_fn=partial(cls._collate_sharded_eval, tokenizer, eval_params, table_stores),
+            shuffle=False,
         )
 
+        encoder.eval()
         all_results = []
-        for batch in eval_dataloader:
-            with torch.inference_mode():
+        with torch.inference_mode():
+            for batch in eval_dataloader:
                 inp_ids = batch["inp_idxs"]
                 lbl_ids = batch["lbl_idxs"]
-                inputs = batch["inputs"].to(eval_params.device)
-                model_output = model(**inputs).logits
-                scores = model_output.cpu().detach().float().numpy()
+
+                # place inputs to the device
+                for k in batch.keys():
+                    if torch.is_tensor(batch[k]):
+                        batch[k] = batch[k].to(device)
+
+                # forward
+                output = encoder(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    numeric_inputs=batch.get("numeric_inputs", None),
+                    token_type_ids=batch.get("token_type_ids", None),
+                ).scores
+                scores = output.cpu().detach().float().numpy()
                 for i in range(len(scores)):
                     inp_id = inp_ids[i]
                     ret_id = lbl_ids[i]
@@ -586,42 +793,29 @@ class RankingModel(pecos.BaseClass):
             model_params: The model parameters
             train_params: The training parameters
         """
-        training_args = train_params.training_args
+        hf_trainer_args = train_params.hf_trainer_args
         # we need to have 'unused' columns to maintain information about
         # group and scores coming from the collator
-        training_args.remove_unused_columns = False
-        outer_model = cls.init_model(model_params, train_params)
-        inner_model = outer_model.cross_encoder
+        hf_trainer_args.remove_unused_columns = False
+        model = cls.init_model(model_params, train_params)
+        param_to_save = model.get_param_to_save()
 
-        logger.info("Model loading...")
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
-        else:
-            # NOTE This is needed for the case where the program is run in a single process mode
-            if training_args.bf16 and not torch.distributed.is_initialized():
-                inner_model = inner_model.bfloat16()
-
-        logger.info("=" * 50)
-        logger.info(
-            f"Memory used by model: {round(inner_model.get_memory_footprint() / 1024 / 1024 / 1024, 2)} GB"
-        )
-
-        trainer = RankLlamaTrainer(
-            model=inner_model,
-            args=training_args,
+        trainer = RankingTrainer(
+            model=model.encoder,
+            args=hf_trainer_args,
+            tokenizer=model.tokenizer,
             train_dataset=train_dataset,
             data_collator=partial(
                 cls._collate_sharded,
-                outer_model.tokenizer,
+                model.tokenizer,
                 model_params,
                 train_params,
                 table_stores,
             ),
-            outer_model=outer_model,
+            param_to_save=param_to_save,
         )
 
-        # NOTE: in the huggingface trainers `_prepare_input` method, the inputs are converted from
-        # mps device to cpu. To run on Apple Silicon, the method should be overridden. It is not
-        # clear if training is supported for Apple Silicon devices.
-        trainer.train()
-        trainer.save_model()
+        trainer.train(
+            resume_from_checkpoint=hf_trainer_args.resume_from_checkpoint,
+        )
+        return model

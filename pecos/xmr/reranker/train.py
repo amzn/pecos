@@ -31,15 +31,14 @@ def main(config_json_path: str):
         param = json.load(fin)
     model_params: RankingModel.ModelParams = RankingModel.ModelParams.from_dict(
         param.get("model_params", None),
-        recursive=True,
+        recursive=False,
     )
-
     train_params: RankingModel.TrainParams = RankingModel.TrainParams.from_dict(
         param.get("train_params", None),
         recursive=True,
     )
 
-    set_seed(train_params.training_args.seed)
+    set_seed(train_params.hf_trainer_args.seed)
 
     # helper function for getting the list of filepaths in a folder
     def construct_file_list(folder):
@@ -47,44 +46,47 @@ def main(config_json_path: str):
 
     input_files = construct_file_list(train_params.input_data_folder)
     label_files = construct_file_list(train_params.label_data_folder)
-    input_files, label_files = RankingDataUtils.get_sorted_data_files(
-        input_files, "inp_id"
-    ), RankingDataUtils.get_sorted_data_files(label_files, "lbl_id")
-
+    input_files = RankingDataUtils.get_sorted_data_files(input_files, "inp_id")
+    label_files = RankingDataUtils.get_sorted_data_files(label_files, "lbl_id")
     train_dataset = load_dataset(
         "parquet", data_dir=train_params.target_data_folder, streaming=True, split="train"
     )
-    train_dataset_rows = RankingDataUtils.get_parquet_rows(train_params.target_data_folder)
-    logger.info(f"total target inputs: {train_dataset_rows}")
 
-    training_args = train_params.training_args
+    hf_trainer_args = train_params.hf_trainer_args
     # set the max_steps in accordance with the number of num_rows
-    if training_args.max_steps <= 0:
-        ws = training_args.world_size
-        bs = training_args.per_device_train_batch_size
-        gas = training_args.gradient_accumulation_steps
+    if hf_trainer_args.max_steps <= 0:
+        train_dataset_rows = RankingDataUtils.get_parquet_rows(train_params.target_data_folder)
+        logger.info(f"total target inputs: {train_dataset_rows}")
+        ws = hf_trainer_args.world_size
+        bs = hf_trainer_args.per_device_train_batch_size
+        gas = hf_trainer_args.gradient_accumulation_steps
         batch_size = ws * bs * gas
         max_steps = train_dataset_rows // batch_size
-        training_args.max_steps = max_steps
+        hf_trainer_args.max_steps = max_steps
         logger.info(f"total batch size: {batch_size}, train steps: {max_steps}")
     else:
-        logger.info(f"max steps: {training_args.max_steps}")
+        logger.info(f"max steps: {hf_trainer_args.max_steps}")
 
     table_stores = {
         "input": load_dataset("parquet", data_files=input_files, split="train"),
         "label": load_dataset("parquet", data_files=label_files, split="train"),
     }
 
-    train_dataset = train_dataset.shuffle(buffer_size=5000, seed=training_args.data_seed)
+    train_dataset = train_dataset.shuffle(buffer_size=5000, seed=hf_trainer_args.data_seed)
     train_dataset = datasets.distributed.split_dataset_by_node(
-        train_dataset, training_args.local_rank, training_args.world_size
+        train_dataset, hf_trainer_args.local_rank, hf_trainer_args.world_size
     )
 
     logger.info("Waiting for main process to perform the mapping")
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    RankingModel.train(train_dataset, table_stores, model_params, train_params)
+    model = RankingModel.train(train_dataset, table_stores, model_params, train_params)
+
+    # Save model only for world process 0
+    if hf_trainer_args.process_index == 0:
+        logger.info(f"Saving model to {hf_trainer_args.output_dir}")
+        model.save(hf_trainer_args.output_dir)
 
 
 if __name__ == "__main__":

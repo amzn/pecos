@@ -19,8 +19,9 @@ echo "pip: $($PIP --version)"
 
 
 # Install dependencies
+# TODO: remove pin on setuptools after removing numpy.distutils
 echo "Install dependencies..."
-$PIP install setuptools wheel twine auditwheel
+$PIP install 'setuptools<=73.0.1' wheel twine auditwheel
 
 # Install OpenBLAS
 # Using pre-build OpenBLAS lib v0.3.27 hosted on Anaconda
