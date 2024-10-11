@@ -65,7 +65,7 @@ class NumrMLPEncoderConfig(PretrainedConfig):
         inp_feat_dim: int = 1,
         inp_dropout_prob: float = 0.1,
         hid_dropout_prob: float = 0.1,
-        hid_actv_type: str = "gelu",
+        hid_actv_type: str = "relu6",
         hid_size_list: list = [64, 128, 256],
         **kwargs,
     ):
@@ -93,7 +93,7 @@ class TextNumrEncoderConfig(PretrainedConfig):
         text_config=None,
         numr_config=None,
         text_pooling_type="cls",
-        head_actv_type="gelu",
+        head_actv_type="relu6",
         head_dropout_prob=0.1,
         head_size_list=[128, 64],
         **kwargs,

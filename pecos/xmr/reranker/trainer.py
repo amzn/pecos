@@ -73,18 +73,6 @@ class ListwisePointwiseHybridLoss(nn.Module):
             return loss1
 
 
-LOSS_FN_DICT = {
-    "pairwise": PairwisePointwiseHybridLoss(
-        nn.MarginRankingLoss(reduction="mean", margin=0.1),
-        nn.MSELoss(reduction="mean"),
-    ),
-    "listwise": ListwisePointwiseHybridLoss(
-        nn.CrossEntropyLoss(reduction="mean"),
-        nn.BCEWithLogitsLoss(reduction="mean"),
-    ),
-}
-
-
 class LoggerCallback(TrainerCallback):
     def on_epoch_begin(
         self,
@@ -115,6 +103,8 @@ class LoggerCallback(TrainerCallback):
             logs["loss"] = round(logs["loss"], 6)
         if "grad_norm" in logs:
             logs["grad_norm"] = round(logs["grad_norm"], 6)
+        if "learning_rate" in logs:
+            logs["learning_rate"] = round(logs["learning_rate"], 8)
         if "epoch" in logs:
             logs["epoch"] = round(logs["epoch"], 2)
         if state.is_world_process_zero:
@@ -125,6 +115,17 @@ class RankingTrainer(Trainer, pecos.BaseClass):
     """
     Trainer class for the pecos.xmr.reranker.RankingModel.
     """
+
+    LOSS_FN_DICT = {
+        "pairwise": PairwisePointwiseHybridLoss(
+            nn.MarginRankingLoss(reduction="mean", margin=0.1),
+            nn.MSELoss(reduction="mean"),
+        ),
+        "listwise": ListwisePointwiseHybridLoss(
+            nn.CrossEntropyLoss(reduction="mean"),
+            nn.BCEWithLogitsLoss(reduction="mean"),
+        ),
+    }
 
     @dataclass
     class TrainingArgs(TrainingArguments, pecos.BaseParams):
@@ -148,10 +149,12 @@ class RankingTrainer(Trainer, pecos.BaseClass):
             return self.append_meta(d) if with_meta else d
 
     def __init__(self, *args, **kwargs):
-        param_to_save = kwargs.pop("param_to_save")
+        param_to_save = kwargs.pop("param_to_save", None)
+        if not param_to_save:
+            raise ValueError("param_to_save can not be None!")
         super(RankingTrainer, self).__init__(*args, **kwargs)
 
-        self.loss_fn = LOSS_FN_DICT[self.args.loss_fn]
+        self.loss_fn = self.LOSS_FN_DICT[self.args.loss_fn]
         self.loss_alpha = self.args.loss_alpha
         self.param_to_save = param_to_save
 
@@ -223,3 +226,23 @@ class RankingTrainer(Trainer, pecos.BaseClass):
 
         loss = self.loss_fn(preds_2d, target, alpha=self.loss_alpha)
         return (loss, preds_1d) if return_outputs else loss
+
+    def log(self, logs: Dict[str, float]) -> None:
+        """
+        Log `logs` on the various objects watching training.
+
+        Subclass and override this method to inject custom behavior.
+
+        Args:
+            logs (`Dict[str, float]`):
+                The values to log.
+        """
+        if self.state.epoch is not None:
+            logs["epoch"] = self.state.epoch
+        if self.args.include_num_input_tokens_seen:
+            logs["num_input_tokens_seen"] = self.state.num_input_tokens_seen
+        logs["global_step"] = self.state.global_step
+
+        output = {**logs, **{"step": self.state.global_step}}
+        self.state.log_history.append(output)
+        self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)  # type: ignore

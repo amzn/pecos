@@ -49,10 +49,8 @@ mypy:
 
 
 # Install and unit test
-# TODO: remove pin on pip and setuptools after removing numpy.distutils
 libpecos:
-	python3 -m pip install pip==23.0.1
-	python3 -m pip install "setuptools<=73.0.1"
+	python3 -m pip install --upgrade pip
 	${WARN_AS_ERROR_CMD} python3 -m pip install ${VFLAG} --editable .
 
 .PHONY: test

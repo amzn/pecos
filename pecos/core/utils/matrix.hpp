@@ -764,37 +764,46 @@ namespace pecos {
         }
     };
 
-    // ===== BLAS C++ Wrapper =====
+    // ===== self-implemented C++ Wrapper for BLAS interface =====
+    // Since removing the dependency on BLAS, we manually realize
+    // the dot/scal/axpy/copy BLAS-compatible API via our naive implementation,
+    // which is for backward-compatibility (e.g., in Newton solver)
 
-    extern "C" {
-        double ddot_(ptrdiff_t *, double *, ptrdiff_t *, double *, ptrdiff_t *);
-        float sdot_(ptrdiff_t *, float *, ptrdiff_t *, float *, ptrdiff_t *);
-
-        ptrdiff_t dscal_(ptrdiff_t *, double *, double *, ptrdiff_t *);
-        ptrdiff_t sscal_(ptrdiff_t *, float *, float *, ptrdiff_t *);
-
-        ptrdiff_t daxpy_(ptrdiff_t *, double *, double *, ptrdiff_t *, double *, ptrdiff_t *);
-        ptrdiff_t saxpy_(ptrdiff_t *, float *, float *, ptrdiff_t *, float *, ptrdiff_t *);
-
-        double dcopy_(ptrdiff_t *, double *, ptrdiff_t *, double *, ptrdiff_t *);
-        float scopy_(ptrdiff_t *, float *, ptrdiff_t *, float *, ptrdiff_t *);
+    template<typename val_type> val_type dot(ptrdiff_t *len, val_type *x, ptrdiff_t *xinc, val_type *y, ptrdiff_t *yinc) {
+        val_type res = 0.0;
+        for (ptrdiff_t idx = 0; idx < *len; idx++) {
+            res += (*x) * (*y);
+            x += *xinc;
+            y += *yinc;
+        }
+        return res;
     }
 
-    template<typename val_type> val_type dot(ptrdiff_t *, val_type *, ptrdiff_t *, val_type *, ptrdiff_t *);
-    template<> inline double dot(ptrdiff_t *len, double *x, ptrdiff_t *xinc, double *y, ptrdiff_t *yinc) { return ddot_(len, x, xinc, y, yinc); }
-    template<> inline float dot(ptrdiff_t *len, float *x, ptrdiff_t *xinc, float *y, ptrdiff_t *yinc) { return sdot_(len, x, xinc, y, yinc); }
+    template<typename val_type> val_type scal(ptrdiff_t *len, val_type *a, val_type *x, ptrdiff_t *xinc) {
+        for (ptrdiff_t idx = 0; idx < *len; idx++) {
+            *x = (*x) * (*a);
+            x += *xinc;
+        }
+        return (val_type) 0;
+    }
 
-    template<typename val_type> val_type scal(ptrdiff_t *, val_type *, val_type *, ptrdiff_t *);
-    template<> inline double scal(ptrdiff_t *len, double *a, double *x, ptrdiff_t *xinc) { return dscal_(len, a, x, xinc); }
-    template<> inline float scal(ptrdiff_t *len, float *a,  float *x, ptrdiff_t *xinc) { return sscal_(len, a, x, xinc); }
+    template<typename val_type> ptrdiff_t axpy(ptrdiff_t *len, val_type *alpha, val_type *x, ptrdiff_t *xinc, val_type *y, ptrdiff_t *yinc) {
+        for (ptrdiff_t idx = 0; idx < *len; idx++) {
+            *y = (*y) + (*x) * (*alpha);
+            x += *xinc;
+            y += *yinc; 
+        }
+        return (ptrdiff_t) 0;
+    }
 
-    template<typename val_type> ptrdiff_t axpy(ptrdiff_t *, val_type *, val_type *, ptrdiff_t *, val_type *, ptrdiff_t *);
-    template<> inline ptrdiff_t axpy(ptrdiff_t *len, double *alpha, double *x, ptrdiff_t *xinc, double *y, ptrdiff_t *yinc) { return daxpy_(len, alpha, x, xinc, y, yinc); };
-    template<> inline ptrdiff_t axpy(ptrdiff_t *len, float *alpha, float *x, ptrdiff_t *xinc, float *y, ptrdiff_t *yinc) { return saxpy_(len, alpha, x, xinc, y, yinc); };
-
-    template<typename val_type> val_type copy(ptrdiff_t *, val_type *, ptrdiff_t *, val_type *, ptrdiff_t *);
-    template<> inline double copy(ptrdiff_t *len, double *x, ptrdiff_t *xinc, double *y, ptrdiff_t *yinc) { return dcopy_(len,x,xinc,y,yinc); }
-    template<> inline float copy(ptrdiff_t *len, float *x, ptrdiff_t *xinc, float *y, ptrdiff_t *yinc) { return scopy_(len,x,xinc,y,yinc); }
+    template<typename val_type> val_type copy(ptrdiff_t *len, val_type *x, ptrdiff_t *xinc, val_type *y, ptrdiff_t *yinc) {
+        for (ptrdiff_t idx = 0; idx < *len; idx++) {
+            *y = *x;
+            x += *xinc;
+            y += *yinc;
+        }
+        return (val_type) 0;
+    }
 
     // ===== do_dot_product =====
     template<class IX, class VX, class IY, class VY>
