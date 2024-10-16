@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   Ubuntu-Python-Unit-Test:
-    name: Ubuntu 20.04 Python3.8 Unit Tests
+    name: Ubuntu 22.04 Python3.10 Unit Tests
 
     runs-on: ubuntu-latest
 
@@ -17,12 +17,12 @@ jobs:
         platforms: all
 
     - name: Check QEMU Simulator
-      uses: docker://arm64v8/ubuntu:20.04
+      uses: docker://arm64v8/ubuntu:22.04
       with:
         args: 'uname -a'
 
     - name: Install dependencies and Pytest
-      uses: docker://arm64v8/ubuntu:20.04
+      uses: docker://arm64v8/ubuntu:22.04
       with:
         args: >
           bash -c

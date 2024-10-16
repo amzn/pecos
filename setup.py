@@ -81,33 +81,12 @@ __version__ = "%s"
             raise RuntimeError("Unable to find version string.")
 
 
-class BlasHelper(object):
-    """Helper class to figure out user's BLAS library path by Numpy's system-info tool."""
-
-    @classmethod
-    def get_blas_lib_dir(cls):
-        """Return user's BLAS library found by Numpy's system-info tool. If not found, will raise error."""
-        import numpy.distutils.system_info as nps
-
-        blas_info = nps.get_info('lapack_opt')
-        assert blas_info, "No BLAS/LAPACK library is found, need to install BLAS."
-
-        blas_lib = blas_info['libraries']
-        blas_dir = blas_info['library_dirs']
-
-        assert blas_lib, "No BLAS/LAPACK library is found, need to install BLAS."
-        assert blas_dir, "No BLAS/LAPACK library directory is found, need to install BLAS."
-
-        return blas_lib, blas_dir
-
-
 with open("README.md", "r", encoding="utf-8") as f:
     long_description = f.read()
 
 # Requirements
 numpy_requires = [
-    'setuptools<=73.0.1', # TODO: remove pin on setuptools version after removing numpy.distutils
-    'numpy>=1.19.5,<2.0.0; python_version>="3.8"'
+    'numpy>=1.19.5,<2.0.0; python_version>="3.9"'
 ]
 setup_requires = numpy_requires + [
     'pytest-runner'
@@ -115,16 +94,15 @@ setup_requires = numpy_requires + [
 install_requires = numpy_requires + [
     'scipy>=1.4.1,<1.14.0',
     'scikit-learn>=0.24.1',
-    'torch>=2.0; python_version>="3.8"',
+    'torch>=2.0; python_version>="3.9"',
     'sentencepiece>=0.1.86,!=0.1.92', # 0.1.92 results in error for transformers
-    'transformers>=4.31.0; python_version>="3.8"',  # the minimal version supporting py3.8
-    'peft>=0.11.0; python_version>="3.8"',
-    'datasets>=2.19.1; python_version>="3.8"',
+    'transformers>=4.31.0; python_version>="3.9"',  # the minimal version supporting py3.9
+    'peft>=0.11.0; python_version>="3.9"',
+    'datasets>=2.19.1; python_version>="3.9"',
 ]
 
 # Fetch Numpy before building Numpy-dependent extension, if Numpy required version was not installed
 setuptools.distutils.core.Distribution().fetch_build_eggs(numpy_requires)
-blas_lib, blas_dir = BlasHelper.get_blas_lib_dir()
 
 # Get extra manual compile args if any
 # Example usage:
@@ -140,11 +118,9 @@ ext_module = setuptools.Extension(
     "pecos.core.libpecos_float32",
     sources=["pecos/core/libpecos.cpp"],
     include_dirs=["pecos/core", "/usr/include/", "/usr/local/include"],
-    libraries=["gomp", "gcc"] + blas_lib,
-    library_dirs=blas_dir,
+    libraries=["gomp", "gcc", "stdc++"],
     extra_compile_args=["-fopenmp", "-O3", "-std=c++17"] + manual_compile_args,
-    extra_link_args=['-Wl,--no-as-needed', f"-Wl,-rpath,{':'.join(blas_dir)}"]
-    )
+)
 
 setuptools.setup(
     name="libpecos",

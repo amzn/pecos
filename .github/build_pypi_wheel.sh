@@ -19,25 +19,8 @@ echo "pip: $($PIP --version)"
 
 
 # Install dependencies
-# TODO: remove pin on setuptools after removing numpy.distutils
 echo "Install dependencies..."
-$PIP install 'setuptools<=73.0.1' wheel twine auditwheel
-
-# Install OpenBLAS
-# Using pre-build OpenBLAS lib v0.3.27 hosted on Anaconda
-# Refer to: https://github.com/MacPython/openblas-libs
-# OpenBLAS64 is for ILP64, which is not our case
-if [ "$PLAT" = "manylinux2014_x86_64" ] || [ "$PLAT" = "manylinux2014_aarch64" ]; then
-   OPENBLAS_VER="v0.3.27"
-   OPENBLAS_LIB="openblas-${OPENBLAS_VER}-${PLAT}.tar.gz"
-   OPENBLAS_LIB_URL="https://anaconda.org/multibuild-wheels-staging/openblas-libs/$OPENBLAS_VER/download/$OPENBLAS_LIB"
-   yum install wget -y
-   wget $OPENBLAS_LIB_URL
-   tar -xvf $OPENBLAS_LIB
-else
-   echo "$PLAT not supported."
-   exit 1
-fi
+$PIP install setuptools wheel twine auditwheel
 
 
 # Build wheel

@@ -29,7 +29,7 @@ Given an input, PECOS identifies a small set (10-100) of relevant outputs from a
 
 ## Requirements and Installation
 
-* Python (3.8, 3.9, 3.10, 3.11)
+* Python (3.9, 3.10, 3.11, 3.12)
 * Pip (>=19.3)
 
 See other dependencies in [`setup.py`](https://github.com/amzn/pecos/blob/mainline/setup.py#L135)
@@ -41,7 +41,6 @@ If you're unfamiliar with Python virtual environments, check out the [user guide
 * Amazon Linux 2
 
 ### Installation from Wheel
-
 
 PECOS can be installed using pip as follows:
 ```bash
@@ -58,16 +57,6 @@ sudo apt-get update && sudo apt-get install -y build-essential git python3 pytho
 * For Amazon Linux 2:
 ``` bash
 sudo yum -y install python3 python3-devel python3-distutils python3-venv && sudo yum -y groupinstall 'Development Tools'
-```
-One needs to install at least one BLAS library to compile PECOS, e.g. `OpenBLAS`:
-* For Ubuntu (20.04, 22.04):
-``` bash
-sudo apt-get install -y libopenblas-dev
-```
-* For Amazon Linux 2:
-``` bash
-sudo amazon-linux-extras install epel -y
-sudo yum install openblas-devel -y
 ```
 
 #### Install and develop locally
