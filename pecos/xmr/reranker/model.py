@@ -195,8 +195,8 @@ class TextNumrEncoder(PreTrainedModel):
         if config.text_config:
             text_encoder = AutoModel.from_pretrained(
                 config.text_config._name_or_path,
-                attn_implementation=config.text_config._attn_implementation,
-                trust_remote_code=config.text_config.trust_remote_code,
+                attn_implementation=getattr(config.text_config, "_attn_implementation", "eager"),
+                trust_remote_code=getattr(config.text_config, "trust_remote_code", None),
                 token=getattr(config.text_config, "token", None),
             )
             text_encoder.config.pad_token_id = (
@@ -242,7 +242,7 @@ class TextNumrEncoder(PreTrainedModel):
         text_emb = None
         if self.text_encoder:
             text_input_dict = {"input_ids": input_ids, "attention_mask": attention_mask}
-            if token_type_ids:
+            if token_type_ids is not None:
                 text_input_dict["token_type_ids"] = token_type_ids
             text_outputs = self.text_encoder(**text_input_dict, return_dict=True)
             if hasattr(text_outputs, "pooler_output"):
