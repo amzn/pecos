@@ -408,7 +408,7 @@ class TransformerMatcher(pecos.BaseClass):
         # load text_model
         text_model_dir = os.path.join(load_dir, "text_model")
         if os.path.exists(text_model_dir):
-            text_model = torch.load(text_model_dir)
+            text_model = torch.load(text_model_dir, weights_only=False)
         else:
             text_model = None
 
@@ -1330,7 +1330,7 @@ class TransformerMatcher(pecos.BaseClass):
             saved_trn_pt = kwargs.get("saved_trn_pt", "")
             if not prob.is_tokenized:
                 if saved_trn_pt and os.path.isfile(saved_trn_pt):
-                    trn_tensors = torch.load(saved_trn_pt)
+                    trn_tensors = torch.load(saved_trn_pt, weights_only=False)
                     LOGGER.info("trn tensors loaded_from {}".format(saved_trn_pt))
                 else:
                     trn_tensors = matcher.text_to_tensor(
@@ -1345,7 +1345,7 @@ class TransformerMatcher(pecos.BaseClass):
             if val_prob is not None and not val_prob.is_tokenized:
                 saved_val_pt = kwargs.get("saved_val_pt", "")
                 if saved_val_pt and os.path.isfile(saved_val_pt):
-                    val_tensors = torch.load(saved_val_pt)
+                    val_tensors = torch.load(saved_val_pt, weights_only=False)
                     LOGGER.info("val tensors loaded from {}".format(saved_val_pt))
                 else:
                     val_tensors = matcher.text_to_tensor(

@@ -454,7 +454,7 @@ class XMCTextDataset(Dataset):
         nr_shards = cls.get_data_stats(load_dir)["num_shards"]
         if shard >= nr_shards:
             raise ValueError(f"Loading shard#{shard} where there are only {nr_shards} available")
-        return torch.load(f"{load_dir}/{shard}")
+        return torch.load(f"{load_dir}/{shard}", weights_only=False)
 
     @property
     def has_ns(self):

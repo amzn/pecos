@@ -6,7 +6,7 @@ jobs:
   Ubuntu-Python-Unit-Test:
     name: Ubuntu 22.04 Python3.10 Unit Tests
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-arm
 
     steps:
     - uses: actions/checkout@v1

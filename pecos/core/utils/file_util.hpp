@@ -15,6 +15,7 @@
 #define __FILE_UTIL_H__
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <stdexcept>
 #include <string>
