@@ -33,7 +33,7 @@ WHEEL_NAME=$(ls $WHEEL_OUTPUT_FOLDER)
 echo "Temporary wheel: $(ls $WHEEL_OUTPUT_FOLDER)"
 auditwheel show $WHEEL_OUTPUT_FOLDER/$WHEEL_NAME
 
-echo "Auditing wheel to platform $PLAT..."
+echo "Auditing wheel to platform $DOCKER_IMG..."
 auditwheel repair $WHEEL_OUTPUT_FOLDER/$WHEEL_NAME -w $WHEEL_OUTPUT_FOLDER
 rm $WHEEL_OUTPUT_FOLDER/$WHEEL_NAME
 
