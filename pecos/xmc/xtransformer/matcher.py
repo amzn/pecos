@@ -26,7 +26,8 @@ from pecos.utils import smat_util, torch_util
 from pecos.xmc import MLModel, MLProblem, PostProcessor
 from sklearn.preprocessing import normalize as sk_normalize
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import AdamW, AutoConfig, get_scheduler, BatchEncoding
+from torch.optim import AdamW
+from transformers import AutoConfig, get_scheduler, BatchEncoding
 
 from .module import XMCLabelTensorizer, XMCTextTensorizer, XMCTextDataset
 from .network import ENCODER_CLASSES, HingeLoss, TransformerLinearXMCHead
