@@ -463,12 +463,12 @@ class TransformerMatcher(pecos.BaseClass):
         )
         if config.model_type not in ENCODER_CLASSES:
             raise ValueError(f"Model type {config.model_type} not supported.")
-
         dnn_type = ENCODER_CLASSES[config.model_type]
         text_tokenizer = dnn_type.tokenizer_class.from_pretrained(
             model_shortcut,
             cache_dir=use_cache,
         )
+        config.reference_compile=False
         text_encoder = dnn_type.model_class.from_pretrained(
             model_shortcut,
             config=config,

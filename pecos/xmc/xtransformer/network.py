@@ -31,6 +31,10 @@ from transformers import (
     DistilBertConfig,
     DistilBertTokenizerFast,
     DistilBertPreTrainedModel,
+    AutoTokenizer,
+    ModernBertConfig,
+    ModernBertPreTrainedModel,
+    ModernBertModel,
 )
 from transformers.file_utils import add_start_docstrings
 from transformers.modeling_utils import SequenceSummary
@@ -514,6 +518,69 @@ class DistilBertForXMC(DistilBertPreTrainedModel):
             "hidden_states": instance_hidden_states,
         }
 
+class ModernBertForXMC(ModernBertPreTrainedModel):
+    """
+    Examples:
+        tokenizer = ModernBertTokenizer.from_pretrained('answerdotai/ModernBERT-base')
+        model = BertForXMC.from_pretrained('answerdotai/ModernBERT-base)
+        input_ids = torch.tensor(tokenizer.encode("iphone 11 case", add_special_tokens=True)).unsqueeze(0)
+        outputs = model(input_ids)
+        last_hidden_states = outputs["hidden_states"]
+    """
+
+    def __init__(self, config):
+        super(ModernBertForXMC, self).__init__(config)
+        self.num_labels = config.num_labels
+
+        self.model = ModernBertModel(config)
+        self.dropout = nn.Dropout(config.mlp_dropout)
+
+        self.init_weights()
+
+    def init_from(self, model):
+        self.model = model.model
+
+    @add_start_docstrings(BERT_INPUTS_DOCSTRING.format("(batch_size, sequence_length)"))
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        head_mask=None,
+        inputs_embeds=None,
+        label_embedding=None,
+    ):
+        r"""
+        Returns:
+          :obj:`dict` containing:
+                {'logits': (:obj:`torch.FloatTensor` of shape (batch_size, num_labels)) pred logits for each label,
+                 'pooled_output': (:obj:`torch.FloatTensor` of shape (batch_size, hidden_dim)) input sequence embedding vector,
+                 'hidden_states': (:obj:`torch.FloatTensor` of shape (batch_size, sequence_length, hidden_dim)) the last layer hidden states,
+                }
+        """
+        outputs = self.model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            return_dict=True,
+        )
+        pooled_output = torch.mean(outputs.last_hidden_state, dim=1)
+        pooled_output = self.dropout(pooled_output)
+        instance_hidden_states = outputs.last_hidden_state
+
+        logits = None
+        if label_embedding is not None:
+            W_act, b_act = label_embedding
+            W_act = W_act.to(pooled_output.device)
+            b_act = b_act.to(pooled_output.device)
+            logits = (pooled_output.unsqueeze(1) * W_act).sum(dim=-1) + b_act.squeeze(2)
+        return {
+            "logits": logits,
+            "pooled_output": pooled_output,
+            "hidden_states": instance_hidden_states,
+        }
 
 ENCODER_CLASSES = {
     "bert": TransformerModelClass(BertConfig, BertForXMC, BertTokenizerFast),
@@ -524,5 +591,8 @@ ENCODER_CLASSES = {
     "xlnet": TransformerModelClass(XLNetConfig, XLNetForXMC, XLNetTokenizerFast),
     "distilbert": TransformerModelClass(
         DistilBertConfig, DistilBertForXMC, DistilBertTokenizerFast
+    ),
+    "modernbert": TransformerModelClass(
+        ModernBertConfig, ModernBertForXMC, AutoTokenizer
     ),
 }
