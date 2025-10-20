@@ -2,6 +2,10 @@ name: Pypi Build and Release
 
 on: [push, pull_request]
 
+
+permissions:
+  contents: read
+
 jobs:
   Pypi-Wheel-Build:
     name: Build PyPI Wheel

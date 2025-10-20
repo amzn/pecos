@@ -2,6 +2,10 @@ name: Python Unit Tests
 
 on: [push, pull_request]
 
+
+permissions:
+  contents: read
+
 jobs:
   Ubuntu-Python-Unit-Test:
     name: Ubuntu Python Unit Tests
