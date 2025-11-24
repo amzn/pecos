@@ -751,14 +751,31 @@ class TransformerMatcher(pecos.BaseClass):
 
         data = XMCTextDataset(input_tensorizer, lbl_tensorizer)
 
-        # since number of active labels may vary
-        # using pinned memory will slow down data loading
+        # Optimize batch size for large datasets (10M+ rows)
+        requested_batch_size = kwargs.get("batch_size", 8)
+        if len(data) > 1000000:  # 1M+ samples
+            # Auto-adjust batch size based on GPU memory
+            optimal_batch_size = torch_util.auto_batch_size(
+                len(data),
+                base_batch_size=requested_batch_size,
+                max_memory_gb=kwargs.get("max_gpu_memory_gb", None)
+            )
+            LOGGER.info(f"Large dataset detected ({len(data)} samples). Adjusted batch size: {optimal_batch_size}")
+        else:
+            optimal_batch_size = requested_batch_size
+
+        # For very large datasets, enable pinned memory for faster GPU transfer
+        # only when not using variable-length active labels
+        use_pin_memory = csr_codes_next is None and torch.cuda.is_available() and len(data) > 100000
+
         dataloader = DataLoader(
             data,
             sampler=SequentialSampler(data),
-            pin_memory=False,
-            batch_size=kwargs.get("batch_size", 8),
+            pin_memory=use_pin_memory,
+            batch_size=optimal_batch_size,
             num_workers=batch_gen_workers,
+            prefetch_factor=2 if batch_gen_workers > 0 else None,  # Prefetch for better throughput
+            persistent_workers=batch_gen_workers > 0 and len(data) > 1000000,  # Keep workers alive for large datasets
         )
 
         local_topk = min(pred_params.only_topk, self.nr_labels)
@@ -804,40 +821,79 @@ class TransformerMatcher(pecos.BaseClass):
                     c_pred = outputs["logits"]
                     # get topk prediction
                     if csr_codes_next is None:  # take all labels into consideration
-                        cpred_csr = smat.csr_matrix(c_pred.cpu().numpy())
-                        cpred_csr.data = PostProcessor.get(pred_params.post_processor).transform(
-                            cpred_csr.data, inplace=True
+                        # GPU-accelerated path: keep tensors on GPU
+                        # Apply post-processor transform
+                        pred_vals = c_pred.flatten()
+                        pred_vals_np = pred_vals.cpu().numpy()
+                        pred_vals_np = PostProcessor.get(pred_params.post_processor).transform(
+                            pred_vals_np, inplace=True
                         )
-                        cpred_csr = smat_util.sorted_csr(cpred_csr, only_topk=local_topk)
+                        # Convert back to tensor for top-k
+                        pred_vals = torch.from_numpy(pred_vals_np).to(c_pred.device).reshape(c_pred.shape)
+
+                        # Use GPU top-k selection
+                        if local_topk < c_pred.shape[1]:
+                            topk_vals, topk_indices = torch_util.torch_topk_per_row(
+                                pred_vals, k=local_topk, largest=True, sorted=True
+                            )
+                            # Build COO format on GPU
+                            batch_size = topk_vals.shape[0]
+                            row_indices = torch.arange(batch_size, device=c_pred.device).unsqueeze(1).expand_as(topk_indices).flatten()
+                            col_indices = topk_indices.flatten()
+                            values = topk_vals.flatten()
+
+                            # Convert to numpy for CSR construction
+                            cpred_csr = smat.csr_matrix(
+                                (values.cpu().numpy(), (row_indices.cpu().numpy(), col_indices.cpu().numpy())),
+                                shape=c_pred.shape
+                            )
+                        else:
+                            # All labels case
+                            cpred_csr = smat.csr_matrix(pred_vals.cpu().numpy())
+
                         batch_cpred.append(cpred_csr)
                     else:
+                        # GPU-accelerated path for hierarchical case
                         cur_act_labels = csr_codes_next[inputs["instance_number"].cpu()]
                         nnz_of_insts = cur_act_labels.indptr[1:] - cur_act_labels.indptr[:-1]
-                        inst_idx = np.repeat(
-                            np.arange(cur_batch_size, dtype=np.uint32), nnz_of_insts
-                        )
-                        label_idx = cur_act_labels.indices.astype(np.uint32)
-                        val = c_pred.cpu().numpy().flatten()
-                        val = val[
-                            np.argwhere(
-                                inputs["label_indices"].cpu().flatten() != label_padding_idx
-                            )
-                        ].flatten()
+
+                        # Keep operations on GPU as much as possible
+                        label_indices_flat = inputs["label_indices"].flatten()
+                        c_pred_flat = c_pred.flatten()
+
+                        # Use GPU tensor operations for filtering
+                        valid_mask = label_indices_flat != label_padding_idx
+                        val_tensor = c_pred_flat[valid_mask]
+
+                        # Convert to numpy only once at the end
+                        val = val_tensor.cpu().numpy()
                         val = PostProcessor.get(pred_params.post_processor).transform(
                             val, inplace=True
                         )
                         val = PostProcessor.get(pred_params.post_processor).combiner(
                             val, cur_act_labels.data
                         )
+
+                        # Use GPU-accelerated sorted_csr_from_coo for large batches
+                        inst_idx = np.repeat(
+                            np.arange(cur_batch_size, dtype=np.uint32), nnz_of_insts
+                        )
+                        label_idx = cur_act_labels.indices.astype(np.uint32)
+
                         cpred_csr = smat_util.sorted_csr_from_coo(
                             cur_act_labels.shape, inst_idx, label_idx, val, only_topk=local_topk
                         )
 
                         batch_cpred.append(cpred_csr)
 
-                embeddings.append(outputs["pooled_output"].cpu().numpy())
+                # Keep embeddings as tensors for now, concatenate later
+                embeddings.append(outputs["pooled_output"].cpu())
 
-        embeddings = np.concatenate(embeddings, axis=0)
+        # Concatenate embeddings efficiently
+        if len(embeddings) > 0 and isinstance(embeddings[0], torch.Tensor):
+            embeddings = torch.cat(embeddings, dim=0).numpy()
+        else:
+            embeddings = np.concatenate(embeddings, axis=0)
         pred_csr_codes = None
         if not only_embeddings:
             pred_csr_codes = smat_util.vstack_csr(batch_cpred)
@@ -864,6 +920,8 @@ class TransformerMatcher(pecos.BaseClass):
     def concat_features(X_feat, X_emb, normalize_emb=True):
         """Concatenate instance numerical features with transformer embeddings
 
+        GPU-accelerated when possible for large datasets.
+
         Args:
             X_feat (csr_matrix or ndarray): instance numerical features of shape (nr_inst, nr_features)
             X_emb (ndarray): instance embeddings of shape (nr_inst, hidden_dim)
@@ -874,7 +932,17 @@ class TransformerMatcher(pecos.BaseClass):
             X_cat (csr_matrix or ndarray): the concatenated features
         """
         if normalize_emb:
-            X_cat = sk_normalize(X_emb)
+            # Use GPU-accelerated normalization for large datasets
+            if X_emb.shape[0] > 10000 and torch.cuda.is_available():
+                try:
+                    X_emb_tensor = torch.from_numpy(X_emb).cuda()
+                    X_cat_tensor = torch_util.batch_normalize(X_emb_tensor, dim=1)
+                    X_cat = X_cat_tensor.cpu().numpy()
+                except Exception as e:
+                    LOGGER.debug(f"GPU normalization failed, using CPU: {e}")
+                    X_cat = sk_normalize(X_emb)
+            else:
+                X_cat = sk_normalize(X_emb)
         else:
             X_cat = X_emb
 
@@ -975,15 +1043,30 @@ class TransformerMatcher(pecos.BaseClass):
             input_transform=None if prob.is_tokenized else self._tokenize,
         )
 
-        # since number of active labels may vary
-        # using pinned memory will slow down data loading
+        # Optimize DataLoader for large datasets (10M+ rows)
+        num_samples = len(train_data)
+        use_pin_memory = False  # Default off for variable-length labels
+
+        # For very large datasets without negative sampling, enable optimizations
+        if not train_data.has_ns and num_samples > 100000 and torch.cuda.is_available():
+            use_pin_memory = True  # Faster GPU transfer for fixed-size batches
+            LOGGER.info(f"Large dataset detected ({num_samples} samples). Enabling pinned memory for training.")
+
+        # Enable persistent workers for large datasets to avoid repeated worker spawning
+        use_persistent_workers = train_params.batch_gen_workers > 0 and num_samples > 1000000
+
         train_dataloader = DataLoader(
             train_data,
             sampler=RandomSampler(train_data),
-            pin_memory=False,
+            pin_memory=use_pin_memory,
             batch_size=train_params.batch_size,
             num_workers=train_params.batch_gen_workers,
+            prefetch_factor=2 if train_params.batch_gen_workers > 0 else None,  # Prefetch batches
+            persistent_workers=use_persistent_workers,  # Keep workers alive for large datasets
         )
+
+        if num_samples > 1000000:
+            LOGGER.info(f"Training on large dataset: {num_samples} samples, persistent_workers={use_persistent_workers}")
 
         # compute stopping criteria
         if train_params.max_steps > 0:

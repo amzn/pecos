@@ -134,3 +134,269 @@ def clip_grad_norm_(
     for g in grads:
         g.detach().mul_(clip_coef_clamped.to(g.device))
     return total_norm
+
+
+def torch_sorted_csr_from_coo(shape, row_idx, col_idx, val, only_topk=None, device=None):
+    """GPU-accelerated version of sorted_csr_from_coo using PyTorch.
+
+    Returns a row-sorted CSR matrix from COO format. Each row's nonzero elements
+    are sorted in descending order by value. Optimized for large datasets (10M+ rows).
+
+    Args:
+        shape (tuple): Shape of the output matrix (num_rows, num_cols)
+        row_idx (ndarray or tensor): Row indices of COO matrix
+        col_idx (ndarray or tensor): Column indices of COO matrix
+        val (ndarray or tensor): Values of COO matrix
+        only_topk (int, optional): Keep only top-k elements per row. Default None
+        device (torch.device, optional): Device for computation. Default None (auto-detect)
+
+    Returns:
+        dict: Dictionary with keys 'data', 'indices', 'indptr', 'shape' for CSR construction
+    """
+    import scipy.sparse as smat
+
+    # Auto-detect device
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Convert inputs to torch tensors on specified device
+    if not isinstance(row_idx, torch.Tensor):
+        row_idx = torch.from_numpy(row_idx).to(device)
+    else:
+        row_idx = row_idx.to(device)
+
+    if not isinstance(col_idx, torch.Tensor):
+        col_idx = torch.from_numpy(col_idx).to(device)
+    else:
+        col_idx = col_idx.to(device)
+
+    if not isinstance(val, torch.Tensor):
+        val = torch.from_numpy(val).to(device)
+    else:
+        val = val.to(device)
+
+    num_rows, num_cols = shape
+
+    # Create COO sparse tensor and convert to CSR (PyTorch handles sorting)
+    indices = torch.stack([row_idx, col_idx], dim=0)
+    sparse_tensor = torch.sparse_coo_tensor(indices, val, size=shape, device=device)
+    sparse_tensor = sparse_tensor.coalesce()  # Combine duplicates
+
+    # Convert to CSR format using PyTorch's internal conversion
+    csr_tensor = sparse_tensor.to_sparse_csr()
+
+    # Extract CSR components
+    crow_indices = csr_tensor.crow_indices()  # Row pointers (indptr)
+    col_indices = csr_tensor.col_indices()    # Column indices
+    values = csr_tensor.values()               # Data values
+
+    # Sort each row by value in descending order
+    result_rows = []
+    result_cols = []
+    result_vals = []
+
+    for i in range(num_rows):
+        start = crow_indices[i].item()
+        end = crow_indices[i + 1].item()
+
+        if start == end:  # Empty row
+            continue
+
+        row_values = values[start:end]
+        row_cols = col_indices[start:end]
+
+        # Sort in descending order
+        if only_topk is not None and len(row_values) > only_topk:
+            # Use topk for efficiency when only_topk is specified
+            topk_vals, topk_indices = torch.topk(row_values, k=min(only_topk, len(row_values)), largest=True, sorted=True)
+            row_values = topk_vals
+            row_cols = row_cols[topk_indices]
+        else:
+            # Full sort
+            sorted_indices = torch.argsort(row_values, descending=True)
+            row_values = row_values[sorted_indices]
+            row_cols = row_cols[sorted_indices]
+
+        # Append to result
+        result_vals.append(row_values)
+        result_cols.append(row_cols)
+        result_rows.extend([i] * len(row_values))
+
+    # Concatenate all results
+    if len(result_vals) == 0:
+        # Empty matrix
+        return {
+            'data': np.array([], dtype=np.float32),
+            'indices': np.array([], dtype=np.int32),
+            'indptr': np.zeros(num_rows + 1, dtype=np.int32),
+            'shape': shape
+        }
+
+    result_vals = torch.cat(result_vals)
+    result_cols = torch.cat(result_cols)
+    result_rows = torch.tensor(result_rows, dtype=torch.int32, device=device)
+
+    # Build indptr
+    indptr = torch.zeros(num_rows + 1, dtype=torch.int32, device=device)
+    indptr[1:] = torch.bincount(result_rows + 1, minlength=num_rows)
+    indptr = torch.cumsum(indptr, dim=0)
+
+    # Convert back to numpy for CSR construction
+    return {
+        'data': result_vals.cpu().numpy(),
+        'indices': result_cols.cpu().numpy(),
+        'indptr': indptr.cpu().numpy(),
+        'shape': shape
+    }
+
+
+def torch_topk_per_row(tensor, k, largest=True, sorted=True):
+    """Efficient top-k selection per row on GPU.
+
+    Optimized for large batch processing (10M+ rows).
+
+    Args:
+        tensor (torch.Tensor): Input tensor of shape (num_rows, num_cols)
+        k (int): Number of top elements to select per row
+        largest (bool): If True, select largest elements. Default True
+        sorted (bool): If True, return sorted results. Default True
+
+    Returns:
+        values (torch.Tensor): Top-k values, shape (num_rows, k)
+        indices (torch.Tensor): Indices of top-k values, shape (num_rows, k)
+    """
+    if k >= tensor.shape[1]:
+        # If k >= num_cols, just sort all columns
+        values, indices = torch.sort(tensor, dim=1, descending=largest)
+        return values, indices
+
+    return torch.topk(tensor, k=k, dim=1, largest=largest, sorted=sorted)
+
+
+def batch_normalize(tensor, dim=1, eps=1e-12):
+    """GPU-accelerated L2 normalization.
+
+    Replacement for sklearn.preprocessing.normalize that works on GPU.
+
+    Args:
+        tensor (torch.Tensor): Input tensor
+        dim (int): Dimension along which to normalize. Default 1 (row-wise)
+        eps (float): Small value to avoid division by zero. Default 1e-12
+
+    Returns:
+        torch.Tensor: Normalized tensor
+    """
+    import torch.nn.functional as F
+    return F.normalize(tensor, p=2, dim=dim, eps=eps)
+
+
+def tensor_to_csr(tensor, topk=None):
+    """Convert dense PyTorch tensor to SciPy CSR matrix.
+
+    Memory-efficient conversion with optional top-k per row.
+
+    Args:
+        tensor (torch.Tensor): Dense tensor of shape (num_rows, num_cols)
+        topk (int, optional): Keep only top-k elements per row. Default None
+
+    Returns:
+        scipy.sparse.csr_matrix: CSR matrix
+    """
+    import scipy.sparse as smat
+
+    # Move to CPU if on GPU
+    if tensor.is_cuda:
+        tensor = tensor.cpu()
+
+    # Convert to numpy
+    dense_np = tensor.numpy()
+
+    if topk is not None:
+        # Use existing smat_util function
+        from pecos.utils import smat_util
+        return smat_util.dense_to_csr(dense_np, topk=topk)
+    else:
+        # Direct conversion
+        return smat.csr_matrix(dense_np)
+
+
+def csr_to_tensor(csr_matrix, device=None):
+    """Convert SciPy CSR matrix to PyTorch sparse tensor.
+
+    Args:
+        csr_matrix (scipy.sparse.csr_matrix): Input CSR matrix
+        device (torch.device, optional): Target device. Default None (CPU)
+
+    Returns:
+        torch.Tensor: Dense tensor (for compatibility, can be optimized to sparse later)
+    """
+    if device is None:
+        device = torch.device("cpu")
+
+    # Convert to dense for now (can optimize to sparse tensor later)
+    dense = torch.from_numpy(csr_matrix.toarray()).to(device)
+    return dense
+
+
+def get_gpu_memory_info():
+    """Get current GPU memory usage information.
+
+    Returns:
+        dict: Dictionary with 'allocated', 'reserved', 'free' memory in GB
+    """
+    if not torch.cuda.is_available():
+        return {'allocated': 0, 'reserved': 0, 'free': 0}
+
+    allocated = torch.cuda.memory_allocated() / 1024**3  # Convert to GB
+    reserved = torch.cuda.memory_reserved() / 1024**3
+    total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+    free = total - allocated
+
+    return {
+        'allocated': allocated,
+        'reserved': reserved,
+        'free': free,
+        'total': total
+    }
+
+
+def auto_batch_size(dataset_size, base_batch_size=32, max_memory_gb=None):
+    """Automatically determine optimal batch size based on GPU memory.
+
+    For large datasets (10M+ rows), this helps prevent OOM errors.
+
+    Args:
+        dataset_size (int): Total number of samples
+        base_batch_size (int): Starting batch size. Default 32
+        max_memory_gb (float, optional): Maximum GPU memory to use in GB.
+                                          Default None (auto-detect)
+
+    Returns:
+        int: Recommended batch size
+    """
+    if not torch.cuda.is_available():
+        return base_batch_size
+
+    mem_info = get_gpu_memory_info()
+    available_memory = mem_info['free']
+
+    if max_memory_gb is not None:
+        available_memory = min(available_memory, max_memory_gb)
+
+    # Heuristic: Larger batch size for more available memory
+    if available_memory > 16:
+        multiplier = 4
+    elif available_memory > 8:
+        multiplier = 2
+    else:
+        multiplier = 1
+
+    recommended_batch_size = base_batch_size * multiplier
+
+    # Cap at reasonable limits
+    recommended_batch_size = min(recommended_batch_size, 512)
+    recommended_batch_size = max(recommended_batch_size, 8)
+
+    LOGGER.info(f"Auto batch size: {recommended_batch_size} (Available GPU memory: {available_memory:.2f} GB)")
+
+    return recommended_batch_size

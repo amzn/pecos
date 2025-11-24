@@ -9,9 +9,15 @@
 #  OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions
 #  and limitations under the License.
 import collections
+import logging
 
 import numpy as np
 import scipy.sparse as smat
+
+# GPU acceleration flag - can be toggled at runtime
+USE_GPU_IF_AVAILABLE = True
+
+LOGGER = logging.getLogger(__name__)
 
 
 def cs_matrix(arg1, mat_type, shape=None, dtype=None, copy=False, check_contents=False):
@@ -171,10 +177,13 @@ def transpose(mat):
         return mat.T
 
 
-def sorted_csr_from_coo(shape, row_idx, col_idx, val, only_topk=None):
+def sorted_csr_from_coo(shape, row_idx, col_idx, val, only_topk=None, use_gpu=None):
     """Return a row-sorted CSR matrix from a COO sparse matrix.
 
-    Nonzero elements in each row of the returned CSR matrix is sorted in an descending order based on the value. If only_topk is given, only topk largest elements will be kept.
+    Nonzero elements in each row of the returned CSR matrix is sorted in an descending order based on the value.
+    If only_topk is given, only topk largest elements will be kept.
+
+    This function automatically uses GPU acceleration when available and beneficial for large datasets (10M+ rows).
 
     Args:
         shape (tuple): the shape of the input COO matrix
@@ -182,10 +191,34 @@ def sorted_csr_from_coo(shape, row_idx, col_idx, val, only_topk=None):
         col_idx (ndarray): col indices of the input COO matrix
         val (ndarray): values of the input COO matrix
         only_topk (int, optional): keep only topk elements per row. Default None to ignore
+        use_gpu (bool, optional): Force GPU usage. Default None to auto-detect
 
     Returns:
         csr_matrix
     """
+    # Determine if we should use GPU acceleration
+    if use_gpu is None:
+        use_gpu = USE_GPU_IF_AVAILABLE
+
+    # Use GPU acceleration for large datasets (>100K rows) when available
+    if use_gpu and shape[0] > 100000:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                from pecos.utils import torch_util
+                LOGGER.debug(f"Using GPU acceleration for sorted_csr_from_coo with shape {shape}")
+
+                result = torch_util.torch_sorted_csr_from_coo(
+                    shape, row_idx, col_idx, val, only_topk=only_topk
+                )
+                return csr_matrix(
+                    (result['data'], result['indices'], result['indptr']),
+                    shape=result['shape']
+                )
+        except Exception as e:
+            LOGGER.warning(f"GPU acceleration failed, falling back to CPU: {e}")
+
+    # CPU implementation (original code)
     csr = smat.csr_matrix((val, (row_idx, col_idx)), shape=shape)
     csr.sort_indices()
     for i in range(shape[0]):
