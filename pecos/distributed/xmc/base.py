@@ -470,10 +470,17 @@ class DistClustering(object):
                 f"Some machines will be idle."
             )
 
-        # Numpy's array_split pads with empty array if len(sub_tree_assign_arr_list) < num_machine
-        grp_list = np.array_split(sub_tree_assign_arr_list, num_machine)
+        # Use plain Python list splitting instead of np.array_split to handle
+        # ragged arrays (sub-trees with different numbers of labels).
+        # np.array_split fails on numpy>=1.24 with inhomogeneous sequences.
+        n = len(sub_tree_assign_arr_list)
+        k, m = divmod(n, num_machine)
+        grp_list = [
+            sub_tree_assign_arr_list[i * k + min(i, m):(i + 1) * k + min(i + 1, m)]
+            for i in range(num_machine)
+        ]
 
-        return [grp.tolist() for grp in grp_list]
+        return grp_list
 
     def dist_get_cluster_chain(self, X, Y):
         """Distributed create cluster chain
