@@ -136,7 +136,7 @@ class DistClusterChain(object):
         sub_leaf_cluster = leaf_cluster[sub_tree_assign_arr, :]  # csr
         remain_clusters = np.unique(sub_leaf_cluster.indices)  # nonzeor col
 
-        sub_leaf_cluster.tocsc()
+        sub_leaf_cluster = sub_leaf_cluster.tocsc()
         sub_leaf_cluster = sub_leaf_cluster[:, remain_clusters]
         sub_tree_chain = ClusterChain.from_partial_chain(sub_leaf_cluster, nr_splits, nr_splits)
 
