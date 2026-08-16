@@ -455,7 +455,7 @@ class DistTraining(object):
             if sub_x_idx_arr.size != 0:
                 sub_Y = Y[:, sub_y_idx_arr]
                 sub_X, sub_Y = smat_util.get_row_submatrices([X, sub_Y.tocsr()], sub_x_idx_arr)
-                sub_Y.tocsc()
+                sub_Y = sub_Y.tocsc()
             else:
                 sub_X = csr_matrix((1, X.shape[1]), dtype=X.dtype)
                 sub_Y = csc_matrix((1, len(sub_y_idx_arr)), dtype=Y.dtype)
