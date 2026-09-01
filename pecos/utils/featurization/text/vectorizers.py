@@ -334,6 +334,14 @@ class SklearnTfidf(Vectorizer):
     def load(cls, vectorizer_folder):
         """Load a saved sklearn Tfidf vectorizer from disk.
 
+        .. warning::
+            This method deserializes ``vectorizer.pkl`` from ``vectorizer_folder`` using
+            ``pickle``. Unpickling data can execute arbitrary code, so only load vectorizer
+            folders from trusted sources that you control. Never load a ``vectorizer_folder``
+            whose path or contents can be influenced by an untrusted party (for example,
+            shared or multi-tenant storage, caches, or artifact paths derived from external
+            input). See ``SECURITY.md``.
+
         Args:
             vectorizer_folder (str): Folder where `SklearnTfidf` object was saved to using `SklearnTfidf.save`.
 
@@ -423,6 +431,14 @@ class SklearnHashing(Vectorizer):
     @classmethod
     def load(cls, vectorizer_folder):
         """Load a saved sklearn hashing vectorizer from disk.
+
+        .. warning::
+            This method deserializes ``vectorizer.pkl`` from ``vectorizer_folder`` using
+            ``pickle``. Unpickling data can execute arbitrary code, so only load vectorizer
+            folders from trusted sources that you control. Never load a ``vectorizer_folder``
+            whose path or contents can be influenced by an untrusted party (for example,
+            shared or multi-tenant storage, caches, or artifact paths derived from external
+            input). See ``SECURITY.md``.
 
         Args:
             vectorizer_folder (str): Folder where `SklearnHashing` object was saved to using `SklearnHashing.save`.
