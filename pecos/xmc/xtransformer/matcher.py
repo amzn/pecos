@@ -26,7 +26,8 @@ from pecos.utils import smat_util, torch_util
 from pecos.xmc import MLModel, MLProblem, PostProcessor
 from sklearn.preprocessing import normalize as sk_normalize
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import AdamW, AutoConfig, get_scheduler, BatchEncoding
+from torch.optim import AdamW
+from transformers import AutoConfig, get_scheduler, BatchEncoding
 
 from .module import XMCLabelTensorizer, XMCTextTensorizer, XMCTextDataset
 from .network import ENCODER_CLASSES, HingeLoss, TransformerLinearXMCHead
@@ -462,12 +463,12 @@ class TransformerMatcher(pecos.BaseClass):
         )
         if config.model_type not in ENCODER_CLASSES:
             raise ValueError(f"Model type {config.model_type} not supported.")
-
         dnn_type = ENCODER_CLASSES[config.model_type]
         text_tokenizer = dnn_type.tokenizer_class.from_pretrained(
             model_shortcut,
             cache_dir=use_cache,
         )
+        config.reference_compile=False
         text_encoder = dnn_type.model_class.from_pretrained(
             model_shortcut,
             config=config,
